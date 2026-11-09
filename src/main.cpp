@@ -21,6 +21,10 @@
 #if defined(NETA_DEBUG_MODE)
 #include "ui/debug/debug_runner_window.h"
 #endif
+#if defined(NETA_DEBUG_DB_MODE)
+#include "ui/debug/db_debug_widget.h"
+#include <QMainWindow>
+#endif
 
 int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
@@ -37,6 +41,24 @@ int main(int argc, char *argv[]) {
 
     DebugRunnerWindow *debugWin = new DebugRunnerWindow();
     debugWin->show();
+    return app.exec();
+#endif
+
+#if defined(NETA_DEBUG_DB_MODE)
+    qInfo() << "==========================================================";
+    qInfo() << " NETA DRX9000 ENGINE: [MARIADB & DISTRIBUTED LOCK DEBUG ACTIVE]";
+    qInfo() << "==========================================================";
+    app.setApplicationName(NETA_APP_NAME);
+    app.setApplicationVersion(NETA_APP_VERSION);
+    app.setOrganizationName(NETA_APP_ORGANIZATION);
+    app.setWindowIcon(QIcon(":/resources/images/neta_app.ico"));
+    app.setStyleSheet(StyleHelper::getAppStyle());
+
+    QMainWindow *dbWin = new QMainWindow();
+    dbWin->setWindowTitle("NETA DRX9000 - MariaDB & Dağıtık Kilit (Algoritma 2) Test Konsolu");
+    dbWin->resize(1100, 720);
+    dbWin->setCentralWidget(new DbDebugWidget(dbWin));
+    dbWin->show();
     return app.exec();
 #endif
 

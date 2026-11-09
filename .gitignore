@@ -10,8 +10,8 @@ release_build/
 dist/
 OUTPUT/
 SETUP_OUTPUT/
-debug/
-release/
+/debug/
+/release/
 docs/doxygen/
 
 # 2. C++ / MinGW / MSVC Nesne ve Ikili Dosyalari
