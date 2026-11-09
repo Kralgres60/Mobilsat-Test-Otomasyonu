@@ -1,0 +1,238 @@
+/**
+ * @file tcp_server.cpp
+ * @brief Implementation of the central TCP Command & Mutual Exclusion Server.
+ * @author Semi Eren Gökyıldız
+ * @copyright Copyright (C) 2026 NETA Elektronik A.Ş.
+ */
+
+#include "tcp_server.h"
+#include "network_messages.h"
+#include <QDateTime>
+#include <QDebug>
+
+TcpServer::TcpServer(LockArbiter *arbiter, SerialWorker *refSerial, QObject *parent)
+    : QObject(parent), m_arbiter(arbiter), m_refSerial(refSerial) {
+    connect(&m_server, &QTcpServer::newConnection, this, &TcpServer::onNewConnection);
+
+    if (m_arbiter) {
+        connect(m_arbiter, &LockArbiter::lockGranted, this, &TcpServer::onLockGranted);
+        connect(m_arbiter, &LockArbiter::lockQueued, this, &TcpServer::onLockQueued);
+        connect(m_arbiter, &LockArbiter::lockExpired, this, &TcpServer::onLockExpired);
+    }
+
+    if (m_refSerial) {
+        connect(m_refSerial, &SerialWorker::telemetryReceived, this, &TcpServer::onRefTelemetry);
+        connect(m_refSerial, &SerialWorker::statusReceived, this, &TcpServer::onRefStatus);
+    }
+}
+
+TcpServer::~TcpServer() {
+    stop();
+}
+
+bool TcpServer::start(quint16 port) {
+    if (m_server.listen(QHostAddress::Any, port)) {
+        emit logMessage(QString("TCP Command Server listening on port %1.").arg(port));
+        return true;
+    }
+    emit logMessage(QString("Failed to start TCP Server: %1").arg(m_server.errorString()));
+    return false;
+}
+
+void TcpServer::stop() {
+    for (auto it = m_clients.begin(); it != m_clients.end(); ++it) {
+        it.key()->disconnectFromHost();
+    }
+    m_clients.clear();
+    m_server.close();
+}
+
+QMap<int, StationLiveStatus> TcpServer::connectedStations() const {
+    QMap<int, StationLiveStatus> result;
+    for (const auto &session : m_clients) {
+        if (session.stationId > 0) {
+            result[session.stationId] = session.status;
+        }
+    }
+    return result;
+}
+
+void TcpServer::onNewConnection() {
+    while (m_server.hasPendingConnections()) {
+        QTcpSocket *socket = m_server.nextPendingConnection();
+        ClientSession session;
+        session.ipAddress = socket->peerAddress().toString();
+        if (session.ipAddress.startsWith("::ffff:")) session.ipAddress = session.ipAddress.mid(7);
+        session.status.ipAddress = session.ipAddress;
+        session.status.isConnected = true;
+        session.status.lastHeartbeat = QDateTime::currentDateTime();
+
+        m_clients.insert(socket, session);
+
+        connect(socket, &QTcpSocket::readyRead, this, &TcpServer::onClientReadyRead);
+        connect(socket, &QTcpSocket::disconnected, this, &TcpServer::onClientDisconnected);
+
+        emit logMessage(QString("Accepted connection from %1").arg(session.ipAddress));
+    }
+}
+
+void TcpServer::onClientReadyRead() {
+    QTcpSocket *socket = qobject_cast<QTcpSocket*>(sender());
+    if (!socket || !m_clients.contains(socket)) return;
+
+    auto &session = m_clients[socket];
+    session.rxBuffer.append(socket->readAll());
+
+    while (session.rxBuffer.contains('\n')) {
+        int idx = session.rxBuffer.indexOf('\n');
+        QByteArray line = session.rxBuffer.left(idx).trimmed();
+        session.rxBuffer.remove(0, idx + 1);
+
+        if (!line.isEmpty()) {
+            QJsonObject obj = NetMsg::deserialize(line);
+            if (!obj.isEmpty()) {
+                processClientMessage(socket, obj);
+            }
+        }
+    }
+}
+
+void TcpServer::processClientMessage(QTcpSocket *socket, const QJsonObject &msg) {
+    if (!m_clients.contains(socket)) return;
+    auto &session = m_clients[socket];
+    QString type = msg["type"].toString();
+
+    if (type == NetMsg::TYPE_REGISTER) {
+        session.stationId = msg["station_id"].toInt();
+        session.status.stationId = session.stationId;
+        session.status.stationName = msg["station_name"].toString();
+        session.status.currentState = "IDLE";
+        session.status.lastHeartbeat = QDateTime::currentDateTime();
+
+        QJsonObject ack;
+        ack["type"] = NetMsg::TYPE_REGISTER_ACK;
+        ack["status"] = "OK";
+        ack["server_time"] = QDateTime::currentDateTime().toString(Qt::ISODate);
+        socket->write(NetMsg::serialize(ack));
+
+        emit stationConnected(session.stationId, session.ipAddress);
+        emit stationStatusUpdated(session.status);
+    }
+    else if (type == NetMsg::TYPE_HEARTBEAT) {
+        session.status.currentState = msg["state"].toString();
+        session.status.currentChannel = msg["channel_no"].toInt();
+        session.status.currentAntennaSn = msg["antenna_sn"].toString();
+        session.status.lastHeartbeat = QDateTime::currentDateTime();
+        emit stationStatusUpdated(session.status);
+    }
+    else if (type == NetMsg::TYPE_LOCK_REQ) {
+        int stationId = msg["station_id"].toInt();
+        int timeoutSec = msg["timeout_sec"].toInt(90);
+        if (m_arbiter) {
+            m_arbiter->requestLock(stationId, timeoutSec);
+        }
+    }
+    else if (type == NetMsg::TYPE_REF_TUNE) {
+        int freq = msg["freq"].toInt();
+        int sr = msg["sr"].toInt();
+        QString pol = msg["pol"].toString();
+        int stationId = msg["station_id"].toInt();
+
+        // Tune Reference DRX only if requested by the active lock holder
+        if (m_arbiter && m_arbiter->activeStationId() == stationId) {
+            if (m_refSerial) {
+                m_refSerial->sendTune(freq, sr, pol);
+                m_refSerial->requestStatus();
+            }
+        }
+    }
+    else if (type == NetMsg::TYPE_LOCK_RELEASE) {
+        int stationId = msg["station_id"].toInt();
+        if (m_arbiter) {
+            m_arbiter->releaseLock(stationId);
+        }
+        QJsonObject ack;
+        ack["type"] = NetMsg::TYPE_LOCK_RELEASED;
+        socket->write(NetMsg::serialize(ack));
+    }
+}
+
+void TcpServer::onClientDisconnected() {
+    QTcpSocket *socket = qobject_cast<QTcpSocket*>(sender());
+    if (!socket || !m_clients.contains(socket)) return;
+
+    auto session = m_clients.take(socket);
+    if (session.stationId > 0) {
+        if (m_arbiter) {
+            m_arbiter->releaseLock(session.stationId);
+        }
+        emit stationDisconnected(session.stationId);
+    }
+    socket->deleteLater();
+    emit logMessage(QString("Station disconnected: Station %1 (%2)").arg(session.stationId).arg(session.ipAddress));
+}
+
+void TcpServer::onLockGranted(int stationId, int timeoutSec) {
+    QJsonObject msg;
+    msg["type"] = NetMsg::TYPE_LOCK_GRANTED;
+    msg["station_id"] = stationId;
+    msg["timeout_sec"] = timeoutSec;
+    sendToStation(stationId, msg);
+}
+
+void TcpServer::onLockQueued(int stationId, int position, int activeStationId) {
+    QJsonObject msg;
+    msg["type"] = NetMsg::TYPE_LOCK_WAITING;
+    msg["station_id"] = stationId;
+    msg["queue_position"] = position;
+    msg["active_station_id"] = activeStationId;
+    sendToStation(stationId, msg);
+}
+
+void TcpServer::onLockExpired(int stationId) {
+    QJsonObject msg;
+    msg["type"] = NetMsg::TYPE_LOCK_EXPIRED;
+    msg["station_id"] = stationId;
+    msg["reason"] = "Maximum test duration exceeded.";
+    sendToStation(stationId, msg);
+}
+
+void TcpServer::onRefTelemetry(double powDbm, double cnDb, double /*ber*/) {
+    m_lastRefPow = powDbm;
+    m_lastRefCn = cnDb;
+
+    // Stream live reference telemetry to the currently active station
+    if (m_arbiter && m_arbiter->isLocked()) {
+        int activeStation = m_arbiter->activeStationId();
+        QJsonObject msg;
+        msg["type"] = NetMsg::TYPE_REF_DATA;
+        msg["station_id"] = activeStation;
+        msg["ref_cn"] = cnDb;
+        msg["ref_pow"] = powDbm;
+        msg["carrier_locked"] = m_lastRefSLocked;
+        msg["video_locked"] = m_lastRefVLocked;
+        sendToStation(activeStation, msg);
+    }
+}
+
+void TcpServer::onRefStatus(bool sLocked, bool vLocked, bool aLocked) {
+    m_lastRefSLocked = sLocked;
+    m_lastRefVLocked = vLocked;
+    m_lastRefALocked = aLocked;
+}
+
+void TcpServer::sendToStation(int stationId, const QJsonObject &msg) {
+    QTcpSocket *sock = findSocketByStationId(stationId);
+    if (sock && sock->isOpen()) {
+        sock->write(NetMsg::serialize(msg));
+    }
+}
+
+QTcpSocket* TcpServer::findSocketByStationId(int stationId) {
+    for (auto it = m_clients.begin(); it != m_clients.end(); ++it) {
+        if (it.value().stationId == stationId) {
+            return it.key();
+        }
+    }
+    return nullptr;
+}
