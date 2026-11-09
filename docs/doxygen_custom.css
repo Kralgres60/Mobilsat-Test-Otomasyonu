@@ -1,0 +1,74 @@
+/* ==============================================================================
+   NETA DRX9000 Doxygen Kompakt ve Zarif Tasarım Stili
+   ============================================================================== */
+
+/* Sol Üst Başlık Alanını Küçült ve Boşlukları Azalt */
+#titlearea {
+    padding: 4px 8px !important;
+    margin: 0 !important;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.08) !important;
+}
+
+#titlearea table {
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+/* Logoyu Küçült */
+#projectlogo {
+    padding: 2px 6px 2px 2px !important;
+    vertical-align: middle !important;
+}
+
+#projectlogo img {
+    max-height: 28px !important;
+    max-width: 28px !important;
+    height: 28px !important;
+    width: auto !important;
+    object-fit: contain !important;
+    display: block !important;
+}
+
+/* Başlık Yazısını Küçült ve Sıkılaştır */
+#projectalign {
+    padding: 2px 4px !important;
+    vertical-align: middle !important;
+}
+
+#projectname {
+    font-size: 13px !important;
+    font-weight: 700 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    line-height: 1.2 !important;
+    letter-spacing: -0.2px !important;
+    white-space: nowrap !important;
+}
+
+/* Alt Açıklama Yazısını Küçült */
+#projectbrief {
+    font-size: 10px !important;
+    font-weight: 400 !important;
+    margin: 2px 0 0 0 !important;
+    padding: 0 !important;
+    line-height: 1.1 !important;
+    opacity: 0.75 !important;
+    white-space: nowrap !important;
+}
+
+#projectnumber {
+    font-size: 10px !important;
+    font-weight: 500 !important;
+    opacity: 0.65 !important;
+    margin-left: 4px !important;
+}
+
+/* Sol Ağaç Menü (Sidebar) Kenarlık ve Boşlukları İyileştir */
+#side-nav {
+    border-right: 1px solid rgba(0, 0, 0, 0.1) !important;
+}
+
+#nav-tree .item {
+    font-size: 12px !important;
+    line-height: 22px !important;
+}

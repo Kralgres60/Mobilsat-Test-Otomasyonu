@@ -1,0 +1,37 @@
+PROPRIETARY AND CONFIDENTIAL LICENSE AGREEMENT
+
+NETA DRX9000 ANTENNA TEST AUTOMATION SYSTEM
+Copyright (C) 2026 NETA Elektronik A.Ş. All rights reserved.
+Primary Developer & Architect: Semi Eren Gökyıldız
+
+1. GRANT OF LICENSE
+This software, including its source code, documentation, binary executables,
+and associated graphic assets, is the proprietary and confidential property of
+NETA Elektronik A.Ş. and Semi Eren Gökyıldız.
+
+Permission is hereby granted to authorized internal personnel of NETA Elektronik A.Ş.
+to use, compile, and execute this software solely for internal quality assurance,
+automated factory testing, and verification of NETA DRX9000 antenna products.
+
+2. RESTRICTIONS
+Except as expressly authorized by NETA Elektronik A.Ş., no person or entity shall:
+  a) Copy, distribute, sublicense, rent, lease, or lend the software or any portion thereof;
+  b) Reverse engineer, decompile, or disassemble any compiled components or protocols;
+  c) Disclose, publish, or make available any confidential algorithms, protocol specifications,
+     or test architectures to any third party;
+  d) Remove or alter any copyright notices, trademark attributions, or author credits
+     (specifically preserving attribution to Semi Eren Gökyıldız and NETA Elektronik A.Ş.).
+
+3. DISCLAIMER OF WARRANTY
+THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT. IN NO EVENT
+SHALL THE COPYRIGHT HOLDERS, DEVELOPERS, OR NETA ELEKTRONİK A.Ş. BE LIABLE
+FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE
+OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+For licensing inquiries or commercial use permissions, contact:
+  NETA Elektronik A.Ş.
+  Website: https://www.neta.com.tr
+  Email: info@neta.com.tr
