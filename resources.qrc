@@ -1,0 +1,9 @@
+<RCC>
+    <qresource prefix="/">
+        <file>resources/images/logo.png</file>
+        <file>resources/images/neta_app.png</file>
+        <file>resources/images/neta_app.ico</file>
+        <file>sql/schema_mysql.sql</file>
+        <file>sql/seed_data.sql</file>
+    </qresource>
+</RCC>
