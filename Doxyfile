@@ -1,0 +1,100 @@
+# ==============================================================================
+# NETA DRX9000 ANTEN TEST OTOMASYONU - DOXYGEN YAPILANDIRMA DOSYASI
+# Geliştirici: Semi Eren Gökyıldız | Şirket: NETA Elektronik A.Ş.
+# ==============================================================================
+
+# Proje Bilgileri
+PROJECT_NAME           = "NETA DRX9000"
+PROJECT_NUMBER         = "v1.0"
+PROJECT_BRIEF          = "Anten Test Otomasyonu"
+PROJECT_LOGO           = resources/images/neta_app.ico
+OUTPUT_DIRECTORY       = docs/doxygen
+CREATE_SUBDIRS         = NO
+OUTPUT_LANGUAGE        = Turkish
+DOXYFILE_ENCODING      = UTF-8
+
+# Girdi Kaynakları
+INPUT                  = README.md \
+                         src \
+                         sql
+USE_MDFILE_AS_MAINPAGE = README.md
+RECURSIVE              = YES
+FILE_PATTERNS          = *.c \
+                         *.cc \
+                         *.cpp \
+                         *.cxx \
+                         *.h \
+                         *.hh \
+                         *.hpp \
+                         *.hxx \
+                         *.sql \
+                         *.md
+EXCLUDE_PATTERNS       = */build/* \
+                         */dist/* \
+                         */OUTPUT/* \
+                         */SETUP_OUTPUT/* \
+                         */temp_build/*
+
+# Ayrıştırma ve Görünüm Seçenekleri
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = YES
+EXTRACT_PRIV_VIRTUAL   = YES
+EXTRACT_PACKAGE        = YES
+EXTRACT_STATIC         = YES
+EXTRACT_LOCAL_CLASSES  = YES
+EXTRACT_LOCAL_METHODS  = YES
+EXTRACT_ANON_NSPACES   = YES
+RESOLVE_UNNAMED_PARAMS = YES
+HIDE_UNDOC_MEMBERS     = NO
+HIDE_UNDOC_CLASSES     = NO
+SORT_MEMBER_DOCS       = YES
+SORT_BRIEF_DOCS        = NO
+SORT_MEMBERS_CTORS_1ST = YES
+SORT_GROUP_NAMES       = NO
+SORT_BY_SCOPE_NAME     = NO
+
+# Kaynak Kodu Gezgini (Code Browser)
+SOURCE_BROWSER         = YES
+INLINE_SOURCES         = NO
+STRIP_CODE_COMMENTS    = YES
+REFERENCED_BY_RELATION = YES
+REFERENCES_RELATION    = YES
+REFERENCES_LINK_SOURCE = YES
+SOURCE_TOOLTIPS        = YES
+
+# HTML Çıktı Ayarları
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+HTML_FILE_EXTENSION    = .html
+HTML_COLORSTYLE        = AUTO_LIGHT
+HTML_DYNAMIC_MENUS     = YES
+HTML_DYNAMIC_SECTIONS  = YES
+GENERATE_TREEVIEW      = YES
+FULL_SIDEBAR           = YES
+TREEVIEW_WIDTH         = 220
+HTML_EXTRA_STYLESHEET  = docs/doxygen_custom.css
+DISABLE_INDEX          = NO
+SEARCHENGINE           = YES
+SERVER_BASED_SEARCH    = NO
+
+# Diğer Çıktılar (Gereksiz ağırlık yapmasın diye kapalı)
+GENERATE_LATEX         = NO
+GENERATE_RTF           = NO
+GENERATE_MAN           = NO
+GENERATE_XML           = NO
+GENERATE_DOCBOOK       = NO
+
+# Qt Önişlemci & Makro Uyumluluğu
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = YES
+SEARCH_INCLUDES        = YES
+PREDEFINED             = Q_OBJECT \
+                         Q_PROPERTY(x) \
+                         "signals=public" \
+                         "slots=public" \
+                         Q_SIGNALS=public \
+                         Q_SLOTS=public \
+                         "emit=" \
+                         NETA_ALGORITMA_1_FOUR_PC \
+                         NETA_ALGORITMA_2_THREE_PC

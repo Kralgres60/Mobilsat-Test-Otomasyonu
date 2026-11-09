@@ -1,0 +1,86 @@
+# ==============================================================================
+# NETA DRX9000 ANTENNA TEST AUTOMATION - .gitignore
+# ==============================================================================
+
+# 1. Derleme, Gecici ve Cikti Klasorleri (Build & Packaging Outputs)
+build/
+build_*/
+temp_build/
+release_build/
+dist/
+OUTPUT/
+SETUP_OUTPUT/
+debug/
+release/
+docs/doxygen/
+
+# 2. C++ / MinGW / MSVC Nesne ve Ikili Dosyalari
+*.o
+*.obj
+*.exe
+*.dll
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.idb
+*.a
+
+# Istisnalar: Projeyi klonlayanlarin derleyebilmesi icin gerekli hazir MySQL suruculeri
+!tools/sqldrivers/*.dll
+
+# 3. Qt & QMake Otomatik Uretilen Kodlar ve Durum Dosyalari
+Makefile
+Makefile.Debug
+Makefile.Release
+Makefile*
+object_script.*
+.qmake.stash
+*.stash
+moc_*.cpp
+moc_*.h
+ui_*.h
+qrc_*.cpp
+*.qrc.depends
+
+# 4. IDE, Editor ve Kullanici Ozel Yapilandirmalari
+*.pro.user*
+*.pro.shared*
+.qtcreator/
+.qtc_clangd/
+.vscode/
+.vs/
+.idea/
+
+# 5. AI Asistan, Model Yonlendirme ve Prompt Dosyalari
+GEMINI.md
+CLAUDE.md
+AGENTS.md
+.gemini/
+.agent/
+.claude/
+*.prompt
+
+# 6. Guvenlik, Sertifikalar ve Gizli Anahtarlar
+*.pfx
+*.p12
+*.key
+*.pem
+
+# 7. Loglar, Gecici Dosyalar ve Yerel Veritabanlari
+*.log
+*.tmp
+*.bak
+*.swp
+*~
+*.db
+*.sqlite
+tools/setup_mysql/*.log
+tools/setup_mysql/temp_*.sql
+
+# 8. Windows Isletim Sistemi Dosyalari
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
