@@ -48,6 +48,8 @@ Source: "..\..\OUTPUT\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs 
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{group}\0. Yönetici Sunucuyu Başlat"; Filename: "{app}\0_Yonetici_Sunucuyu_Baslat.bat"
 Name: "{group}\1. Ağ Paylaşımını Yapılandır"; Filename: "{app}\1_Yonetici_Klasor_Paylasimini_Ac.bat"
+Name: "{group}\2. Taşınabilir Veritabanını Başlat"; Filename: "{app}\0_Veritabanini_Baslat.bat"
+Name: "{group}\3. Taşınabilir Veritabanını Durdur"; Filename: "{app}\0_Veritabanini_Durdur.bat"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 

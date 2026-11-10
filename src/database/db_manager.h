@@ -13,6 +13,8 @@
 #include <QSqlQuery>
 #include <QSqlError>
 #include <QMap>
+#include <QProcess>
+#include <QThread>
 #include "data_models.h"
 
 /**
@@ -43,6 +45,15 @@ public:
 
     /** @brief Checks if database is currently connected and open. */
     bool isConnected() const;
+
+    /**
+     * @brief Automatically launches local Portable MariaDB instance if available on disk.
+     * @return true if running or started successfully; false otherwise.
+     */
+    bool startPortableMariaDbIfPresent();
+
+    /** @brief Stops the local Portable MariaDB instance if it was launched by this process. */
+    void stopPortableMariaDbIfRunning();
 
     /** @brief Returns last SQL error description. */
     QString lastError() const { return m_lastError; }
@@ -117,6 +128,8 @@ private:
     QString m_connectionName = "NetaMainDb";
     QString m_driverName = "QMYSQL";
     QString m_lastError;
+    QProcess *m_portableProcess = nullptr;
+    bool m_launchedPortableMysqld = false;
 };
 
 #endif // DB_MANAGER_H

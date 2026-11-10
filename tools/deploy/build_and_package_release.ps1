@@ -122,9 +122,32 @@ Copy-Item "$ProjectDir\tools\sqldrivers\libmysql.dll" "$OutputDir\" -Force
 Copy-Item "$ProjectDir\tools\sqldrivers\qsqlmysql.dll" "$OutputDir\sqldrivers\" -Force
 
 # 6. Yönetici ve Kurulum Betiklerini OUTPUT'a Ekle
-Write-Host "[6/6] Yonetici ag paylasim ve MySQL kurulum araclari ekleniyor..." -ForegroundColor Yellow
+Write-Host "[6/6] Yonetici ag paylasim ve Tasinabilir MariaDB ekleniyor..." -ForegroundColor Yellow
 Copy-Item "$ProjectDir\tools\deploy\host_scripts\1_Yonetici_Klasor_Paylasimini_Ac.bat" "$OutputDir\" -Force
-Copy-Item "$ProjectDir\tools\setup_mysql\*" "$OutputDir\tools\setup_mysql\" -Recurse -Force
+if (Test-Path "$ProjectDir\tools\setup_mysql") {
+    Copy-Item "$ProjectDir\tools\setup_mysql\*" "$OutputDir\tools\setup_mysql\" -Recurse -Force
+}
+
+# Taşınabilir MariaDB Motorunu OUTPUT'a kopyala
+if (Test-Path "$ProjectDir\tools\mariadb_portable") {
+    New-Item -ItemType Directory -Force -Path "$OutputDir\tools\mariadb_portable" | Out-Null
+    Copy-Item "$ProjectDir\tools\mariadb_portable\*" "$OutputDir\tools\mariadb_portable\" -Recurse -Force
+}
+
+# Hızlı Veritabanı Başlatıcı ve Durdurucu Kısayolları Ekle
+$DbStartLauncher = @"
+@echo off
+title NETA DRX9000 - Portable MariaDB Baslatici
+call "%~dp0tools\mariadb_portable\start_db.bat"
+"@
+Set-Content -Path "$OutputDir\0_Veritabanini_Baslat.bat" -Value $DbStartLauncher -Encoding Ascii
+
+$DbStopLauncher = @"
+@echo off
+title NETA DRX9000 - Portable MariaDB Durdurucu
+call "%~dp0tools\mariadb_portable\stop_db.bat"
+"@
+Set-Content -Path "$OutputDir\0_Veritabanini_Durdur.bat" -Value $DbStopLauncher -Encoding Ascii
 
 # Yönetici Masaüstü Başlatıcısı Ekle
 $HostLauncher = @"

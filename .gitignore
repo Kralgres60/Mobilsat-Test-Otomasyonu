@@ -28,6 +28,9 @@ docs/doxygen/
 
 # Istisnalar: Projeyi klonlayanlarin derleyebilmesi icin gerekli hazir MySQL suruculeri
 !tools/sqldrivers/*.dll
+!tools/mariadb_portable/bin/*.exe
+!tools/mariadb_portable/bin/*.dll
+!tools/mariadb_portable/lib/plugin/*.dll
 
 # 3. Qt & QMake Otomatik Uretilen Kodlar ve Durum Dosyalari
 Makefile
@@ -77,6 +80,8 @@ AGENTS.md
 *.sqlite
 tools/setup_mysql/*.log
 tools/setup_mysql/temp_*.sql
+tools/mariadb_portable/data/*
+!tools/mariadb_portable/data/my.ini
 
 # 8. Windows Isletim Sistemi Dosyalari
 Thumbs.db

@@ -13,6 +13,7 @@
 #include <QTextStream>
 #include <QDir>
 #include <QStringList>
+#include <QCoreApplication>
 
 DbManager& DbManager::instance() {
     static DbManager s_instance;
@@ -24,6 +25,7 @@ DbManager::DbManager(QObject *parent) : QObject(parent) {
 
 DbManager::~DbManager() {
     closeDatabase();
+    stopPortableMariaDbIfRunning();
 }
 
 bool DbManager::connectToDatabase(const QString &host, int port, const QString &dbName,
@@ -66,6 +68,18 @@ bool DbManager::connectToDatabase(const QString &host, int port, const QString &
 
     if (!db.open()) {
         m_lastError = db.lastError().text();
+
+        // If local connection failed, attempt to start bundled Portable MariaDB
+        if (m_driverName == "QMYSQL" && (host == "127.0.0.1" || host.compare("localhost", Qt::CaseInsensitive) == 0)) {
+            qInfo() << "[DbManager] Local connection failed; attempting to start bundled Portable MariaDB...";
+            if (startPortableMariaDbIfPresent()) {
+                if (db.open()) {
+                    m_lastError.clear();
+                } else {
+                    m_lastError = db.lastError().text();
+                }
+            }
+        }
 
         // If credentials failed with QMYSQL, attempt default factory fallback credentials
         if (m_driverName == "QMYSQL") {
@@ -615,5 +629,89 @@ int DbManager::getDbLockHolder(int &outCurrentChannel) {
         }
     }
     return 0;
+}
+
+bool DbManager::startPortableMariaDbIfPresent() {
+    QString appDir = QCoreApplication::applicationDirPath();
+    QStringList candidates = {
+        appDir + "/tools/mariadb_portable",
+        appDir + "/mariadb_portable",
+        QDir::currentPath() + "/tools/mariadb_portable",
+        "D:/A_SCIENCES/PROJECTS/NETA/DRX-Antenna-Test/tools/mariadb_portable"
+    };
+
+    QString portableDir;
+    for (const auto &dir : candidates) {
+        if (QFile::exists(dir + "/bin/mysqld.exe")) {
+            portableDir = QDir::cleanPath(dir);
+            break;
+        }
+    }
+
+    if (portableDir.isEmpty()) {
+        qWarning() << "[DbManager] Portable MariaDB directory not found.";
+        return false;
+    }
+
+    qInfo() << "[DbManager] Portable MariaDB found at:" << portableDir;
+    QString mysqldPath = portableDir + "/bin/mysqld.exe";
+    QString iniPath = portableDir + "/my.ini";
+    QString dataPath = portableDir + "/data";
+    QString installDbPath = portableDir + "/bin/mysql_install_db.exe";
+
+    if (!QDir(dataPath + "/mysql").exists() && QFile::exists(installDbPath)) {
+        qInfo() << "[DbManager] Initializing clean portable data directory with mysql_install_db...";
+        QStringList initArgs;
+        initArgs << QString("--datadir=%1").arg(dataPath)
+                 << "--password=neta123"
+                 << "--allow-remote-root-access"
+                 << "--port=3306"
+                 << "--silent";
+        QProcess::execute(installDbPath, initArgs);
+    }
+
+    if (!m_portableProcess) {
+        m_portableProcess = new QProcess(this);
+    }
+
+    if (m_portableProcess->state() == QProcess::NotRunning) {
+        QStringList args;
+        args << QString("--defaults-file=%1").arg(iniPath);
+        args << QString("--datadir=%1").arg(dataPath);
+
+        m_portableProcess->start(mysqldPath, args);
+        if (!m_portableProcess->waitForStarted(3000)) {
+            qWarning() << "[DbManager] Failed to launch portable MariaDB:" << m_portableProcess->errorString();
+            return false;
+        }
+
+        m_launchedPortableMysqld = true;
+        qInfo() << "[DbManager] Portable MariaDB launched in background (PID:" << m_portableProcess->processId() << ")";
+        QThread::msleep(2000);
+    }
+    return true;
+}
+
+void DbManager::stopPortableMariaDbIfRunning() {
+    if (m_launchedPortableMysqld && m_portableProcess && m_portableProcess->state() != QProcess::NotRunning) {
+        qInfo() << "[DbManager] Stopping local portable MariaDB process...";
+        QString appDir = QCoreApplication::applicationDirPath();
+        QStringList candidates = {
+            appDir + "/tools/mariadb_portable/bin/mysqladmin.exe",
+            appDir + "/mariadb_portable/bin/mysqladmin.exe",
+            QDir::currentPath() + "/tools/mariadb_portable/bin/mysqladmin.exe",
+            "D:/A_SCIENCES/PROJECTS/NETA/DRX-Antenna-Test/tools/mariadb_portable/bin/mysqladmin.exe"
+        };
+        for (const auto &admin : candidates) {
+            if (QFile::exists(admin)) {
+                QProcess::execute(admin, QStringList() << "-h" << "127.0.0.1" << "-P" << "3306" << "-u" << "root" << "-pneta123" << "shutdown");
+                break;
+            }
+        }
+        if (!m_portableProcess->waitForFinished(4000)) {
+            m_portableProcess->kill();
+        }
+        m_launchedPortableMysqld = false;
+    }
 }
 
