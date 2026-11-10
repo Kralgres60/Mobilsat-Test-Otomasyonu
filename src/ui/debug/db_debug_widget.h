@@ -43,6 +43,12 @@ private slots:
     /** @brief Disconnects active database connection. */
     void onDisconnectClicked();
 
+    /** @brief Starts local portable MariaDB engine. */
+    void onStartEngineClicked();
+
+    /** @brief Stops local portable MariaDB engine. */
+    void onStopEngineClicked();
+
     /** @brief Verifies and provisions database schema and default Türksat seed data. */
     void onInitSchemaClicked();
 
@@ -83,6 +89,8 @@ private:
     QLineEdit *m_passEdit = nullptr;
     QPushButton *m_connectBtn = nullptr;
     QPushButton *m_disconnectBtn = nullptr;
+    QPushButton *m_startEngineBtn = nullptr;
+    QPushButton *m_stopEngineBtn = nullptr;
     QLabel *m_statusBadge = nullptr;
 
     // Schema & Seed Widgets

@@ -21,6 +21,8 @@ DbDebugWidget::DbDebugWidget(QWidget *parent)
 
     connect(m_connectBtn, &QPushButton::clicked, this, &DbDebugWidget::onConnectClicked);
     connect(m_disconnectBtn, &QPushButton::clicked, this, &DbDebugWidget::onDisconnectClicked);
+    connect(m_startEngineBtn, &QPushButton::clicked, this, &DbDebugWidget::onStartEngineClicked);
+    connect(m_stopEngineBtn, &QPushButton::clicked, this, &DbDebugWidget::onStopEngineClicked);
     connect(m_initSchemaBtn, &QPushButton::clicked, this, &DbDebugWidget::onInitSchemaClicked);
     connect(m_loadProfilesBtn, &QPushButton::clicked, this, &DbDebugWidget::onLoadProfilesClicked);
 
@@ -51,8 +53,8 @@ void DbDebugWidget::setupUi() {
     // -------------------------------------------------------------------------
     // 1. ÜST PANEL: MariaDB Bağlantı Yapılandırması
     // -------------------------------------------------------------------------
-    QGroupBox *connGroup = new QGroupBox("1. MariaDB Veritabanı Bağlantı Parametreleri", this);
-    QHBoxLayout *connLayout = new QHBoxLayout(connGroup);
+    QGroupBox *connGroup = new QGroupBox("1. MariaDB Veritabanı ve Taşınabilir Motor Yapılandırması", this);
+    QGridLayout *connLayout = new QGridLayout(connGroup);
 
     m_hostEdit = new QLineEdit("127.0.0.1", this);
     m_portSpin = new QSpinBox(this);
@@ -60,8 +62,14 @@ void DbDebugWidget::setupUi() {
     m_portSpin->setValue(3306);
     m_dbNameEdit = new QLineEdit("neta_antenna_test", this);
     m_userEdit = new QLineEdit("root", this);
-    m_passEdit = new QLineEdit("", this);
+    m_passEdit = new QLineEdit("neta123", this);
     m_passEdit->setEchoMode(QLineEdit::Password);
+
+    m_startEngineBtn = new QPushButton("🚀 Taşınabilir Motoru Başlat", this);
+    m_startEngineBtn->setStyleSheet("background-color: #00796B; color: white; font-weight: bold; padding: 6px 12px;");
+
+    m_stopEngineBtn = new QPushButton("⏹️ Motoru Durdur", this);
+    m_stopEngineBtn->setStyleSheet("background-color: #D32F2F; color: white; font-weight: bold; padding: 6px 12px;");
 
     m_connectBtn = new QPushButton("🔌 Bağlan", this);
     m_connectBtn->setStyleSheet("background-color: #1976D2; color: white; font-weight: bold; padding: 6px 12px;");
@@ -70,21 +78,31 @@ void DbDebugWidget::setupUi() {
     m_disconnectBtn->setStyleSheet("background-color: #546E7A; color: white; padding: 6px 12px;");
 
     m_statusBadge = new QLabel("DURUM: BAĞLI DEĞİL", this);
-    m_statusBadge->setStyleSheet("background-color: #B71C1C; color: white; padding: 4px 8px; border-radius: 4px; font-weight: bold;");
+    m_statusBadge->setStyleSheet("background-color: #B71C1C; color: white; padding: 6px 12px; border-radius: 4px; font-weight: bold;");
 
-    connLayout->addWidget(new QLabel("Host:", this));
-    connLayout->addWidget(m_hostEdit, 2);
-    connLayout->addWidget(new QLabel("Port:", this));
-    connLayout->addWidget(m_portSpin, 1);
-    connLayout->addWidget(new QLabel("DB:", this));
-    connLayout->addWidget(m_dbNameEdit, 2);
-    connLayout->addWidget(new QLabel("Kullanıcı:", this));
-    connLayout->addWidget(m_userEdit, 1);
-    connLayout->addWidget(new QLabel("Şifre:", this));
-    connLayout->addWidget(m_passEdit, 1);
-    connLayout->addWidget(m_connectBtn);
-    connLayout->addWidget(m_disconnectBtn);
-    connLayout->addWidget(m_statusBadge);
+    // Satır 0: Bağlantı parametreleri
+    connLayout->addWidget(new QLabel("Host IP:", this), 0, 0);
+    connLayout->addWidget(m_hostEdit, 0, 1);
+    connLayout->addWidget(new QLabel("Port:", this), 0, 2);
+    connLayout->addWidget(m_portSpin, 0, 3);
+    connLayout->addWidget(new QLabel("Veritabanı:", this), 0, 4);
+    connLayout->addWidget(m_dbNameEdit, 0, 5);
+    connLayout->addWidget(new QLabel("Kullanıcı:", this), 0, 6);
+    connLayout->addWidget(m_userEdit, 0, 7);
+    connLayout->addWidget(new QLabel("Şifre:", this), 0, 8);
+    connLayout->addWidget(m_passEdit, 0, 9);
+
+    // Satır 1: Eylem butonları
+    QHBoxLayout *actionLayout = new QHBoxLayout();
+    actionLayout->addWidget(m_startEngineBtn);
+    actionLayout->addWidget(m_stopEngineBtn);
+    actionLayout->addSpacing(15);
+    actionLayout->addWidget(m_connectBtn);
+    actionLayout->addWidget(m_disconnectBtn);
+    actionLayout->addStretch();
+    actionLayout->addWidget(m_statusBadge);
+    connLayout->addLayout(actionLayout, 1, 0, 1, 10);
+
     mainLayout->addWidget(connGroup);
 
     // -------------------------------------------------------------------------
@@ -207,6 +225,25 @@ void DbDebugWidget::updateConnectionStatusBadge(bool connected) {
         m_statusBadge->setStyleSheet("background-color: #B71C1C; color: #FFCDD2; padding: 4px 8px; border-radius: 4px; font-weight: bold;");
         m_pollTimer.stop();
     }
+}
+
+void DbDebugWidget::onStartEngineClicked() {
+    appendLog("🚀 Yerel Taşınabilir MariaDB motoru başlatılıyor...", "#FFF59D");
+    bool ok = DbManager::instance().startPortableMariaDbIfPresent();
+    if (ok) {
+        appendLog("✅ Taşınabilir MariaDB motoru aktif! (Port: 3306)", "#69F0AE");
+        onConnectClicked();
+    } else {
+        appendLog("❌ Taşınabilir MariaDB başlatılamadı. tools/mariadb_portable klasörünü kontrol ediniz.", "#FF5252");
+    }
+}
+
+void DbDebugWidget::onStopEngineClicked() {
+    appendLog("⏹️ Taşınabilir MariaDB motoru durduruluyor...", "#FFF59D");
+    DbManager::instance().closeDatabase();
+    DbManager::instance().stopPortableMariaDbIfRunning();
+    updateConnectionStatusBadge(false);
+    appendLog("🛑 MariaDB motoru ve bağlantısı güvenle kapatıldı.", "#B0BEC5");
 }
 
 void DbDebugWidget::onConnectClicked() {

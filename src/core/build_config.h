@@ -22,12 +22,15 @@
 // Enable to bypass standard production station/host selection and directly launch
 // specialized debugging consoles for hardware protocols or database testing:
 
-#define NETA_DEBUG_MODE                 ///< Interactive DRX REST API / Web CGI and Multi-Sampling Debug Console
-// #define NETA_DEBUG_DB_MODE           ///< Standalone MariaDB & Distributed Lock Verification Console
+// #define NETA_DEBUG_MODE              ///< Interactive DRX REST API / Web CGI and Multi-Sampling Debug Console
+#define NETA_DEBUG_DB_MODE              ///< Standalone MariaDB, Portable Engine & Distributed Lock Test Console
 
 // ==============================================================================
 // 3. BUILD SANITY CHECKS
 // ==============================================================================
+#if defined(NETA_DEBUG_MODE) && defined(NETA_DEBUG_DB_MODE)
+    #error "ERROR: Both NETA_DEBUG_MODE and NETA_DEBUG_DB_MODE cannot be defined simultaneously!"
+#endif
 #if defined(NETA_ALGORITMA_1_FOUR_PC) && defined(NETA_ALGORITMA_2_THREE_PC)
     #error "ERROR: Both NETA_ALGORITMA_1_FOUR_PC and NETA_ALGORITMA_2_THREE_PC cannot be defined simultaneously!"
 #endif
