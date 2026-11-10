@@ -15,6 +15,7 @@
 #include <QLabel>
 #include <QTextEdit>
 #include <QTableWidget>
+#include <QProgressBar>
 #include <QTimer>
 #include "database/db_manager.h"
 
@@ -76,6 +77,12 @@ private slots:
     /** @brief Loads and displays satellite profiles and 10 transponder channels. */
     void onLoadProfilesClicked();
 
+    /** @brief Starts the automated 6-step full self-test sequence. */
+    void onRunFullSuiteClicked();
+
+    /** @brief Step-by-step timer tick handler during full diagnostic suite. */
+    void onSuiteTimerTick();
+
 private:
     void setupUi();
     void appendLog(const QString &msg, const QString &color = "#E0E0E0");
@@ -115,8 +122,21 @@ private:
     // Log Console
     QTextEdit *m_logEdit = nullptr;
 
-    // Auto-refresh timer for lock status
+    // Automated Diagnostic Suite Widgets
+    QPushButton *m_runFullSuiteBtn = nullptr;
+    QProgressBar *m_suiteProgress = nullptr;
+    QLabel *m_stepDriverLabel = nullptr;
+    QLabel *m_stepLatencyLabel = nullptr;
+    QLabel *m_stepSchemaLabel = nullptr;
+    QLabel *m_stepChannelsLabel = nullptr;
+    QLabel *m_stepLockLabel = nullptr;
+    QLabel *m_stepPersistenceLabel = nullptr;
+    QLabel *m_suiteResultBanner = nullptr;
+
+    // Timers
     QTimer m_pollTimer;
+    QTimer m_suiteTimer;
+    int m_suiteStep = 0;
 };
 
 #endif // DB_DEBUG_WIDGET_H

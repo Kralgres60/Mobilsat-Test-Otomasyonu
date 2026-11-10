@@ -128,6 +128,7 @@ private:
     QString m_connectionName = "NetaMainDb";
     QString m_driverName = "QMYSQL";
     QString m_lastError;
+    QString m_appDirPath;
     QProcess *m_portableProcess = nullptr;
     bool m_launchedPortableMysqld = false;
 };

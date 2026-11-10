@@ -632,7 +632,10 @@ int DbManager::getDbLockHolder(int &outCurrentChannel) {
 }
 
 bool DbManager::startPortableMariaDbIfPresent() {
-    QString appDir = QCoreApplication::applicationDirPath();
+    if (QCoreApplication::instance()) {
+        m_appDirPath = QCoreApplication::applicationDirPath();
+    }
+    QString appDir = m_appDirPath.isEmpty() ? QDir::currentPath() : m_appDirPath;
     QStringList candidates = {
         appDir + "/tools/mariadb_portable",
         appDir + "/mariadb_portable",
@@ -695,7 +698,7 @@ bool DbManager::startPortableMariaDbIfPresent() {
 void DbManager::stopPortableMariaDbIfRunning() {
     if (m_launchedPortableMysqld && m_portableProcess && m_portableProcess->state() != QProcess::NotRunning) {
         qInfo() << "[DbManager] Stopping local portable MariaDB process...";
-        QString appDir = QCoreApplication::applicationDirPath();
+        QString appDir = m_appDirPath.isEmpty() ? QDir::currentPath() : m_appDirPath;
         QStringList candidates = {
             appDir + "/tools/mariadb_portable/bin/mysqladmin.exe",
             appDir + "/mariadb_portable/bin/mysqladmin.exe",
