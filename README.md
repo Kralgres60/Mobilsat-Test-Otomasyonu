@@ -133,7 +133,7 @@ DRX-Antenna-Test/
 └── tools/                           # Dağıtım ve kurulum araçları
     ├── deploy/                      # Windeployqt ve otomatik paketleme scriptleri
     ├── installer/                   # Inno Setup 7 scripti (neta_setup.iss)
-    ├── setup_mysql/                 # MariaDB 10.11 otomatik kurulum motoru
+    ├── mariadb_portable/            # Taşınabilir MariaDB 10.11 sıfır-kurulum motoru
     └── sqldrivers/                  # Hazır 32-bit QMYSQL sürücüleri (libmysql.dll)
 ```
 

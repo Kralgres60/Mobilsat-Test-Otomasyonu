@@ -65,7 +65,6 @@ foreach ($d in $dirsToClean) {
 Write-Host "[2/6] OUTPUT dizini hazirlaniyor..." -ForegroundColor Yellow
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 New-Item -ItemType Directory -Force -Path "$OutputDir\sqldrivers" | Out-Null
-New-Item -ItemType Directory -Force -Path "$OutputDir\tools\setup_mysql" | Out-Null
 
 # 3. Sıfırdan Release Derlemesi Yap
 Write-Host "[3/6] Proje sifirdan Release modunda derleniyor..." -ForegroundColor Yellow
@@ -124,9 +123,6 @@ Copy-Item "$ProjectDir\tools\sqldrivers\qsqlmysql.dll" "$OutputDir\sqldrivers\" 
 # 6. Yönetici ve Kurulum Betiklerini OUTPUT'a Ekle
 Write-Host "[6/6] Yonetici ag paylasim ve Tasinabilir MariaDB ekleniyor..." -ForegroundColor Yellow
 Copy-Item "$ProjectDir\tools\deploy\host_scripts\1_Yonetici_Klasor_Paylasimini_Ac.bat" "$OutputDir\" -Force
-if (Test-Path "$ProjectDir\tools\setup_mysql") {
-    Copy-Item "$ProjectDir\tools\setup_mysql\*" "$OutputDir\tools\setup_mysql\" -Recurse -Force
-}
 
 # Taşınabilir MariaDB Motorunu OUTPUT'a kopyala
 if (Test-Path "$ProjectDir\tools\mariadb_portable") {

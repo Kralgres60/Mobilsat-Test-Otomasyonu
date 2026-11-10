@@ -78,8 +78,6 @@ AGENTS.md
 *~
 *.db
 *.sqlite
-tools/setup_mysql/*.log
-tools/setup_mysql/temp_*.sql
 tools/mariadb_portable/data/*
 !tools/mariadb_portable/data/my.ini
 

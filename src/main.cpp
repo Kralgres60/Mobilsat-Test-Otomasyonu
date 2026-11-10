@@ -123,16 +123,14 @@ int main(int argc, char *argv[]) {
 
     if (config.isHost()) {
         // Host controller operating sequence:
-        // 1. Verify MariaDB service is active, performing unattended setup if necessary
-        if (!DependencyInstaller::isMySqlListening(config.dbHost(), config.dbPort())) {
-            qInfo() << "[Main] Host MySQL is not listening; initiating automated environment setup...";
+        // Connect to database (automatically provisions and launches portable MariaDB if local)
+        bool connected = DbManager::instance().connectToDatabase(config.dbHost(), config.dbPort(),
+                                                                config.dbName(), config.dbUser(),
+                                                                config.dbPassword());
+        if (!connected && !DependencyInstaller::isMySqlListening(config.dbHost(), config.dbPort())) {
+            qInfo() << "[Main] Host database connection failed; checking dependency installer fallback...";
             DependencyInstaller::autoSetupHostEnvironment();
         } else {
-            // 2. Connect to database
-            DbManager::instance().connectToDatabase(config.dbHost(), config.dbPort(),
-                                                   config.dbName(), config.dbUser(),
-                                                   config.dbPassword());
-            // 3. Provision default schemas, profiles, and initial seed records if missing
             DbManager::instance().ensureDefaultDataIfMissing();
         }
 
