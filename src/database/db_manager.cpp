@@ -718,3 +718,66 @@ void DbManager::stopPortableMariaDbIfRunning() {
     }
 }
 
+bool DbManager::authenticateUser(const QString &username, const QString &password, UserRole &outRole, QString &outFullName) {
+    QString trimmedUser = username.trimmed();
+    QString trimmedPass = password.trimmed();
+
+    if (trimmedUser.isEmpty()) {
+        return false;
+    }
+
+    // 1. Veritabanı bağlıysa users tablosundan kontrol et
+    if (isConnected()) {
+        QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+        QSqlQuery q(db);
+        q.prepare("SELECT role, full_name, password_hash FROM users WHERE username = :u AND is_active = 1 LIMIT 1;");
+        q.bindValue(":u", trimmedUser);
+
+        if (q.exec() && q.next()) {
+            QString roleStr = q.value("role").toString().toUpper();
+            QString fullName = q.value("full_name").toString();
+            QString passHash = q.value("password_hash").toString();
+
+            if (trimmedPass == passHash || passHash.isEmpty()) {
+                outRole = (roleStr == "ADMIN") ? UserRole::Engineer : UserRole::Technician;
+                outFullName = fullName.isEmpty() ? trimmedUser : fullName;
+                return true;
+            }
+        }
+    }
+
+    // 2. Fabrika Varsayılan / Yedek Kimlik Doğrulama (Veritabanı kapalı olsa dahi çalışır)
+    if (trimmedUser.compare("admin", Qt::CaseInsensitive) == 0 && (trimmedPass == "neta123" || trimmedPass == "admin")) {
+        outRole = UserRole::Engineer;
+        outFullName = "Sistem Yöneticisi / Başmühendis";
+        return true;
+    }
+    if (trimmedUser.compare("engineer", Qt::CaseInsensitive) == 0 && (trimmedPass == "neta123" || trimmedPass == "1234")) {
+        outRole = UserRole::Engineer;
+        outFullName = "Ar-Ge Test Mühendisi";
+        return true;
+    }
+    if (trimmedUser.compare("operator1", Qt::CaseInsensitive) == 0 && (trimmedPass == "op123" || trimmedPass == "1234")) {
+        outRole = UserRole::Technician;
+        outFullName = "Masa 1 Operatörü";
+        return true;
+    }
+    if (trimmedUser.compare("operator2", Qt::CaseInsensitive) == 0 && (trimmedPass == "op123" || trimmedPass == "1234")) {
+        outRole = UserRole::Technician;
+        outFullName = "Masa 2 Operatörü";
+        return true;
+    }
+    if (trimmedUser.compare("operator3", Qt::CaseInsensitive) == 0 && (trimmedPass == "op123" || trimmedPass == "1234")) {
+        outRole = UserRole::Technician;
+        outFullName = "Masa 3 Operatörü";
+        return true;
+    }
+    if ((trimmedUser.compare("tekniker", Qt::CaseInsensitive) == 0 || trimmedUser.compare("tech", Qt::CaseInsensitive) == 0) && (trimmedPass == "1234" || trimmedPass == "tech")) {
+        outRole = UserRole::Technician;
+        outFullName = "Saha Test Teknikeri";
+        return true;
+    }
+
+    return false;
+}
+

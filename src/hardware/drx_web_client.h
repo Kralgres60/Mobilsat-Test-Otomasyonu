@@ -1,6 +1,7 @@
 /**
  * @file drx_web_client.h
- * @brief NETA DRX9000 embedded Web CGI HTTP client for session management, RF tuning, and telemetry parsing.
+ * @brief NETA DRX9000 embedded Web CGI HTTP client with Ethernet ICMP ping verification,
+ *        session management, RF tuning, and telemetry parsing.
  * @author Semi Eren Gökyıldız
  * @copyright Copyright (C) 2026 NETA Elektronik A.Ş.
  */
@@ -22,8 +23,9 @@
 
 /**
  * @class DrxWebClient
- * @brief High-performance asynchronous HTTP client communicating with the DRX9000 embedded Web CGI
- *        endpoint (/cgi-bin/drx.cgi) using dynamic sessionKey tokens and multi-section JSON parsing.
+ * @brief Asynchronous Ethernet controller for DRX9000 hardware.
+ *        Implements the recommended workflow: ICMP Ping check -> HTTP CGI login (sessionKey)
+ *        -> deviceInfo / alarmStatus / freq data operations via /cgi-bin/drx.cgi.
  */
 class DrxWebClient : public QObject {
     Q_OBJECT
@@ -37,7 +39,7 @@ public:
     /** @brief Destroys client and cleans up network connections. */
     ~DrxWebClient() override;
 
-    /** @brief Configures target receiver IP and port. */
+    /** @brief Configures target receiver IP and port; resets cached session and reachability state. */
     void setHost(const QString &hostIp, int port = 80);
     QString host() const { return m_hostIp; }
     int port() const { return m_port; }
@@ -47,7 +49,13 @@ public:
     QString username() const { return m_username; }
     QString password() const { return m_password; }
 
-    /** @brief Checks if a valid session key has been acquired. */
+    /** @brief Returns true if the target IP responded to the latest ICMP ping check. */
+    bool isReachable() const { return m_isReachable; }
+
+    /** @brief Returns round-trip latency in milliseconds from the latest successful ping (-1 if unreachable). */
+    int lastPingLatencyMs() const { return m_lastLatencyMs; }
+
+    /** @brief Checks if a valid HTTP CGI session key has been acquired. */
     bool isLoggedIn() const { return m_sessionKey > 0; }
     int sessionKey() const { return m_sessionKey; }
 
@@ -55,7 +63,22 @@ public:
     void setTimeoutMs(int ms) { m_timeoutMs = ms; }
     int timeoutMs() const { return m_timeoutMs; }
 
+    /** @brief Clears cached session key and pending requests (call on host change or ping loss). */
+    void resetSession();
+
 public slots:
+    /**
+     * @brief Runs an asynchronous non-blocking ICMP ping test against the configured DRX IP.
+     * @param timeoutMs Maximum wait per ping reply in milliseconds.
+     */
+    void pingHost(int timeoutMs = 1000);
+
+    /**
+     * @brief Executes the full Ethernet startup/reconnect sequence:
+     *        1. ICMP Ping verification -> 2. CGI Authentication -> 3. DeviceInfo & Status sync.
+     */
+    void testConnectionAndSync();
+
     /** @brief Performs CGI authentication and acquires dynamic sessionKey (ResponseTo=login). */
     void login();
 
@@ -77,6 +100,9 @@ public slots:
     void sendRawQuery(const QString &queryString);
 
 signals:
+    /** @brief Emitted when an ICMP ping test finishes. */
+    void pingFinished(bool reachable, int latencyMs, const QString &hostIp);
+
     /** @brief Emitted upon successful CGI authentication with active session key. */
     void loginSucceeded(int sessionKey);
 
@@ -121,6 +147,11 @@ private:
     QString m_password = "1234";
     int m_sessionKey = 0;
     int m_timeoutMs = 4000;
+
+    bool m_isReachable = false;
+    int m_lastLatencyMs = -1;
+    bool m_pingInProgress = false;
+    bool m_syncAfterPing = false;
 
     QString m_pendingActionAfterLogin;
     QByteArray m_pendingDataAfterLogin;

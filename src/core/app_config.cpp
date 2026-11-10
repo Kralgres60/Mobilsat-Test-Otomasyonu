@@ -23,6 +23,11 @@ void AppConfig::load() {
     m_role = static_cast<AppRole>(roleInt);
     m_stationId = settings.value("General/StationId", 1).toInt();
 
+    int userRoleInt = settings.value("User/Role", static_cast<int>(UserRole::Technician)).toInt();
+    m_userRole = static_cast<UserRole>(userRoleInt);
+    m_currentUsername = settings.value("User/Username", "operator1").toString();
+    m_currentUserFullName = settings.value("User/FullName", "Masa 1 Operatörü").toString();
+
     m_hostIp = settings.value("Network/HostIp", "127.0.0.1").toString();
     m_tcpPort = static_cast<quint16>(settings.value("Network/TcpPort", 9100).toUInt());
     m_udpBeaconPort = static_cast<quint16>(settings.value("Network/UdpPort", 9101).toUInt());
@@ -57,6 +62,9 @@ void AppConfig::save() {
 
     settings.setValue("General/Role", static_cast<int>(m_role));
     settings.setValue("General/StationId", m_stationId);
+    settings.setValue("User/Role", static_cast<int>(m_userRole));
+    settings.setValue("User/Username", m_currentUsername);
+    settings.setValue("User/FullName", m_currentUserFullName);
 
     settings.setValue("Network/HostIp", m_hostIp);
     settings.setValue("Network/TcpPort", m_tcpPort);

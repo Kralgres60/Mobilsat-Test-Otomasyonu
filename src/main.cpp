@@ -16,6 +16,7 @@
 #include "database/db_manager.h"
 #include "ui/common/style_helper.h"
 #include "ui/common/mode_select_dialog.h"
+#include "ui/common/login_dialog.h"
 #include "ui/client/client_window.h"
 #include "ui/host/host_window.h"
 #if defined(NETA_DEBUG_MODE)
@@ -37,6 +38,7 @@ int main(int argc, char *argv[]) {
     app.setApplicationVersion(NETA_APP_VERSION);
     app.setOrganizationName(NETA_APP_ORGANIZATION);
     app.setWindowIcon(QIcon(":/resources/images/neta_app.ico"));
+    StyleHelper::applyAppPalette(&app);
     app.setStyleSheet(StyleHelper::getAppStyle());
 
     DebugRunnerWindow *debugWin = new DebugRunnerWindow();
@@ -52,6 +54,7 @@ int main(int argc, char *argv[]) {
     app.setApplicationVersion(NETA_APP_VERSION);
     app.setOrganizationName(NETA_APP_ORGANIZATION);
     app.setWindowIcon(QIcon(":/resources/images/neta_app.ico"));
+    StyleHelper::applyAppPalette(&app);
     app.setStyleSheet(StyleHelper::getAppStyle());
 
     QMainWindow *dbWin = new QMainWindow();
@@ -76,6 +79,7 @@ int main(int argc, char *argv[]) {
     app.setApplicationVersion(NETA_APP_VERSION);
     app.setOrganizationName(NETA_APP_ORGANIZATION);
     app.setWindowIcon(QIcon(":/resources/images/neta_app.ico"));
+    StyleHelper::applyAppPalette(&app);
     app.setStyleSheet(StyleHelper::getAppStyle());
 
     // Command-line options parsing
@@ -103,22 +107,19 @@ int main(int argc, char *argv[]) {
     } else if (parser.isSet(clientOption)) {
         config.setRole(AppRole::Client);
     } else {
-        // If unspecified via CLI, display interactive startup mode selection dialog
-        ModeSelectDialog dlg;
-        if (dlg.exec() != QDialog::Accepted) {
+        // DRX-Style Login Dialog (Authenticates Operator / Engineer and selects Station / Host)
+        LoginDialog loginDlg;
+        if (loginDlg.exec() != QDialog::Accepted) {
             return 0;
         }
-        config.setRole(dlg.selectedRole());
-        if (dlg.selectedRole() == AppRole::Client) {
-            config.setStationId(dlg.selectedStationId());
-            if (!dlg.serverIp().isEmpty()) {
-                config.setHostIp(dlg.serverIp());
-                config.setDbHost(dlg.serverIp());
-            }
+        config.setRole(loginDlg.selectedAppRole());
+        config.setUserRole(loginDlg.authenticatedRole());
+        config.setCurrentUsername(loginDlg.authenticatedUsername());
+        config.setCurrentUserFullName(loginDlg.authenticatedFullName());
+        if (loginDlg.selectedAppRole() == AppRole::Client) {
+            config.setStationId(loginDlg.selectedStationId());
         }
-        if (dlg.rememberSelection()) {
-            config.save();
-        }
+        config.save();
     }
 
     if (config.isHost()) {

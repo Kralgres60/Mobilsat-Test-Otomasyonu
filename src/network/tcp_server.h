@@ -11,15 +11,18 @@
 #include <QObject>
 #include <QTcpServer>
 #include <QTcpSocket>
+#include <QTimer>
 #include <QMap>
 #include "data_models.h"
 #include "lock_arbiter.h"
 #include "hardware/serial_worker.h"
+#include "hardware/drx_web_client.h"
 
 /**
  * @class TcpServer
  * @brief Operates the central TCP communication endpoint on the Host PC (:9100),
- *        dispatching lock grants, queuing requests, and streaming Reference DRX telemetry.
+ *        dispatching lock grants, queuing requests, and streaming Reference DRX telemetry
+ *        (primary via Ethernet Web CGI, optional RS232 fallback).
  */
 class TcpServer : public QObject {
     Q_OBJECT
@@ -27,11 +30,17 @@ public:
     /**
      * @brief Constructs TCP command server.
      * @param arbiter FIFO mutual exclusion arbiter
-     * @param refSerial Hardware worker connected to Golden Sample Reference DRX
+     * @param refSerial Optional RS232 fallback worker for Golden Sample Reference DRX
      * @param parent Parent QObject
      */
     explicit TcpServer(LockArbiter *arbiter, SerialWorker *refSerial, QObject *parent = nullptr);
     ~TcpServer() override;
+
+    /**
+     * @brief Injects the primary Ethernet Web CGI client for the Reference Golden Sample DRX.
+     * @param refWebClient Configured DrxWebClient targeting the Host Reference DRX IP
+     */
+    void setRefWebClient(DrxWebClient *refWebClient);
 
     /** @brief Binds and starts listening for client station connections. */
     bool start(quint16 port = 9100);
@@ -59,9 +68,11 @@ private slots:
     // Lock Arbiter event handlers
     void onLockGranted(int stationId, int timeoutSec);
     void onLockQueued(int stationId, int position, int activeStationId);
+    void onLockReleased(int stationId);
     void onLockExpired(int stationId);
 
-    // Reference receiver telemetry listeners
+    // Reference receiver polling and telemetry listeners
+    void onRefPollTick();
     void onRefTelemetry(double powDbm, double cnDb, double ber);
     void onRefStatus(bool sLocked, bool vLocked, bool aLocked);
 
@@ -73,6 +84,8 @@ private:
     QTcpServer m_server;
     LockArbiter *m_arbiter;
     SerialWorker *m_refSerial;
+    DrxWebClient *m_refWebClient = nullptr;
+    QTimer m_refPollTimer;
 
     struct ClientSession {
         int stationId = 0;

@@ -18,8 +18,8 @@ void AboutDialog::setupUi()
     setWindowTitle(QString("Hakkında - %1").arg(NETA_APP_TITLE));
     setFixedSize(540, 480);
     setStyleSheet(
-        "QDialog { background-color: #12161E; color: #E0E6ED; font-family: 'Segoe UI', Arial, sans-serif; }"
-        "QLabel { color: #E0E6ED; }"
+        "QDialog { background-color: #0A192F; color: #E6F1FF; font-family: 'Segoe UI', Arial, sans-serif; }"
+        "QLabel { color: #E6F1FF; }"
     );
 
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
@@ -29,21 +29,22 @@ void AboutDialog::setupUi()
     // --- 1. ÜST LOGO & BAŞLIK ALANI ---
     QHBoxLayout *headerLayout = new QHBoxLayout();
     QLabel *lblLogo = new QLabel(this);
-    QPixmap pix(":/resources/images/neta_app.png");
+    lblLogo->setStyleSheet("background-color: #FFFFFF; border-radius: 6px; padding: 4px 10px;");
+    QPixmap pix(":/resources/images/logo.png");
     if (pix.isNull()) {
-        pix.load(":/resources/images/logo.png");
+        pix.load(":/resources/images/neta_app.png");
     }
     if (!pix.isNull()) {
-        lblLogo->setPixmap(pix.scaledToHeight(46, Qt::SmoothTransformation));
+        lblLogo->setPixmap(pix.scaledToHeight(40, Qt::SmoothTransformation));
     }
 
     QVBoxLayout *titleLayout = new QVBoxLayout();
     titleLayout->setSpacing(2);
     QLabel *lblMainTitle = new QLabel(NETA_APP_NAME, this);
-    lblMainTitle->setStyleSheet("font-size: 15px; font-weight: bold; color: #64B5F6;");
+    lblMainTitle->setStyleSheet("font-size: 15px; font-weight: bold; color: #38BDF8;");
 
     QLabel *lblSubTitle = new QLabel("Çoklu İstasyon Eşzamanlı RF Test ve Kalite Otomasyon Sistemi", this);
-    lblSubTitle->setStyleSheet("font-size: 11px; color: #90CAF9;");
+    lblSubTitle->setStyleSheet("font-size: 11px; color: #64FFDA;");
 
     titleLayout->addWidget(lblMainTitle);
     titleLayout->addWidget(lblSubTitle);
@@ -57,12 +58,12 @@ void AboutDialog::setupUi()
     // İnce ayırıcı çizgi
     QFrame *line1 = new QFrame(this);
     line1->setFrameShape(QFrame::HLine);
-    line1->setStyleSheet("color: #263238; background-color: #263238; max-height: 1px;");
+    line1->setStyleSheet("color: #1E2D4A; background-color: #1E2D4A; max-height: 1px;");
     mainLayout->addWidget(line1);
 
     // --- 2. BİLGİ KART TABLOSU ---
     QFrame *infoCard = new QFrame(this);
-    infoCard->setStyleSheet("background-color: #1A212D; border: 1px solid #2A3649; border-radius: 8px; padding: 12px;");
+    infoCard->setStyleSheet("background-color: #112240; border: 1px solid #1E2D4A; border-radius: 8px; padding: 12px;");
     QVBoxLayout *cardLayout = new QVBoxLayout(infoCard);
     cardLayout->setSpacing(6);
 
@@ -70,10 +71,10 @@ void AboutDialog::setupUi()
         QHBoxLayout *row = new QHBoxLayout();
         QLabel *lblT = new QLabel(title, this);
         lblT->setFixedWidth(110);
-        lblT->setStyleSheet("font-size: 12px; font-weight: bold; color: #90CAF9;");
+        lblT->setStyleSheet("font-size: 12px; font-weight: bold; color: #64FFDA;");
         
         QLabel *lblV = new QLabel(value, this);
-        lblV->setStyleSheet(valStyle.isEmpty() ? "font-size: 12px; color: #ECEFF1;" : valStyle);
+        lblV->setStyleSheet(valStyle.isEmpty() ? "font-size: 12px; color: #E6F1FF;" : valStyle);
         lblV->setTextInteractionFlags(Qt::TextSelectableByMouse);
 
         row->addWidget(lblT);
@@ -82,11 +83,11 @@ void AboutDialog::setupUi()
         cardLayout->addLayout(row);
     };
 
-    makeRow("Sürüm:", QString("%1 (32-bit Release)").arg(NETA_APP_VERSION), "font-size: 12px; font-weight: bold; color: #81C784;");
-    makeRow("Geliştirici:", NETA_APP_DEVELOPER, "font-size: 13px; font-weight: bold; color: #FFD54F;");
+    makeRow("Sürüm:", QString("%1 (32-bit Release)").arg(NETA_APP_VERSION), "font-size: 12px; font-weight: bold; color: #34D399;");
+    makeRow("Geliştirici:", NETA_APP_DEVELOPER, "font-size: 13px; font-weight: bold; color: #FBBF24;");
     makeRow("Kurumsal:", NETA_APP_ORGANIZATION);
-    makeRow("Telif Hakkı:", NETA_APP_COPYRIGHT, "font-size: 11px; color: #B0BEC5;");
-    makeRow("Web Sitesi:", "<a href='https://www.neta.com.tr' style='color:#64B5F6; text-decoration:none;'>www.neta.com.tr</a>");
+    makeRow("Telif Hakkı:", NETA_APP_COPYRIGHT, "font-size: 11px; color: #CBD5E1;");
+    makeRow("Web Sitesi:", "<a href='https://www.neta.com.tr' style='color:#38BDF8; text-decoration:none;'>www.neta.com.tr</a>");
 
     mainLayout->addWidget(infoCard);
 
@@ -94,8 +95,8 @@ void AboutDialog::setupUi()
     QLabel *lblDedication = new QLabel(this);
     lblDedication->setWordWrap(true);
     lblDedication->setStyleSheet(
-        "background-color: #151C26; border-left: 3px solid #64B5F6; border-radius: 4px; "
-        "padding: 10px 14px; font-size: 11.5px; color: #CFD8DC; line-height: 1.5;"
+        "background-color: #112240; border-left: 3px solid #64FFDA; border-radius: 4px; "
+        "padding: 10px 14px; font-size: 11.5px; color: #CCD6F6; line-height: 1.5;"
     );
     lblDedication->setText(QString(
         "Bu otomasyon yazılımı; NETA DRX9000 serisi mobil uydu ve alıcı sistemlerinin seri üretim "

@@ -40,6 +40,7 @@ SOURCES += \
     src/network/tcp_client.cpp \
     src/ui/common/style_helper.cpp \
     src/ui/common/mode_select_dialog.cpp \
+    src/ui/common/login_dialog.cpp \
     src/ui/common/about_dialog.cpp \
     src/ui/common/dependency_install_dialog.cpp \
     src/ui/common/qcustomplot.cpp \
@@ -70,6 +71,7 @@ HEADERS += \
     src/network/tcp_client.h \
     src/ui/common/style_helper.h \
     src/ui/common/mode_select_dialog.h \
+    src/ui/common/login_dialog.h \
     src/ui/common/about_dialog.h \
     src/ui/common/dependency_install_dialog.h \
     src/ui/common/qcustomplot.h \

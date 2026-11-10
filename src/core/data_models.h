@@ -15,6 +15,15 @@
 #include <QJsonArray>
 
 /**
+ * @enum UserRole
+ * @brief User privilege levels: Technician (simplified operator) vs Engineer (admin/supervisor).
+ */
+enum class UserRole {
+    Technician, ///< Operator / Technician: Simple test execution, barcode scan, pass/fail status
+    Engineer    ///< Engineer / Admin: Full access, tolerances, frequency lists, calibration, diagnostics
+};
+
+/**
  * @brief Satellite transponder channel configuration model.
  */
 struct ChannelConfig {

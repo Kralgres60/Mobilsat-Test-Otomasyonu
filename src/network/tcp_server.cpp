@@ -13,10 +13,12 @@
 TcpServer::TcpServer(LockArbiter *arbiter, SerialWorker *refSerial, QObject *parent)
     : QObject(parent), m_arbiter(arbiter), m_refSerial(refSerial) {
     connect(&m_server, &QTcpServer::newConnection, this, &TcpServer::onNewConnection);
+    connect(&m_refPollTimer, &QTimer::timeout, this, &TcpServer::onRefPollTick);
 
     if (m_arbiter) {
         connect(m_arbiter, &LockArbiter::lockGranted, this, &TcpServer::onLockGranted);
         connect(m_arbiter, &LockArbiter::lockQueued, this, &TcpServer::onLockQueued);
+        connect(m_arbiter, &LockArbiter::lockReleased, this, &TcpServer::onLockReleased);
         connect(m_arbiter, &LockArbiter::lockExpired, this, &TcpServer::onLockExpired);
     }
 
@@ -30,6 +32,21 @@ TcpServer::~TcpServer() {
     stop();
 }
 
+void TcpServer::setRefWebClient(DrxWebClient *refWebClient) {
+    if (m_refWebClient == refWebClient) return;
+    m_refWebClient = refWebClient;
+    if (m_refWebClient) {
+        connect(m_refWebClient, &DrxWebClient::statusReceived, this,
+                [this](bool sig, bool vid, bool aud, const QString &) {
+            onRefStatus(sig, vid, aud);
+        });
+        connect(m_refWebClient, &DrxWebClient::telemetryReceived, this,
+                [this](double powDbm, double cnDb, double ber, double) {
+            onRefTelemetry(powDbm, cnDb, ber);
+        });
+    }
+}
+
 bool TcpServer::start(quint16 port) {
     if (m_server.listen(QHostAddress::Any, port)) {
         emit logMessage(QString("TCP Command Server listening on port %1.").arg(port));
@@ -40,6 +57,7 @@ bool TcpServer::start(quint16 port) {
 }
 
 void TcpServer::stop() {
+    m_refPollTimer.stop();
     for (auto it = m_clients.begin(); it != m_clients.end(); ++it) {
         it.key()->disconnectFromHost();
     }
@@ -140,9 +158,15 @@ void TcpServer::processClientMessage(QTcpSocket *socket, const QJsonObject &msg)
 
         // Tune Reference DRX only if requested by the active lock holder
         if (m_arbiter && m_arbiter->activeStationId() == stationId) {
-            if (m_refSerial) {
+            if (m_refWebClient) {
+                m_refWebClient->sendTune(freq, sr, pol);
+            }
+            if (m_refSerial && m_refSerial->isConnected()) {
                 m_refSerial->sendTune(freq, sr, pol);
                 m_refSerial->requestStatus();
+            }
+            if (!m_refPollTimer.isActive()) {
+                m_refPollTimer.start(300);
             }
         }
     }
@@ -173,6 +197,12 @@ void TcpServer::onClientDisconnected() {
 }
 
 void TcpServer::onLockGranted(int stationId, int timeoutSec) {
+    m_lastRefCn = 0.0;
+    m_lastRefPow = 0.0;
+    m_lastRefSLocked = false;
+    m_lastRefVLocked = false;
+    m_lastRefALocked = false;
+
     QJsonObject msg;
     msg["type"] = NetMsg::TYPE_LOCK_GRANTED;
     msg["station_id"] = stationId;
@@ -189,12 +219,34 @@ void TcpServer::onLockQueued(int stationId, int position, int activeStationId) {
     sendToStation(stationId, msg);
 }
 
+void TcpServer::onLockReleased(int /*stationId*/) {
+    if (!m_arbiter || !m_arbiter->isLocked()) {
+        m_refPollTimer.stop();
+    }
+}
+
 void TcpServer::onLockExpired(int stationId) {
+    if (!m_arbiter || !m_arbiter->isLocked()) {
+        m_refPollTimer.stop();
+    }
     QJsonObject msg;
     msg["type"] = NetMsg::TYPE_LOCK_EXPIRED;
     msg["station_id"] = stationId;
     msg["reason"] = "Maximum test duration exceeded.";
     sendToStation(stationId, msg);
+}
+
+void TcpServer::onRefPollTick() {
+    if (!m_arbiter || !m_arbiter->isLocked()) {
+        m_refPollTimer.stop();
+        return;
+    }
+    if (m_refWebClient && m_refWebClient->isReachable()) {
+        m_refWebClient->requestStatus();
+    }
+    if (m_refSerial && m_refSerial->isConnected()) {
+        m_refSerial->requestStatus();
+    }
 }
 
 void TcpServer::onRefTelemetry(double powDbm, double cnDb, double /*ber*/) {

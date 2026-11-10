@@ -10,6 +10,7 @@
 
 #include <QString>
 #include <QSettings>
+#include "data_models.h"
 
 /**
  * @enum AppRole
@@ -40,6 +41,18 @@ public:
     void setRole(AppRole role) { m_role = role; }
     bool isHost() const { return m_role == AppRole::Host; }
     bool isClient() const { return m_role == AppRole::Client; }
+
+    // User Privilege Level & Credentials
+    UserRole userRole() const { return m_userRole; }
+    void setUserRole(UserRole role) { m_userRole = role; }
+    bool isEngineer() const { return m_userRole == UserRole::Engineer; }
+    bool isTechnician() const { return m_userRole == UserRole::Technician; }
+
+    QString currentUsername() const { return m_currentUsername; }
+    void setCurrentUsername(const QString &username) { m_currentUsername = username; }
+
+    QString currentUserFullName() const { return m_currentUserFullName; }
+    void setCurrentUserFullName(const QString &fullName) { m_currentUserFullName = fullName; }
 
     // Station Identity (Client Mode)
     int stationId() const { return m_stationId; }
@@ -107,6 +120,9 @@ private:
     AppConfig& operator=(const AppConfig&) = delete;
 
     AppRole m_role = AppRole::Client;
+    UserRole m_userRole = UserRole::Technician;
+    QString m_currentUsername = "operator1";
+    QString m_currentUserFullName = "Masa 1 Operatörü";
     int m_stationId = 1;
 
     QString m_hostIp = "127.0.0.1";

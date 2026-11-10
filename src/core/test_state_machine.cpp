@@ -52,8 +52,12 @@ void TestStateMachine::setWebClients(DrxWebClient *dutWeb, DrxWebClient *refWeb)
     }
 
     if (m_refWebClient) {
+        connect(m_refWebClient, &DrxWebClient::statusReceived, this, [this](bool sig, bool vid, bool /*aud*/, const QString&) {
+            m_refCarrierLocked = sig;
+            m_refVideoLocked = vid;
+        });
         connect(m_refWebClient, &DrxWebClient::telemetryReceived, this, [this](double pwr, double cn, double, double) {
-            onRefData(cn, pwr, true, true);
+            onRefData(cn, pwr, m_refCarrierLocked, m_refVideoLocked);
         });
     }
 }
@@ -220,11 +224,11 @@ void TestStateMachine::runCurrentChannel() {
     m_refCnSamples.clear();
     m_refPowSamples.clear();
 
-    // 1. Send tune command to DUT DRX9000 (Web CGI and/or RS232)
+    // 1. Send tune command to DUT DRX9000 (Primary: Ethernet Web CGI, Fallback: RS232 if open)
     if (m_dutWebClient) {
         m_dutWebClient->sendTune(ch.frequencyMhz, ch.symbolRate, ch.polarization);
     }
-    if (m_dutSerial) {
+    if (m_dutSerial && m_dutSerial->isConnected()) {
         m_dutSerial->sendTune(ch.frequencyMhz, ch.symbolRate, ch.polarization);
     }
 
@@ -246,6 +250,7 @@ void TestStateMachine::runCurrentChannel() {
 
     changeState(TestState::WaitingCarrierLock);
     m_carrierWaitTimer.start(6000); // Allow up to 6 seconds for Carrier Lock (S:+)
+    m_sampleTickTimer.start(450);   // Poll Web CGI alarmStatus every 450ms until carrier locks
 }
 
 void TestStateMachine::onDutStatus(bool signalLocked, bool videoProducing, bool audioProducing) {
@@ -258,7 +263,7 @@ void TestStateMachine::onDutStatus(bool signalLocked, bool videoProducing, bool 
         m_carrierWaitTimer.stop();
         changeState(TestState::SamplingTelemetry);
 
-        if (m_dutSerial) {
+        if (m_dutSerial && m_dutSerial->isConnected()) {
             m_dutSerial->startTunerLog();
         }
 
@@ -271,6 +276,7 @@ void TestStateMachine::onDutStatus(bool signalLocked, bool videoProducing, bool 
 
 void TestStateMachine::onCarrierTimeout() {
     if (m_state == TestState::WaitingCarrierLock) {
+        m_sampleTickTimer.stop();
         emit logMessage("Carrier lock timeout (S:-)! Channel marked as FAIL.");
         finishCurrentChannel();
     }
@@ -308,7 +314,7 @@ void TestStateMachine::onSampleTimerTick() {
         m_refWebClient->requestStatus();
     }
 #endif
-    if (m_dutSerial) {
+    if (m_dutSerial && m_dutSerial->isConnected()) {
         m_dutSerial->requestStatus();
     }
 }

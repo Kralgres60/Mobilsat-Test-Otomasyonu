@@ -13,8 +13,8 @@
 // ==============================================================================
 // Enable exactly one of the deployment architectures below:
 
-// #define NETA_ALGORITMA_1_FOUR_PC     ///< 4-PC Architecture: 1 Host/Arbiter Server + 3 Stations (TCP Lock Arbiter)
-#define NETA_ALGORITMA_2_THREE_PC       ///< 3-PC Architecture: 3 Peer Workstations (MariaDB Distributed Atomic Lock)
+#define NETA_ALGORITMA_1_FOUR_PC        ///< 4-PC Architecture: 1 Host/Arbiter Server + 3 Stations (TCP Lock Arbiter)
+// #define NETA_ALGORITMA_2_THREE_PC    ///< 3-PC Architecture: 3 Peer Workstations (MariaDB Distributed Atomic Lock)
 
 // ==============================================================================
 // 2. DEVELOPER & DEBUG TEST MODES
@@ -23,7 +23,7 @@
 // specialized debugging consoles for hardware protocols or database testing:
 
 // #define NETA_DEBUG_MODE              ///< Interactive DRX REST API / Web CGI and Multi-Sampling Debug Console
-#define NETA_DEBUG_DB_MODE              ///< Standalone MariaDB, Portable Engine & Distributed Lock Test Console
+// #define NETA_DEBUG_DB_MODE           ///< Standalone MariaDB, Portable Engine & Distributed Lock Test Console
 
 // ==============================================================================
 // 3. BUILD SANITY CHECKS

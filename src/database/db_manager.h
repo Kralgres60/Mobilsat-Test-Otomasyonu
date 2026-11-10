@@ -83,6 +83,17 @@ public:
     QString getSetting(const QString &key, const QString &defaultValue = QString());
     bool setSetting(const QString &key, const QString &value, const QString &desc = QString());
 
+    // User Authentication & Roles
+    /**
+     * @brief Authenticates a user against database or factory defaults.
+     * @param username Login username
+     * @param password Plaintext password
+     * @param outRole Output UserRole (Technician or Engineer)
+     * @param outFullName Output display full name
+     * @return true if authentication succeeds
+     */
+    bool authenticateUser(const QString &username, const QString &password, UserRole &outRole, QString &outFullName);
+
     // Architecture 2: Distributed Database Atomic Mutex Lock
     /**
      * @brief Attempts to acquire atomic distributed lock on the shared Reference DRX.
