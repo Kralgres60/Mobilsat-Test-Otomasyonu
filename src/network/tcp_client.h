@@ -12,6 +12,7 @@
 #include <QTcpSocket>
 #include <QTimer>
 #include <QJsonObject>
+#include "core/data_models.h"
 
 /**
  * @class TcpClient
@@ -48,6 +49,9 @@ public:
     /** @brief Requests Host to tune the Reference DRX to target channel. */
     void requestRefTune(int channelNo, int freqMHz, int symbolRate, const QString &polarity);
 
+    /** @brief Returns the active reference comparison mode dictated by the Host. */
+    ReferenceMode referenceMode() const { return m_referenceMode; }
+
 signals:
     void connected();
     void disconnected();
@@ -56,6 +60,8 @@ signals:
     void lockWaiting(int queuePosition, int activeStationId);
     void lockExpired(const QString &reason);
     void refDataReceived(double refCn, double refPow, bool carrierLocked, bool videoLocked);
+    /** @brief Emitted when Host updates or sends the active reference mode (Live vs Golden Sample). */
+    void referenceModeChanged(ReferenceMode mode);
     void logMessage(const QString &msg);
 
 private slots:
@@ -77,6 +83,7 @@ private:
     QString m_stationName;
     QString m_hostIp;
     quint16 m_port = 9100;
+    ReferenceMode m_referenceMode = ReferenceMode::LiveReference;
 };
 
 #endif // TCP_CLIENT_H

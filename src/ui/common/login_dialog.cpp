@@ -1,6 +1,6 @@
 /**
  * @file login_dialog.cpp
- * @brief Implementation of the minimalist DRX-inspired NETA Blue authentication dialog.
+ * @brief Implementation of the minimalist NETA Yeşili authentication dialog.
  * @author Semi Eren Gökyıldız
  * @copyright Copyright (C) 2026 NETA Elektronik A.Ş.
  */
@@ -57,33 +57,33 @@ void LoginDialog::showEvent(QShowEvent *event) {
 void LoginDialog::setupUi() {
     setStyleSheet(R"(
         QDialog {
-            background-color: #0A192F;
+            background-color: #071210;
         }
         QGroupBox {
             font-weight: bold;
             font-size: 10pt;
-            color: #64FFDA;
-            border: 1px solid #1E2D4A;
+            color: #34D399;
+            border: 1px solid #1A3D2B;
             border-radius: 8px;
             margin-top: 10px;
             padding-top: 14px;
-            background-color: #0A192F;
+            background-color: #0A1F17;
         }
         QGroupBox::title {
             subcontrol-origin: margin;
             left: 12px;
             padding: 0 6px;
-            color: #64FFDA;
+            color: #34D399;
         }
         QLabel {
-            color: #E6F1FF;
+            color: #E6F4EE;
             font-size: 9.5pt;
             font-weight: bold;
         }
         QLineEdit, QComboBox {
-            background-color: #112240;
-            color: #E6F1FF;
-            border: 1px solid #233554;
+            background-color: #112D21;
+            color: #E6F4EE;
+            border: 1px solid #1A3D2B;
             border-radius: 6px;
             padding: 8px 12px;
             font-size: 10pt;
@@ -91,12 +91,12 @@ void LoginDialog::setupUi() {
             min-height: 22px;
         }
         QLineEdit:focus, QComboBox:focus {
-            border: 1px solid #64FFDA;
+            border: 1px solid #10B981;
         }
         QPushButton#btnLogin {
-            background-color: #112240;
-            color: #FFFFFF;
-            border: 1px solid #1E2D4A;
+            background-color: #10B981;
+            color: #071210;
+            border: 1px solid #34D399;
             font-weight: bold;
             font-size: 10.5pt;
             border-radius: 6px;
@@ -104,12 +104,13 @@ void LoginDialog::setupUi() {
             min-height: 40px;
         }
         QPushButton#btnLogin:hover {
-            background-color: #233554;
-            color: #64FFDA;
-            border-color: #64FFDA;
+            background-color: #34D399;
+            color: #071210;
+            border-color: #6EE7B7;
         }
         QPushButton#btnLogin:pressed {
-            background-color: #1E2D4A;
+            background-color: #059669;
+            color: #FFFFFF;
         }
     )");
 
@@ -117,27 +118,28 @@ void LoginDialog::setupUi() {
     rootLayout->setContentsMargins(18, 18, 18, 18);
     rootLayout->setSpacing(12);
 
-    // 1. Centered NETA Logo (identical positioning to DRX Test Interface)
+    // 1. Centered NETA Logo
     QHBoxLayout *logoLayout = new QHBoxLayout();
     QLabel *lblLogo = new QLabel(this);
     lblLogo->setMaximumSize(160, 60);
     lblLogo->setAlignment(Qt::AlignCenter);
+    lblLogo->setStyleSheet("background-color: #FFFFFF; border-radius: 6px; padding: 4px 12px;");
     QPixmap pix(":/resources/images/logo.png");
     if (!pix.isNull()) {
-        lblLogo->setPixmap(pix.scaled(160, 60, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+        lblLogo->setPixmap(pix.scaled(140, 48, Qt::KeepAspectRatio, Qt::SmoothTransformation));
     } else {
         lblLogo->setText("NETA");
-        lblLogo->setStyleSheet("font-size: 24pt; font-weight: bold; color: #38BDF8;");
+        lblLogo->setStyleSheet("font-size: 24pt; font-weight: bold; color: #064E3B; background-color: #FFFFFF; border-radius: 6px; padding: 4px 14px;");
     }
     logoLayout->addStretch();
     logoLayout->addWidget(lblLogo);
     logoLayout->addStretch();
     rootLayout->addLayout(logoLayout);
 
-    // 2. Centered Cyan Header Title
+    // 2. Centered Emerald Header Title
     QLabel *lblTitleHeader = new QLabel("DRX ANTEN TESTİ KULLANICI GİRİŞİ", this);
     lblTitleHeader->setAlignment(Qt::AlignCenter);
-    lblTitleHeader->setStyleSheet("font-size: 13pt; font-weight: bold; color: #38BDF8; padding: 2px 0;");
+    lblTitleHeader->setStyleSheet("font-size: 13pt; font-weight: bold; color: #34D399; padding: 2px 0;");
     rootLayout->addWidget(lblTitleHeader);
 
     // 3. Minimalist Authentication Form Box

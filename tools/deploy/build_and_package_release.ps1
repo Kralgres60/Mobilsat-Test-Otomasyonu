@@ -1,4 +1,4 @@
-# NETA DRX9000 - Temiz Release Derleme ve OUTPUT Paketleyici
+﻿# NETA DRX9000 - Temiz Release Derleme ve OUTPUT Paketleyici
 $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -128,6 +128,14 @@ Copy-Item "$ProjectDir\tools\deploy\host_scripts\1_Yonetici_Klasor_Paylasimini_A
 if (Test-Path "$ProjectDir\tools\mariadb_portable") {
     New-Item -ItemType Directory -Force -Path "$OutputDir\tools\mariadb_portable" | Out-Null
     Copy-Item "$ProjectDir\tools\mariadb_portable\*" "$OutputDir\tools\mariadb_portable\" -Recurse -Force
+
+    # data/ içini temizle: geliştirme verilerini dışarıda bırak; sadece my.ini bırak
+    # Hedef PC'de uygulama ilk açılışta mysql_install_db ile data/ otomatik oluşturulur
+    $dbDataOut = "$OutputDir\tools\mariadb_portable\data"
+    if (Test-Path $dbDataOut) {
+        Write-Host "      MariaDB data/ icerigi temizleniyor (sadece my.ini korunuyor)..." -ForegroundColor DarkGray
+        Get-ChildItem $dbDataOut -Exclude "my.ini" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
 
 # Hızlı Veritabanı Başlatıcı ve Durdurucu Kısayolları Ekle

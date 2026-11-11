@@ -118,8 +118,26 @@ void TcpClient::processMessage(const QJsonObject &msg) {
     QString type = msg["type"].toString();
 
     if (type == NetMsg::TYPE_REGISTER_ACK) {
+        if (msg.contains("ref_mode")) {
+            QString modeStr = msg["ref_mode"].toString();
+            m_referenceMode = (modeStr.compare("GOLDEN", Qt::CaseInsensitive) == 0)
+                                  ? ReferenceMode::GoldenSample
+                                  : ReferenceMode::LiveReference;
+            emit referenceModeChanged(m_referenceMode);
+        }
         emit registered();
         emit logMessage("Host registration acknowledged.");
+    }
+    else if (type == NetMsg::TYPE_REF_MODE_UPDATE) {
+        QString modeStr = msg["ref_mode"].toString();
+        m_referenceMode = (modeStr.compare("GOLDEN", Qt::CaseInsensitive) == 0)
+                              ? ReferenceMode::GoldenSample
+                              : ReferenceMode::LiveReference;
+        emit referenceModeChanged(m_referenceMode);
+        emit logMessage(QString("Yönetici Referans Modunu güncelledi: %1")
+                            .arg(m_referenceMode == ReferenceMode::GoldenSample
+                                     ? "Kayıtlı Golden Sample"
+                                     : "Canlı Referans Anten"));
     }
     else if (type == NetMsg::TYPE_LOCK_GRANTED) {
         int timeoutSec = msg["timeout_sec"].toInt(90);

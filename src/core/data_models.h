@@ -24,6 +24,15 @@ enum class UserRole {
 };
 
 /**
+ * @enum ReferenceMode
+ * @brief Active reference source determined by the Central Host / Administrator.
+ */
+enum class ReferenceMode {
+    LiveReference, ///< Live dual-antenna comparison against physical Reference DRX9000
+    GoldenSample   ///< Saved Golden Sample values per transponder (when Reference antenna is absent)
+};
+
+/**
  * @brief Satellite transponder channel configuration model.
  */
 struct ChannelConfig {
@@ -33,6 +42,9 @@ struct ChannelConfig {
     int symbolRate = 30000;         ///< Symbol rate in kSym/s
     QString polarization = "V";     ///< Polarization: "V" (Vertical) or "H" (Horizontal)
     double toleranceDb = 1.50;      ///< Maximum allowed RF attenuation delta compared to Golden Sample (dB)
+    double goldenCnDb = 0.0;        ///< Stored Golden Sample Reference C/N (dB)
+    double goldenPowDbm = 0.0;      ///< Stored Golden Sample Reference Power (dBm)
+    bool hasGoldenSample = false;   ///< True when a valid Golden Sample baseline is stored
 
     /** @brief Serializes channel configuration to JSON object. */
     QJsonObject toJson() const {
@@ -43,6 +55,9 @@ struct ChannelConfig {
         obj["sr"] = symbolRate;
         obj["pol"] = polarization;
         obj["tolerance_db"] = toleranceDb;
+        obj["golden_cn_db"] = goldenCnDb;
+        obj["golden_pow_dbm"] = goldenPowDbm;
+        obj["has_golden_sample"] = hasGoldenSample;
         return obj;
     }
 
@@ -55,6 +70,9 @@ struct ChannelConfig {
         c.symbolRate = obj["sr"].toInt();
         c.polarization = obj["pol"].toString();
         c.toleranceDb = obj["tolerance_db"].toDouble(1.50);
+        c.goldenCnDb = obj["golden_cn_db"].toDouble(0.0);
+        c.goldenPowDbm = obj["golden_pow_dbm"].toDouble(0.0);
+        c.hasGoldenSample = obj["has_golden_sample"].toBool(false);
         return c;
     }
 };

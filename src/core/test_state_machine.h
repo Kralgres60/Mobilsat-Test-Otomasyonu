@@ -56,6 +56,15 @@ public:
     void setWebClients(DrxWebClient *dutWeb, DrxWebClient *refWeb);
 
     /**
+     * @brief Sets the active reference comparison mode dictated by the Administrator.
+     * @param mode LiveReference (physical reference antenna) or GoldenSample (stored DB values)
+     */
+    void setReferenceMode(ReferenceMode mode) { m_referenceMode = mode; }
+
+    /** @brief Returns the active reference comparison mode. */
+    ReferenceMode referenceMode() const { return m_referenceMode; }
+
+    /**
      * @brief Starts the automated multi-channel test sequence.
      * @param antennaSn Antenna serial number scanned from barcode
      * @param profile Satellite profile containing 10 transponders
@@ -157,6 +166,7 @@ private:
 
     double m_lastRefCn = 0.0;
     double m_lastRefPow = 0.0;
+    ReferenceMode m_referenceMode = ReferenceMode::LiveReference;
 };
 
 #endif // TEST_STATE_MACHINE_H

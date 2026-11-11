@@ -15,7 +15,8 @@
 #include <QPushButton>
 #include <QTableWidget>
 #include <QTextEdit>
-#include <QTabWidget>
+#include <QListWidget>
+#include <QStackedWidget>
 #include <QSpinBox>
 #include <QDoubleSpinBox>
 #include <QTimer>
@@ -26,10 +27,11 @@
 #include "network/udp_beacon.h"
 #include "core/lock_arbiter.h"
 #include "core/xlsxutil.h"
+#include "ui/common/profile_manager_widget.h"
 
 /**
  * @class HostWindow
- * @brief Central controller dashboard in NETA Blue theme providing multi-station lobby supervision,
+ * @brief Central controller dashboard in NETA Yeşili theme providing multi-station lobby supervision,
  *        mutual exclusion tracking, Reference DRX Ethernet Ping & Web CGI control, reporting, and configuration.
  */
 class HostWindow : public QMainWindow {
@@ -67,16 +69,24 @@ private slots:
     void onAboutClicked();
     void onLogoutClicked();
 
+    /** @brief Persists and broadcasts the Administrator's Reference Mode selection. */
+    void onReferenceModeApplyRequested(ReferenceMode mode);
+
+    /** @brief Switches the stacked page view when a sidebar navigation item is selected. */
+    void onNavItemChanged(int index);
+
     void appendLog(const QString &msg);
 
 private:
     void setupMenuBar();
     void setupUi();
-    void setupLobbyTab();
-    void setupHistoryTab();
-    void setupOrdersTab();
-    void setupSettingsTab();
-    void setupLogsTab();
+    void setupLobbyPage();
+    void setupProfilesPage();
+    void setupHistoryPage();
+    void setupOrdersPage();
+    void setupSettingsPage();
+    void setupLogsPage();
+    void updateRefModeBadgeUi(ReferenceMode mode);
     void setStatusMessage(const QString &msg);
 
     LockArbiter m_arbiter;
@@ -86,11 +96,21 @@ private:
     UdpBeaconBroadcaster m_beaconBroadcaster;
     QTimer m_refEthPingTimer;
 
-    // Navigation
-    QTabWidget *m_tabWidget = nullptr;
+    // ── Sidebar Navigation ──────────────────────────────────────────────────
+    /** @brief Left sidebar navigation list (objectName: "sideNav" for QSS targeting). */
+    QListWidget    *m_sideNav     = nullptr;
+    /** @brief Right-side page container matched to sidebar items. */
+    QStackedWidget *m_pageStack   = nullptr;
+    QWidget        *m_pageLobby    = nullptr;  ///< Page 0 – Canlı Test Lobisi
+    QWidget        *m_pageProfiles = nullptr;  ///< Page 1 – Uydu Profilleri & Golden Sample
+    QWidget        *m_pageHistory  = nullptr;  ///< Page 2 – Test Geçmişi & Raporlama
+    QWidget        *m_pageOrders   = nullptr;  ///< Page 3 – İş Emirleri
+    QWidget        *m_pageSettings = nullptr;  ///< Page 4 – Sistem Ayarları
+    QWidget        *m_pageLogs     = nullptr;  ///< Page 5 – Sistem Logları
 
     // Top Header Card Widgets (NO serial port widgets on header)
     QLabel *m_lblServerStatus = nullptr;
+    QLabel *m_lblRefModeBadge = nullptr;
     QLabel *m_lblRefPingBadge = nullptr;
     QLabel *m_lblRefTelemetry = nullptr;
     QLabel *m_lblOperatorName = nullptr;
@@ -127,6 +147,9 @@ private:
     QLabel *m_lblDbStatus = nullptr;
     QLineEdit *m_txtDbHost = nullptr;
     QLineEdit *m_txtDbName = nullptr;
+
+    // Profiles & Golden Sample Widget
+    ProfileManagerWidget *m_profileManager = nullptr;
 
     // System Logs & Status Bar
     QTextEdit *m_txtLog = nullptr;

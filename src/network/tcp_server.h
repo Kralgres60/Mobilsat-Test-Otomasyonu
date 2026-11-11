@@ -42,6 +42,15 @@ public:
      */
     void setRefWebClient(DrxWebClient *refWebClient);
 
+    /**
+     * @brief Sets the active reference comparison mode and broadcasts it to connected stations.
+     * @param mode ReferenceMode::LiveReference or ReferenceMode::GoldenSample
+     */
+    void setReferenceMode(ReferenceMode mode);
+
+    /** @brief Returns the currently active reference comparison mode. */
+    ReferenceMode referenceMode() const { return m_referenceMode; }
+
     /** @brief Binds and starts listening for client station connections. */
     bool start(quint16 port = 9100);
 
@@ -86,6 +95,7 @@ private:
     SerialWorker *m_refSerial;
     DrxWebClient *m_refWebClient = nullptr;
     QTimer m_refPollTimer;
+    ReferenceMode m_referenceMode = ReferenceMode::LiveReference;
 
     struct ClientSession {
         int stationId = 0;

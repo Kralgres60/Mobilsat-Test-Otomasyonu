@@ -47,6 +47,23 @@ void TcpServer::setRefWebClient(DrxWebClient *refWebClient) {
     }
 }
 
+void TcpServer::setReferenceMode(ReferenceMode mode) {
+    m_referenceMode = mode;
+    QString modeStr = (mode == ReferenceMode::GoldenSample) ? "GOLDEN" : "LIVE";
+    emit logMessage(QString("[Yönetici Modu] Referans kaynağı güncellendi: %1")
+                        .arg(mode == ReferenceMode::GoldenSample ? "Kayıtlı Golden Sample" : "Canlı Referans Anten"));
+
+    QJsonObject msg;
+    msg["type"] = NetMsg::TYPE_REF_MODE_UPDATE;
+    msg["ref_mode"] = modeStr;
+    const QByteArray payload = NetMsg::serialize(msg);
+    for (auto it = m_clients.begin(); it != m_clients.end(); ++it) {
+        if (it.key() && it.key()->isOpen()) {
+            it.key()->write(payload);
+        }
+    }
+}
+
 bool TcpServer::start(quint16 port) {
     if (m_server.listen(QHostAddress::Any, port)) {
         emit logMessage(QString("TCP Command Server listening on port %1.").arg(port));
@@ -130,6 +147,7 @@ void TcpServer::processClientMessage(QTcpSocket *socket, const QJsonObject &msg)
         QJsonObject ack;
         ack["type"] = NetMsg::TYPE_REGISTER_ACK;
         ack["status"] = "OK";
+        ack["ref_mode"] = (m_referenceMode == ReferenceMode::GoldenSample) ? "GOLDEN" : "LIVE";
         ack["server_time"] = QDateTime::currentDateTime().toString(Qt::ISODate);
         socket->write(NetMsg::serialize(ack));
 
@@ -156,8 +174,8 @@ void TcpServer::processClientMessage(QTcpSocket *socket, const QJsonObject &msg)
         QString pol = msg["pol"].toString();
         int stationId = msg["station_id"].toInt();
 
-        // Tune Reference DRX only if requested by the active lock holder
-        if (m_arbiter && m_arbiter->activeStationId() == stationId) {
+        // Tune Reference DRX only in LiveReference mode and when requested by active lock holder
+        if (m_referenceMode == ReferenceMode::LiveReference && m_arbiter && m_arbiter->activeStationId() == stationId) {
             if (m_refWebClient) {
                 m_refWebClient->sendTune(freq, sr, pol);
             }

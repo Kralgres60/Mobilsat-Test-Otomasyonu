@@ -1,6 +1,6 @@
 /**
  * @file client_window.h
- * @brief Clean tabbed operator and engineer test bench interface (Ethernet-first with ICMP ping check).
+ * @brief Clean sidebar-navigated operator and engineer test bench interface (Ethernet-first with ICMP ping check).
  * @author Semi Eren Gökyıldız
  * @copyright Copyright (C) 2026 NETA Elektronik A.Ş.
  */
@@ -15,7 +15,8 @@
 #include <QLabel>
 #include <QTextEdit>
 #include <QTableWidget>
-#include <QTabWidget>
+#include <QListWidget>
+#include <QStackedWidget>
 #include <QProgressBar>
 #include <QDoubleSpinBox>
 #include <QSpinBox>
@@ -26,13 +27,15 @@
 #include "network/udp_beacon.h"
 #include "core/test_state_machine.h"
 #include "ui/common/qcustomplot.h"
+#include "ui/common/profile_manager_widget.h"
 
 /**
  * @class ClientWindow
- * @brief Production workstation window using CAT6 Ethernet Web CGI + ICMP Ping verification:
- *        - Technician: Clean Üretim Testi tab (Ethernet Ping->Data handshake, barcode scan,
- *          3x3 pastel telemetry, 10-channel table, PASS/FAIL verdict) & Live Graph.
- *        - Engineer: All Technician tabs plus RF/Ethernet/Optional-Serial settings tab & System Logs tab.
+ * @brief Production workstation window using CAT6 Ethernet Web CGI + ICMP Ping verification.
+ *
+ * Layout: Left sidebar navigation (QListWidget#sideNav) + right QStackedWidget pages.
+ *   - Technician: 📡 Üretim Testi, 📈 Canlı Grafik
+ *   - Engineer:   same + ⚙️ Mühendis Ayarları, 📜 Sistem Logları
  */
 class ClientWindow : public QMainWindow {
     Q_OBJECT
@@ -78,15 +81,26 @@ private slots:
     void onClearGraphClicked();
     void onClearLogClicked();
 
+    /** @brief Handles satellite profile combo box selection on the production page. */
+    void onProfileComboChanged(int index);
+    /** @brief Syncs default satellite profile when work order selection changes. */
+    void onWorkOrderComboChanged(int index);
+    /** @brief Updates station reference mode (Live vs Golden Sample) dictated by the Host. */
+    void onReferenceModeChanged(ReferenceMode mode);
+
+    /** @brief Switches the right-side page stack to the index selected in the sidebar. */
+    void onNavItemChanged(int index);
+
     void appendLog(const QString &text);
 
 private:
     void setupMenuBar();
     void setupUi();
-    void setupProductionTab();
-    void setupGraphTab();
-    void setupEngineerSettingsTab();
-    void setupLogsTab();
+    void setupProductionPage();
+    void setupGraphPage();
+    void setupProfilesPage();
+    void setupEngineerSettingsPage();
+    void setupLogsPage();
     void setupPlot();
     void loadWorkOrdersAndProfiles();
     void populateChannelTable();
@@ -102,67 +116,76 @@ private:
     TestStateMachine *m_stateMachine = nullptr;
     QTimer m_ethPingTimer;
 
-    // Navigation & Tabs
-    QTabWidget *m_tabWidget = nullptr;
-    QWidget *m_tabProduction = nullptr;
-    QWidget *m_tabGraph = nullptr;
-    QWidget *m_tabEngineer = nullptr;
-    QWidget *m_tabLogs = nullptr;
+    // ── Sidebar Navigation ──────────────────────────────────────────────────
+    /** @brief Left sidebar navigation list (objectName: "sideNav" for QSS targeting). */
+    QListWidget    *m_sideNav   = nullptr;
+    /** @brief Right-side page container matched to sidebar items. */
+    QStackedWidget *m_pageStack = nullptr;
 
-    // Station & Ethernet Status Pills (Tab 0)
-    QLabel *m_lblStationBadge = nullptr;
+    // Page widgets (replace former QTabWidget tabs)
+    QWidget *m_pageProduction = nullptr;  ///< Page 0 – Üretim Testi
+    QWidget *m_pageGraph      = nullptr;  ///< Page 1 – Canlı Grafik
+    QWidget *m_pageProfiles   = nullptr;  ///< Page 2 – Uydu Profilleri & Frekanslar
+    QWidget *m_pageEngineer   = nullptr;  ///< Page 3 – Mühendis Ayarları (Engineer only)
+    QWidget *m_pageLogs       = nullptr;  ///< Page 4 – Sistem Logları (Engineer only)
+    ProfileManagerWidget *m_profileManager = nullptr;
+
+    // ── Station & Ethernet Status Pills (Page 0) ───────────────────────────
+    QLabel *m_lblStationBadge    = nullptr;
     QLabel *m_lblConnectionStatus = nullptr;
-    QLabel *m_lblEthPingBadge = nullptr;
-    QLabel *m_lblLockBanner = nullptr;
-    QLabel *m_lblRolePill = nullptr;
-    QLabel *m_lblOperatorName = nullptr;
-    QLabel *m_lblDeviceStatus = nullptr;
-    QLabel *m_lblEthTargetIp = nullptr;
-    QLabel *m_lblDevMeta = nullptr;
+    QLabel *m_lblEthPingBadge    = nullptr;
+    QLabel *m_lblLockBanner      = nullptr;
+    QLabel *m_lblRefModeBadge    = nullptr;
+    QLabel *m_lblRolePill        = nullptr;
+    QLabel *m_lblOperatorName    = nullptr;
+    QLabel *m_lblDeviceStatus    = nullptr;
+    QLabel *m_lblEthTargetIp     = nullptr;
+    QLabel *m_lblDevMeta         = nullptr;
     QPushButton *m_btnEthPingSync = nullptr;
 
-    // Work Order & Barcode Controls (Tab 0)
-    QComboBox *m_comboOrders = nullptr;
-    QLineEdit *m_txtAntennaSn = nullptr;
+    // Work Order & Barcode Controls (Page 0)
+    QComboBox  *m_comboOrders   = nullptr;
+    QComboBox  *m_comboProfiles = nullptr;
+    QLineEdit  *m_txtAntennaSn  = nullptr;
     QPushButton *m_btnStartTest = nullptr;
     QPushButton *m_btnAbortTest = nullptr;
 
-    // 3x3 Live RF Telemetry Pastel Pills (Tab 0)
-    QLabel *m_lblLiveChannel = nullptr;
-    QLabel *m_lblLiveFreqPol = nullptr;
-    QLabel *m_lblStatusSignal = nullptr;
-    QLabel *m_lblLiveDutCn = nullptr;
-    QLabel *m_lblLiveDelta = nullptr;
-    QLabel *m_lblStatusVideo = nullptr;
-    QLabel *m_lblLiveRefCn = nullptr;
-    QLabel *m_lblLivePower = nullptr;
+    // 3x3 Live RF Telemetry Pastel Pills (Page 0)
+    QLabel *m_lblLiveChannel   = nullptr;
+    QLabel *m_lblLiveFreqPol   = nullptr;
+    QLabel *m_lblStatusSignal  = nullptr;
+    QLabel *m_lblLiveDutCn     = nullptr;
+    QLabel *m_lblLiveDelta     = nullptr;
+    QLabel *m_lblStatusVideo   = nullptr;
+    QLabel *m_lblLiveRefCn     = nullptr;
+    QLabel *m_lblLivePower     = nullptr;
     QLabel *m_lblLiveTolerance = nullptr;
 
-    // Outcome Summary & 10-Channel Table (Tab 0 Right)
-    QFrame *m_resultBannerFrame = nullptr;
-    QLabel *m_lblOverallResult = nullptr;
-    QLabel *m_lblOverallDetails = nullptr;
-    QProgressBar *m_progressTest = nullptr;
-    QTableWidget *m_tableChannels = nullptr;
+    // Outcome Summary & 10-Channel Table (Page 0 Right)
+    QFrame      *m_resultBannerFrame  = nullptr;
+    QLabel      *m_lblOverallResult   = nullptr;
+    QLabel      *m_lblOverallDetails  = nullptr;
+    QProgressBar *m_progressTest      = nullptr;
+    QTableWidget *m_tableChannels     = nullptr;
 
-    // Live Graph (Tab 1)
+    // Live Graph (Page 1)
     QCustomPlot *m_plot = nullptr;
 
-    // Engineer Settings (Tab 2)
-    QDoubleSpinBox *m_spinTolerance = nullptr;
-    QSpinBox *m_spinSampleDuration = nullptr;
-    QLabel *m_lblProfileSummary = nullptr;
-    QLineEdit *m_txtDutDrxIp = nullptr;
-    QLineEdit *m_txtRefDrxIp = nullptr;
-    QLineEdit *m_txtDrxUser = nullptr;
-    QLineEdit *m_txtDrxPass = nullptr;
-    QLineEdit *m_txtHostIp = nullptr;
-    QSpinBox *m_spinTcpPort = nullptr;
-    QSpinBox *m_spinUdpPort = nullptr;
-    QComboBox *m_comboSerialPorts = nullptr;
-    QPushButton *m_btnConnectSerial = nullptr;
+    // Engineer Settings (Page 2)
+    QDoubleSpinBox *m_spinTolerance      = nullptr;
+    QSpinBox       *m_spinSampleDuration = nullptr;
+    QLabel         *m_lblProfileSummary  = nullptr;
+    QLineEdit      *m_txtDutDrxIp        = nullptr;
+    QLineEdit      *m_txtRefDrxIp        = nullptr;
+    QLineEdit      *m_txtDrxUser         = nullptr;
+    QLineEdit      *m_txtDrxPass         = nullptr;
+    QLineEdit      *m_txtHostIp          = nullptr;
+    QSpinBox       *m_spinTcpPort        = nullptr;
+    QSpinBox       *m_spinUdpPort        = nullptr;
+    QComboBox      *m_comboSerialPorts   = nullptr;
+    QPushButton    *m_btnConnectSerial   = nullptr;
 
-    // System Logs (Tab 3)
+    // System Logs (Page 3)
     QTextEdit *m_txtLog = nullptr;
 
     // Status bar label
@@ -170,7 +193,9 @@ private:
 
     QString m_activeAntennaSn;
     QVector<WorkOrderInfo> m_workOrders;
+    QVector<SatelliteProfileInfo> m_profiles;
     SatelliteProfileInfo m_currentProfile;
 };
 
 #endif // CLIENT_WINDOW_H
+

@@ -1,6 +1,6 @@
 /**
  * @file client_window.cpp
- * @brief Implementation of the Ethernet-first DRX-inspired tabbed operator and engineer interface.
+ * @brief Implementation of the Ethernet-first DRX-inspired sidebar-navigated operator and engineer interface.
  * @author Semi Eren Gökyıldız
  * @copyright Copyright (C) 2026 NETA Elektronik A.Ş.
  */
@@ -20,7 +20,6 @@
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHeaderView>
-#include <QTabBar>
 #include <QMenuBar>
 #include <QMenu>
 #include <QAction>
@@ -29,6 +28,8 @@
 #include <QDateTime>
 #include <QPixmap>
 #include <QtMath>
+#include <QSplitter>
+#include <QFrame>
 
 ClientWindow::ClientWindow(QWidget *parent)
     : QMainWindow(parent), m_beaconListener(AppConfig::instance().udpBeaconPort()) {
@@ -100,6 +101,7 @@ ClientWindow::ClientWindow(QWidget *parent)
     connect(&m_beaconListener, &UdpBeaconListener::hostDiscovered, this, &ClientWindow::onHostDiscovered);
     connect(&m_netClient, &TcpClient::connected, this, &ClientWindow::onTcpConnected);
     connect(&m_netClient, &TcpClient::disconnected, this, &ClientWindow::onTcpDisconnected);
+    connect(&m_netClient, &TcpClient::referenceModeChanged, this, &ClientWindow::onReferenceModeChanged);
     connect(&m_netClient, &TcpClient::logMessage, this, &ClientWindow::appendLog);
 
     // Optional Legacy RS232 Fallback Wiring (controls live inside Engineer Settings tab only)
@@ -155,6 +157,7 @@ ClientWindow::ClientWindow(QWidget *parent)
 #endif
 
     loadWorkOrdersAndProfiles();
+    onReferenceModeChanged(DbManager::instance().getReferenceMode());
     onRefreshPortsClicked();
     applyUserRoleUi();
 
@@ -200,40 +203,92 @@ void ClientWindow::setupUi() {
     setCentralWidget(central);
 
     QVBoxLayout *rootLayout = new QVBoxLayout(central);
-    rootLayout->setContentsMargins(8, 6, 8, 6);
-    rootLayout->setSpacing(6);
+    rootLayout->setContentsMargins(0, 0, 0, 0);
+    rootLayout->setSpacing(0);
 
-    m_tabWidget = new QTabWidget(central);
-    m_tabWidget->tabBar()->setElideMode(Qt::ElideNone);
+    // ── Main horizontal split: Sidebar | Content ─────────────────────────────
+    QSplitter *splitter = new QSplitter(Qt::Horizontal, central);
+    splitter->setHandleWidth(2);
+    splitter->setChildrenCollapsible(false);
 
-    setupProductionTab();
-    setupGraphTab();
-    setupEngineerSettingsTab();
-    setupLogsTab();
+    // ── Left Sidebar ──────────────────────────────────────────────────────────
+    m_sideNav = new QListWidget(splitter);
+    m_sideNav->setObjectName("sideNav");
+    m_sideNav->setFixedWidth(190);
+    m_sideNav->setSpacing(2);
+    m_sideNav->setFrameShape(QFrame::NoFrame);
 
-    m_tabWidget->addTab(m_tabProduction, "📡 Üretim Testi");
-    m_tabWidget->addTab(m_tabGraph, "📈 Canlı Grafik");
-    m_tabWidget->addTab(m_tabEngineer, "⚙️ Mühendis Ayarları");
-    m_tabWidget->addTab(m_tabLogs, "📜 Sistem Logları");
+    // Sidebar logo/header
+    QListWidgetItem *headerItem = new QListWidgetItem("  🛰  NETA DRX9000");
+    headerItem->setFlags(Qt::NoItemFlags);  // not selectable
+    headerItem->setFont(QFont("Segoe UI", 10, QFont::Bold));
+    headerItem->setForeground(QColor("#34D399"));
+    headerItem->setBackground(QColor("#064E3B"));
+    headerItem->setSizeHint(QSize(190, 42));
+    m_sideNav->addItem(headerItem);
 
-    rootLayout->addWidget(m_tabWidget);
+    // Separator
+    QListWidgetItem *sepItem = new QListWidgetItem();
+    sepItem->setFlags(Qt::NoItemFlags);
+    sepItem->setSizeHint(QSize(190, 1));
+    sepItem->setBackground(QColor("#1A3D2B"));
+    m_sideNav->addItem(sepItem);
 
-    // Clean single-line bottom status bar
+    // Navigation items (index 2 = Page 0, index 3 = Page 1, etc.)
+    auto addNavItem = [&](const QString &text) {
+        QListWidgetItem *item = new QListWidgetItem(text);
+        item->setSizeHint(QSize(190, 46));
+        m_sideNav->addItem(item);
+    };
+    addNavItem("  📡  Üretim Testi");
+    addNavItem("  📈  Canlı Grafik");
+    addNavItem("  🛰️  Uydu Profilleri");
+    addNavItem("  ⚙️  Mühendis Ayarları");
+    addNavItem("  📜  Sistem Logları");
+
+    m_sideNav->setCurrentRow(2);  // default: Üretim Testi
+
+    // ── Right Page Stack ──────────────────────────────────────────────────────
+    m_pageStack = new QStackedWidget(splitter);
+
+    setupProductionPage();
+    setupGraphPage();
+    setupProfilesPage();
+    setupEngineerSettingsPage();
+    setupLogsPage();
+
+    m_pageStack->addWidget(m_pageProduction);   // index 0
+    m_pageStack->addWidget(m_pageGraph);        // index 1
+    m_pageStack->addWidget(m_pageProfiles);     // index 2
+    m_pageStack->addWidget(m_pageEngineer);     // index 3
+    m_pageStack->addWidget(m_pageLogs);         // index 4
+
+    splitter->addWidget(m_sideNav);
+    splitter->addWidget(m_pageStack);
+    splitter->setStretchFactor(0, 0);
+    splitter->setStretchFactor(1, 1);
+
+    rootLayout->addWidget(splitter);
+
+    // Nav ↔ Page stack wiring (offset by 2 for header + separator items)
+    connect(m_sideNav, &QListWidget::currentRowChanged, this, &ClientWindow::onNavItemChanged);
+
+    // ── Status Bar ────────────────────────────────────────────────────────────
     m_statusLabel = new QLabel("Hazır", this);
-    m_statusLabel->setStyleSheet("color: #94A3B8; padding-left: 4px;");
+    m_statusLabel->setStyleSheet("color: #A7C4B5; padding-left: 4px;");
     statusBar()->addWidget(m_statusLabel, 1);
 
     QLabel *lblFooterRight = new QLabel(
         QString("NETA Elektronik A.Ş.  |  Geliştirici: %1  |  v%2")
             .arg(NETA_APP_DEVELOPER, NETA_APP_VERSION), this);
-    lblFooterRight->setStyleSheet("color: #64748B; padding-right: 6px; font-size: 8.5pt;");
+    lblFooterRight->setStyleSheet("color: #4B7A66; padding-right: 6px; font-size: 8.5pt;");
     statusBar()->addPermanentWidget(lblFooterRight);
 }
 
-void ClientWindow::setupProductionTab() {
-    m_tabProduction = new QWidget(this);
-    QHBoxLayout *mainCols = new QHBoxLayout(m_tabProduction);
-    mainCols->setContentsMargins(6, 6, 6, 6);
+void ClientWindow::setupProductionPage() {
+    m_pageProduction = new QWidget(this);
+    QHBoxLayout *mainCols = new QHBoxLayout(m_pageProduction);
+    mainCols->setContentsMargins(10, 10, 10, 10);
     mainCols->setSpacing(10);
 
     // =========================================================================
@@ -243,7 +298,7 @@ void ClientWindow::setupProductionTab() {
     leftCol->setSpacing(8);
 
     // 1. Station & CAT6 Ethernet Info Group (NO serial port controls here!)
-    QGroupBox *grpStation = new QGroupBox("🏭 İstasyon & Ethernet (CAT6) Bağlantısı", m_tabProduction);
+    QGroupBox *grpStation = new QGroupBox("🏭 İstasyon & Ethernet (CAT6) Bağlantısı", m_pageProduction);
     QVBoxLayout *stVBox = new QVBoxLayout(grpStation);
     stVBox->setSpacing(8);
 
@@ -257,17 +312,17 @@ void ClientWindow::setupProductionTab() {
     if (!pix.isNull()) {
         lblLogo->setPixmap(pix.scaled(118, 34, Qt::KeepAspectRatio, Qt::SmoothTransformation));
     } else {
-        lblLogo->setText("<b style='color:#0A192F; font-size:13pt;'>NETA</b>");
+        lblLogo->setText("<b style='color:#064E3B; font-size:13pt;'>NETA</b>");
     }
     stHeaderRow->addWidget(lblLogo);
     stHeaderRow->addStretch();
 
     m_lblEthTargetIp = new QLabel(QString("🌐 DRX IP: %1").arg(AppConfig::instance().stationDrxHost()), grpStation);
-    m_lblEthTargetIp->setStyleSheet("background-color: #112240; color: #64FFDA; border: 1px solid #233554; border-radius: 4px; padding: 5px 10px; font-weight: bold;");
+    m_lblEthTargetIp->setStyleSheet("background-color: #112D21; color: #34D399; border: 1px solid #1A3D2B; border-radius: 4px; padding: 5px 10px; font-weight: bold;");
 
     m_btnEthPingSync = new QPushButton("🔌 Ping & Bağlan (ETH)", grpStation);
     m_btnEthPingSync->setCursor(Qt::PointingHandCursor);
-    m_btnEthPingSync->setStyleSheet("background-color: #0284C7; color: #FFFFFF; border: none; border-radius: 4px; padding: 6px 12px; font-weight: bold;");
+    m_btnEthPingSync->setStyleSheet("background-color: #059669; color: #FFFFFF; border: none; border-radius: 4px; padding: 6px 12px; font-weight: bold;");
     connect(m_btnEthPingSync, &QPushButton::clicked, this, &ClientWindow::onEthPingSyncClicked);
 
     stHeaderRow->addWidget(m_lblEthTargetIp);
@@ -290,10 +345,14 @@ void ClientWindow::setupProductionTab() {
     m_lblLockBanner = new QLabel("⚪ Kilit: Bekleniyor", grpStation);
     m_lblLockBanner->setStyleSheet(StyleHelper::getPastelSlateStyle());
 
+    m_lblRefModeBadge = new QLabel("🟢 Ref: Canlı Anten", grpStation);
+    m_lblRefModeBadge->setStyleSheet(StyleHelper::getPastelGreenStyle());
+
     badgeRow->addWidget(m_lblStationBadge, 1);
     badgeRow->addWidget(m_lblConnectionStatus, 1);
     badgeRow->addWidget(m_lblEthPingBadge, 1);
     badgeRow->addWidget(m_lblLockBanner, 1);
+    badgeRow->addWidget(m_lblRefModeBadge, 1);
     stVBox->addLayout(badgeRow);
 
     // Row 3: Role + Operator + Web CGI Session State
@@ -305,7 +364,7 @@ void ClientWindow::setupProductionTab() {
 
     QLabel *lblOpTitle = new QLabel("Operatör:", grpStation);
     m_lblOperatorName = new QLabel("Operatör", grpStation);
-    m_lblOperatorName->setStyleSheet("font-weight: bold; color: #38BDF8; font-size: 10pt;");
+    m_lblOperatorName->setStyleSheet("font-weight: bold; color: #34D399; font-size: 10pt;");
 
     m_lblDeviceStatus = new QLabel("🔴 Web Veri: Bekleniyor", grpStation);
     m_lblDeviceStatus->setStyleSheet(StyleHelper::getPastelRedStyle());
@@ -319,24 +378,49 @@ void ClientWindow::setupProductionTab() {
 
     // Row 4: Synced Device Identity Strip (fetched after Ping -> Login -> deviceInfo)
     m_lblDevMeta = new QLabel("🆔 Cihaz ID: --   |   💾 SW: --   |   🌐 MAC: --", grpStation);
-    m_lblDevMeta->setStyleSheet("background-color: #112240; color: #94A3B8; border: 1px solid #1E2D4A; border-radius: 4px; padding: 4px 8px; font-family: Consolas, monospace; font-size: 8.5pt;");
+    m_lblDevMeta->setStyleSheet("background-color: #112D21; color: #A7C4B5; border: 1px solid #1A3D2B; border-radius: 4px; padding: 4px 8px; font-family: Consolas, monospace; font-size: 8.5pt;");
     stVBox->addWidget(m_lblDevMeta);
 
     leftCol->addWidget(grpStation);
 
     // 2. Test Execution & Work Order Group
-    QGroupBox *grpLaunch = new QGroupBox("🧪 Anten Testi & İş Emri", m_tabProduction);
+    QGroupBox *grpLaunch = new QGroupBox("🧪 Anten Testi & İş Emri", m_pageProduction);
     QFormLayout *launchForm = new QFormLayout(grpLaunch);
     launchForm->setSpacing(8);
     launchForm->setLabelAlignment(Qt::AlignLeft | Qt::AlignVCenter);
 
     m_comboOrders = new QComboBox(grpLaunch);
+    connect(m_comboOrders, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &ClientWindow::onWorkOrderComboChanged);
+
+    QHBoxLayout *profRow = new QHBoxLayout();
+    profRow->setSpacing(6);
+    m_comboProfiles = new QComboBox(grpLaunch);
+    connect(m_comboProfiles, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &ClientWindow::onProfileComboChanged);
+    QPushButton *btnRefreshProfiles = new QPushButton("🔄", grpLaunch);
+    btnRefreshProfiles->setToolTip("Uydu profillerini ve Golden Sample değerlerini veritabanından yenile");
+    btnRefreshProfiles->setFixedSize(34, 28);
+    connect(btnRefreshProfiles, &QPushButton::clicked, this, &ClientWindow::loadWorkOrdersAndProfiles);
+
+    QPushButton *btnManageProfiles = new QPushButton("➕ Ekle / Düzenle", grpLaunch);
+    btnManageProfiles->setToolTip("Yeni uydu profili ekle veya frekansları düzenle");
+    btnManageProfiles->setFixedHeight(28);
+    connect(btnManageProfiles, &QPushButton::clicked, this, [this]() {
+        if (m_sideNav) m_sideNav->setCurrentRow(4); // Uydu Profilleri sayfasına geç
+    });
+
+    profRow->addWidget(m_comboProfiles, 1);
+    profRow->addWidget(btnRefreshProfiles);
+    profRow->addWidget(btnManageProfiles);
+
     m_txtAntennaSn = new QLineEdit(grpLaunch);
     m_txtAntennaSn->setPlaceholderText("Anten barkodunu okutunuz ve Enter'a basınız...");
     m_txtAntennaSn->setStyleSheet("font-size: 11pt; font-weight: bold; padding: 6px 10px;");
     connect(m_txtAntennaSn, &QLineEdit::returnPressed, this, &ClientWindow::onStartTestClicked);
 
     launchForm->addRow(new QLabel("İş Emri:", grpLaunch), m_comboOrders);
+    launchForm->addRow(new QLabel("Uydu Profili:", grpLaunch), profRow);
     launchForm->addRow(new QLabel("Barkod / Seri No:", grpLaunch), m_txtAntennaSn);
 
     QHBoxLayout *btnRow = new QHBoxLayout();
@@ -346,9 +430,9 @@ void ClientWindow::setupProductionTab() {
     m_btnStartTest->setMinimumHeight(38);
     m_btnStartTest->setCursor(Qt::PointingHandCursor);
     m_btnStartTest->setStyleSheet(
-        "QPushButton { background-color: #8B5CF6; color: #FFFFFF; border: none; border-radius: 5px; font-weight: bold; font-size: 11pt; padding: 8px 16px; }"
-        "QPushButton:hover { background-color: #7C3AED; }"
-        "QPushButton:disabled { background-color: #1E293B; color: #475569; }"
+        "QPushButton { background-color: #10B981; color: #071210; border: none; border-radius: 5px; font-weight: bold; font-size: 11pt; padding: 8px 16px; }"
+        "QPushButton:hover { background-color: #34D399; }"
+        "QPushButton:disabled { background-color: #0D2318; color: #3D6652; }"
     );
     connect(m_btnStartTest, &QPushButton::clicked, this, &ClientWindow::onStartTestClicked);
 
@@ -359,7 +443,7 @@ void ClientWindow::setupProductionTab() {
     m_btnAbortTest->setStyleSheet(
         "QPushButton { background-color: #B91C1C; color: #FFFFFF; border: none; border-radius: 5px; font-weight: bold; font-size: 10pt; padding: 8px 16px; }"
         "QPushButton:hover { background-color: #991B1B; }"
-        "QPushButton:disabled { background-color: #1E293B; color: #475569; }"
+        "QPushButton:disabled { background-color: #0D2318; color: #3D6652; }"
     );
     connect(m_btnAbortTest, &QPushButton::clicked, this, &ClientWindow::onAbortTestClicked);
 
@@ -370,7 +454,7 @@ void ClientWindow::setupProductionTab() {
     leftCol->addWidget(grpLaunch);
 
     // 3. 3x3 Live RF Telemetry Pastel Pills (mirrors DRX DashboardTab)
-    QGroupBox *grpTelemetry = new QGroupBox("📡 Canlı RF Sinyal Telemetrisi ve Durum Rozetleri", m_tabProduction);
+    QGroupBox *grpTelemetry = new QGroupBox("📡 Canlı RF Sinyal Telemetrisi ve Durum Rozetleri", m_pageProduction);
     QGridLayout *telGrid = new QGridLayout(grpTelemetry);
     telGrid->setSpacing(6);
 
@@ -409,22 +493,22 @@ void ClientWindow::setupProductionTab() {
     QVBoxLayout *rightCol = new QVBoxLayout();
     rightCol->setSpacing(8);
 
-    QGroupBox *grpOutcome = new QGroupBox("🏁 Test Sonuç Özeti", m_tabProduction);
+    QGroupBox *grpOutcome = new QGroupBox("🏁 Test Sonuç Özeti", m_pageProduction);
     QVBoxLayout *outVBox = new QVBoxLayout(grpOutcome);
     outVBox->setSpacing(6);
 
     m_resultBannerFrame = new QFrame(grpOutcome);
-    m_resultBannerFrame->setStyleSheet("background-color: #112240; border: 1px solid #1E2D4A; border-radius: 6px; padding: 10px;");
+    m_resultBannerFrame->setStyleSheet("background-color: #112D21; border: 1px solid #1A3D2B; border-radius: 6px; padding: 10px;");
     QVBoxLayout *bannerVBox = new QVBoxLayout(m_resultBannerFrame);
     bannerVBox->setSpacing(2);
 
     m_lblOverallResult = new QLabel("BEKLEMEDE", m_resultBannerFrame);
     m_lblOverallResult->setAlignment(Qt::AlignCenter);
-    m_lblOverallResult->setStyleSheet("font-size: 20pt; font-weight: bold; color: #94A3B8;");
+    m_lblOverallResult->setStyleSheet("font-size: 20pt; font-weight: bold; color: #A7C4B5;");
 
     m_lblOverallDetails = new QLabel("Hazır: Anten barkodunu okutunuz", m_resultBannerFrame);
     m_lblOverallDetails->setAlignment(Qt::AlignCenter);
-    m_lblOverallDetails->setStyleSheet("font-size: 9.5pt; color: #CBD5E1;");
+    m_lblOverallDetails->setStyleSheet("font-size: 9.5pt; color: #E6F4EE;");
 
     bannerVBox->addWidget(m_lblOverallResult);
     bannerVBox->addWidget(m_lblOverallDetails);
@@ -440,7 +524,7 @@ void ClientWindow::setupProductionTab() {
     rightCol->addWidget(grpOutcome);
 
     // 10-Channel Transponder Table
-    QGroupBox *grpChannels = new QGroupBox("📺 Türksat 10 Kanal Test Matrisi", m_tabProduction);
+    QGroupBox *grpChannels = new QGroupBox("📺 Türksat 10 Kanal Test Matrisi", m_pageProduction);
     QVBoxLayout *chVBox = new QVBoxLayout(grpChannels);
 
     m_tableChannels = new QTableWidget(grpChannels);
@@ -470,17 +554,17 @@ void ClientWindow::setupProductionTab() {
     mainCols->addLayout(rightCol, 48);
 }
 
-void ClientWindow::setupGraphTab() {
-    m_tabGraph = new QWidget(this);
-    QVBoxLayout *vbox = new QVBoxLayout(m_tabGraph);
-    vbox->setContentsMargins(6, 6, 6, 6);
+void ClientWindow::setupGraphPage() {
+    m_pageGraph = new QWidget(this);
+    QVBoxLayout *vbox = new QVBoxLayout(m_pageGraph);
+    vbox->setContentsMargins(10, 10, 10, 10);
 
-    QGroupBox *grpGraph = new QGroupBox("📈 Canlı Sinyal C/N (DUT vs Referans Golden Sample) Telemetri Grafiği", m_tabGraph);
+    QGroupBox *grpGraph = new QGroupBox("📈 Canlı Sinyal C/N (DUT vs Referans Golden Sample) Telemetri Grafiği", m_pageGraph);
     QVBoxLayout *plotBox = new QVBoxLayout(grpGraph);
 
     QHBoxLayout *topActions = new QHBoxLayout();
     QLabel *lblHint = new QLabel("Her kanal örnekleme adımında (250 ms) DUT ve Referans çanak C/N eğrileri canlı çizilir.", grpGraph);
-    lblHint->setStyleSheet("color: #8892B0;");
+    lblHint->setStyleSheet("color: #A7C4B5;");
     QPushButton *btnClearGraph = new QPushButton("🧹 Grafiği Temizle", grpGraph);
     btnClearGraph->setFixedHeight(28);
     connect(btnClearGraph, &QPushButton::clicked, this, &ClientWindow::onClearGraphClicked);
@@ -495,17 +579,26 @@ void ClientWindow::setupGraphTab() {
     vbox->addWidget(grpGraph);
 }
 
-void ClientWindow::setupEngineerSettingsTab() {
-    m_tabEngineer = new QWidget(this);
-    QVBoxLayout *vbox = new QVBoxLayout(m_tabEngineer);
-    vbox->setContentsMargins(8, 8, 8, 8);
+void ClientWindow::setupProfilesPage() {
+    m_profileManager = new ProfileManagerWidget(false, nullptr, nullptr, this);
+    connect(m_profileManager, &ProfileManagerWidget::profilesChanged,
+            this, &ClientWindow::loadWorkOrdersAndProfiles);
+    connect(m_profileManager, &ProfileManagerWidget::logMessage,
+            this, &ClientWindow::appendLog);
+    m_pageProfiles = m_profileManager;
+}
+
+void ClientWindow::setupEngineerSettingsPage() {
+    m_pageEngineer = new QWidget(this);
+    QVBoxLayout *vbox = new QVBoxLayout(m_pageEngineer);
+    vbox->setContentsMargins(10, 10, 10, 10);
     vbox->setSpacing(10);
 
     QGridLayout *cardsGrid = new QGridLayout();
     cardsGrid->setSpacing(10);
 
     // Card 1: RF Test & Tolerance
-    QGroupBox *grpRf = new QGroupBox("⚖️ RF Test & Tolerans Parametreleri", m_tabEngineer);
+    QGroupBox *grpRf = new QGroupBox("⚖️ RF Test & Tolerans Parametreleri", m_pageEngineer);
     QFormLayout *rfForm = new QFormLayout(grpRf);
     rfForm->setSpacing(10);
 
@@ -522,7 +615,7 @@ void ClientWindow::setupEngineerSettingsTab() {
     m_spinSampleDuration->setValue(AppConfig::instance().sampleDurationSec());
 
     m_lblProfileSummary = new QLabel("Türksat 42.0°E (10 Transponder)", grpRf);
-    m_lblProfileSummary->setStyleSheet("color: #64FFDA; font-weight: bold;");
+    m_lblProfileSummary->setStyleSheet("color: #34D399; font-weight: bold;");
 
     QPushButton *btnSaveRf = new QPushButton("💾 Test Parametrelerini Kaydet", grpRf);
     btnSaveRf->setStyleSheet("background-color: #059669; color: #FFFFFF; border: none; border-radius: 4px; padding: 8px 14px; font-weight: bold;");
@@ -535,7 +628,7 @@ void ClientWindow::setupEngineerSettingsTab() {
     cardsGrid->addWidget(grpRf, 0, 0);
 
     // Card 2: DRX Ethernet Web CGI Settings (Primary CAT6 communication)
-    QGroupBox *grpWeb = new QGroupBox("🌐 DRX9000 Ethernet & Web CGI Ayarları", m_tabEngineer);
+    QGroupBox *grpWeb = new QGroupBox("🌐 DRX9000 Ethernet & Web CGI Ayarları", m_pageEngineer);
     QFormLayout *webForm = new QFormLayout(grpWeb);
     webForm->setSpacing(10);
 
@@ -546,7 +639,7 @@ void ClientWindow::setupEngineerSettingsTab() {
     m_txtDrxPass->setEchoMode(QLineEdit::Password);
 
     QPushButton *btnSaveWeb = new QPushButton("🔗 Kaydet & Ping + Veri Testi Başlat", grpWeb);
-    btnSaveWeb->setStyleSheet("background-color: #0284C7; color: #FFFFFF; border: none; border-radius: 4px; padding: 8px 14px; font-weight: bold;");
+    btnSaveWeb->setStyleSheet("background-color: #10B981; color: #071210; border: none; border-radius: 4px; padding: 8px 14px; font-weight: bold;");
     connect(btnSaveWeb, &QPushButton::clicked, this, &ClientWindow::onSaveWebSettingsClicked);
 
     webForm->addRow("İstasyon DUT DRX IP:", m_txtDutDrxIp);
@@ -557,7 +650,7 @@ void ClientWindow::setupEngineerSettingsTab() {
     cardsGrid->addWidget(grpWeb, 0, 1);
 
     // Card 3: Host Network & Discovery Settings
-    QGroupBox *grpNet = new QGroupBox("🔌 Yönetici Sunucu (Host) & Lobi Ağı", m_tabEngineer);
+    QGroupBox *grpNet = new QGroupBox("🔌 Yönetici Sunucu (Host) & Lobi Ağı", m_pageEngineer);
     QFormLayout *netForm = new QFormLayout(grpNet);
     netForm->setSpacing(10);
 
@@ -571,7 +664,7 @@ void ClientWindow::setupEngineerSettingsTab() {
     m_spinUdpPort->setValue(AppConfig::instance().udpBeaconPort());
 
     QPushButton *btnReconnect = new QPushButton("🔄 Sunucuya Yeniden Bağlan", grpNet);
-    btnReconnect->setStyleSheet("background-color: #7C3AED; color: #FFFFFF; border: none; border-radius: 4px; padding: 8px 14px; font-weight: bold;");
+    btnReconnect->setStyleSheet("background-color: #065F46; color: #E6F4EE; border: 1px solid #10B981; border-radius: 4px; padding: 8px 14px; font-weight: bold;");
     connect(btnReconnect, &QPushButton::clicked, this, &ClientWindow::onReconnectHostClicked);
 
     netForm->addRow("Yönetici Sunucu IP:", m_txtHostIp);
@@ -581,13 +674,13 @@ void ClientWindow::setupEngineerSettingsTab() {
     cardsGrid->addWidget(grpNet, 1, 0);
 
     // Card 4: Optional Legacy RS232 Fallback (strictly tucked away from Technician screen!)
-    QGroupBox *grpSerial = new QGroupBox("🔧 Gelişmiş: RS232 Yedek Seri Port (Opsiyonel)", m_tabEngineer);
+    QGroupBox *grpSerial = new QGroupBox("🔧 Gelişmiş: RS232 Yedek Seri Port (Opsiyonel)", m_pageEngineer);
     QFormLayout *serForm = new QFormLayout(grpSerial);
     serForm->setSpacing(10);
 
     QLabel *lblSerNote = new QLabel("Birincil iletişim Ethernet (CAT6) üzerindendir. Sadece acil laboratuvar debug için RS232 bağlayın.", grpSerial);
     lblSerNote->setWordWrap(true);
-    lblSerNote->setStyleSheet("color: #94A3B8; font-size: 8.5pt;");
+    lblSerNote->setStyleSheet("color: #A7C4B5; font-size: 8.5pt;");
 
     QHBoxLayout *serCtrlRow = new QHBoxLayout();
     m_comboSerialPorts = new QComboBox(grpSerial);
@@ -595,7 +688,7 @@ void ClientWindow::setupEngineerSettingsTab() {
     btnRefresh->setFixedSize(32, 28);
     connect(btnRefresh, &QPushButton::clicked, this, &ClientWindow::onRefreshPortsClicked);
     m_btnConnectSerial = new QPushButton("RS232 Bağlan", grpSerial);
-    m_btnConnectSerial->setStyleSheet("background-color: #0284C7; color: #FFFFFF; border: none; border-radius: 4px; padding: 6px 12px; font-weight: bold;");
+    m_btnConnectSerial->setStyleSheet("background-color: #059669; color: #FFFFFF; border: none; border-radius: 4px; padding: 6px 12px; font-weight: bold;");
     connect(m_btnConnectSerial, &QPushButton::clicked, this, &ClientWindow::onConnectSerialClicked);
 
     serCtrlRow->addWidget(m_comboSerialPorts, 1);
@@ -610,17 +703,17 @@ void ClientWindow::setupEngineerSettingsTab() {
     vbox->addStretch();
 }
 
-void ClientWindow::setupLogsTab() {
-    m_tabLogs = new QWidget(this);
-    QVBoxLayout *vbox = new QVBoxLayout(m_tabLogs);
-    vbox->setContentsMargins(8, 8, 8, 8);
+void ClientWindow::setupLogsPage() {
+    m_pageLogs = new QWidget(this);
+    QVBoxLayout *vbox = new QVBoxLayout(m_pageLogs);
+    vbox->setContentsMargins(10, 10, 10, 10);
 
-    QGroupBox *grpLogs = new QGroupBox("📜 Gerçek Zamanlı Ethernet Ping, Web CGI ve Ağ Log Konsolu", m_tabLogs);
+    QGroupBox *grpLogs = new QGroupBox("📜 Gerçek Zamanlı Ethernet Ping, Web CGI ve Ağ Log Konsolu", m_pageLogs);
     QVBoxLayout *logBox = new QVBoxLayout(grpLogs);
 
     QHBoxLayout *topBar = new QHBoxLayout();
     QLabel *lblLogHint = new QLabel("ICMP Ping testleri, HTTP Web CGI JSON yanıtları ve TCP/UDP ağ olayları anlık kaydedilir.", grpLogs);
-    lblLogHint->setStyleSheet("color: #8892B0;");
+    lblLogHint->setStyleSheet("color: #A7C4B5;");
     QPushButton *btnClearLog = new QPushButton("🧹 Konsolu Temizle", grpLogs);
     btnClearLog->setFixedHeight(28);
     connect(btnClearLog, &QPushButton::clicked, this, &ClientWindow::onClearLogClicked);
@@ -631,29 +724,29 @@ void ClientWindow::setupLogsTab() {
 
     m_txtLog = new QTextEdit(grpLogs);
     m_txtLog->setReadOnly(true);
-    m_txtLog->setStyleSheet("background-color: #071120; color: #64FFDA; font-family: Consolas, 'Courier New', monospace; font-size: 9.5pt;");
+    m_txtLog->setStyleSheet("background-color: #040B09; color: #34D399; font-family: Consolas, 'Courier New', monospace; font-size: 9.5pt;");
     logBox->addWidget(m_txtLog, 1);
 
     vbox->addWidget(grpLogs);
 }
 
 void ClientWindow::setupPlot() {
-    m_plot->setBackground(QBrush(QColor("#0D1B2E")));
-    m_plot->xAxis->setBasePen(QPen(QColor("#475569")));
-    m_plot->yAxis->setBasePen(QPen(QColor("#475569")));
-    m_plot->xAxis->setTickPen(QPen(QColor("#64748B")));
-    m_plot->yAxis->setTickPen(QPen(QColor("#64748B")));
-    m_plot->xAxis->setTickLabelColor(QColor("#CBD5E1"));
-    m_plot->yAxis->setTickLabelColor(QColor("#CBD5E1"));
-    m_plot->xAxis->grid()->setPen(QPen(QColor("#1E2D4A"), 1, Qt::DotLine));
-    m_plot->yAxis->grid()->setPen(QPen(QColor("#1E2D4A"), 1, Qt::DotLine));
+    m_plot->setBackground(QBrush(QColor("#0A1F17")));
+    m_plot->xAxis->setBasePen(QPen(QColor("#2D5E45")));
+    m_plot->yAxis->setBasePen(QPen(QColor("#2D5E45")));
+    m_plot->xAxis->setTickPen(QPen(QColor("#4B7A66")));
+    m_plot->yAxis->setTickPen(QPen(QColor("#4B7A66")));
+    m_plot->xAxis->setTickLabelColor(QColor("#E6F4EE"));
+    m_plot->yAxis->setTickLabelColor(QColor("#E6F4EE"));
+    m_plot->xAxis->grid()->setPen(QPen(QColor("#1A3D2B"), 1, Qt::DotLine));
+    m_plot->yAxis->grid()->setPen(QPen(QColor("#1A3D2B"), 1, Qt::DotLine));
     m_plot->xAxis->setLabel("Örneklem Sayısı (Zaman)");
     m_plot->yAxis->setLabel("C/N Sinyal Kalitesi (dB)");
-    m_plot->xAxis->setLabelColor(QColor("#94A3B8"));
-    m_plot->yAxis->setLabelColor(QColor("#94A3B8"));
+    m_plot->xAxis->setLabelColor(QColor("#A7C4B5"));
+    m_plot->yAxis->setLabelColor(QColor("#A7C4B5"));
 
     m_plot->addGraph();
-    m_plot->graph(0)->setPen(QPen(QColor("#38BDF8"), 2.5));
+    m_plot->graph(0)->setPen(QPen(QColor("#34D399"), 2.5));
     m_plot->graph(0)->setName("DUT C/N (Test Anteni)");
 
     m_plot->addGraph();
@@ -661,9 +754,9 @@ void ClientWindow::setupPlot() {
     m_plot->graph(1)->setName("REF C/N (Referans Çanak)");
 
     m_plot->legend->setVisible(true);
-    m_plot->legend->setBrush(QBrush(QColor(17, 34, 64, 220)));
-    m_plot->legend->setBorderPen(QPen(QColor("#1E2D4A")));
-    m_plot->legend->setTextColor(QColor("#E6F1FF"));
+    m_plot->legend->setBrush(QBrush(QColor(10, 31, 23, 220)));
+    m_plot->legend->setBorderPen(QPen(QColor("#1A3D2B")));
+    m_plot->legend->setTextColor(QColor("#E6F4EE"));
 
     m_plot->xAxis->setRange(0, 30);
     m_plot->yAxis->setRange(0, 20);
@@ -708,18 +801,88 @@ void ClientWindow::loadWorkOrdersAndProfiles() {
     }
 
     m_workOrders = db.getActiveWorkOrders();
-    m_comboOrders->clear();
-    for (const auto &wo : m_workOrders) {
-        m_comboOrders->addItem(QString("%1 - %2 (%3)").arg(wo.orderNo, wo.customerName, wo.productCode), wo.id);
+    m_profiles = db.getProfiles();
+
+    if (m_comboOrders) {
+        m_comboOrders->blockSignals(true);
+        m_comboOrders->clear();
+        for (const auto &wo : m_workOrders) {
+            m_comboOrders->addItem(QString("%1 - %2 (%3)").arg(wo.orderNo, wo.customerName, wo.productCode), wo.id);
+        }
+        m_comboOrders->blockSignals(false);
     }
 
-    auto profiles = db.getProfiles();
-    if (!profiles.isEmpty()) {
-        m_currentProfile = profiles.first();
-        if (m_lblProfileSummary) {
-            m_lblProfileSummary->setText(QString("%1 (%2, %3 Kanal)")
-                                             .arg(m_currentProfile.profileName, m_currentProfile.orbitalPosition)
-                                             .arg(m_currentProfile.channels.size()));
+    if (m_comboProfiles) {
+        m_comboProfiles->blockSignals(true);
+        int prevId = m_currentProfile.id;
+        m_comboProfiles->clear();
+        int targetIdx = 0;
+        for (int i = 0; i < m_profiles.size(); ++i) {
+            const auto &p = m_profiles[i];
+            m_comboProfiles->addItem(QString("%1 (%2, %3 Kanal)")
+                                         .arg(p.profileName, p.orbitalPosition)
+                                         .arg(p.channels.size()),
+                                     p.id);
+            if (p.id == prevId) {
+                targetIdx = i;
+            }
+        }
+        m_comboProfiles->blockSignals(false);
+
+        if (!m_profiles.isEmpty()) {
+            m_comboProfiles->setCurrentIndex(targetIdx);
+            onProfileComboChanged(targetIdx);
+        }
+    } else if (!m_profiles.isEmpty()) {
+        m_currentProfile = m_profiles.first();
+        populateChannelTable();
+    }
+
+    if (!m_workOrders.isEmpty() && m_comboOrders) {
+        onWorkOrderComboChanged(m_comboOrders->currentIndex());
+    }
+    if (m_profileManager) {
+        m_profileManager->reloadProfiles(m_currentProfile.id);
+    }
+}
+
+void ClientWindow::onWorkOrderComboChanged(int index) {
+    if (index < 0 || index >= m_workOrders.size() || !m_comboProfiles) return;
+    int targetProfId = m_workOrders[index].satelliteProfileId;
+    for (int i = 0; i < m_profiles.size(); ++i) {
+        if (m_profiles[i].id == targetProfId) {
+            m_comboProfiles->setCurrentIndex(i);
+            break;
+        }
+    }
+}
+
+void ClientWindow::onProfileComboChanged(int index) {
+    if (index < 0 || index >= m_profiles.size()) return;
+    m_currentProfile = m_profiles[index];
+
+    if (m_lblProfileSummary) {
+        m_lblProfileSummary->setText(QString("%1 (%2, %3 Kanal)")
+                                         .arg(m_currentProfile.profileName, m_currentProfile.orbitalPosition)
+                                         .arg(m_currentProfile.channels.size()));
+    }
+    if (m_lblLiveTolerance) {
+        m_lblLiveTolerance->setText(QString("⚖️ Tolerans: ±%1 dB").arg(m_currentProfile.defaultToleranceDb, 0, 'f', 2));
+    }
+    populateChannelTable();
+}
+
+void ClientWindow::onReferenceModeChanged(ReferenceMode mode) {
+    if (m_stateMachine) {
+        m_stateMachine->setReferenceMode(mode);
+    }
+    if (m_lblRefModeBadge) {
+        if (mode == ReferenceMode::GoldenSample) {
+            m_lblRefModeBadge->setText("🌟 Ref: Golden Sample");
+            m_lblRefModeBadge->setStyleSheet(StyleHelper::getPastelAmberStyle());
+        } else {
+            m_lblRefModeBadge->setText("🟢 Ref: Canlı Anten");
+            m_lblRefModeBadge->setStyleSheet(StyleHelper::getPastelGreenStyle());
         }
     }
     populateChannelTable();
@@ -731,6 +894,8 @@ void ClientWindow::populateChannelTable() {
     m_progressTest->setRange(0, count);
     m_progressTest->setValue(0);
 
+    bool isGoldenMode = (m_stateMachine && m_stateMachine->referenceMode() == ReferenceMode::GoldenSample);
+
     for (int i = 0; i < count; ++i) {
         m_tableChannels->setRowHeight(i, 36);
 
@@ -738,16 +903,25 @@ void ClientWindow::populateChannelTable() {
         itIdx->setTextAlignment(Qt::AlignCenter);
 
         QString chLabel = QString("Kanal %1").arg(i + 1);
+        QString refPreview = "-- dB";
         if (i < m_currentProfile.channels.size()) {
             const auto &ch = m_currentProfile.channels[i];
             chLabel = QString("%1 (%2 MHz %3)").arg(ch.channelName).arg(ch.frequencyMhz).arg(ch.polarization);
+            if (isGoldenMode) {
+                refPreview = ch.hasGoldenSample
+                                 ? QString("%1 dB (G)").arg(ch.goldenCnDb, 0, 'f', 1)
+                                 : "0.0 dB (!)";
+            }
         }
 
         QTableWidgetItem *itName = new QTableWidgetItem(chLabel);
         QTableWidgetItem *itDut = new QTableWidgetItem("-- dB");
         itDut->setTextAlignment(Qt::AlignCenter);
-        QTableWidgetItem *itRef = new QTableWidgetItem("-- dB");
+        QTableWidgetItem *itRef = new QTableWidgetItem(refPreview);
         itRef->setTextAlignment(Qt::AlignCenter);
+        if (isGoldenMode) {
+            itRef->setForeground(QBrush(QColor("#FBBF24")));
+        }
         QTableWidgetItem *itDelta = new QTableWidgetItem("--");
         itDelta->setTextAlignment(Qt::AlignCenter);
         QTableWidgetItem *itLock = new QTableWidgetItem("S:- V:-");
@@ -921,6 +1095,36 @@ void ClientWindow::onStartTestClicked() {
         return;
     }
 
+    // Sync active reference mode from Host (Alg 1) or DB (Alg 2)
+    ReferenceMode activeRefMode = m_netClient.isConnected()
+                                      ? m_netClient.referenceMode()
+                                      : DbManager::instance().getReferenceMode();
+    onReferenceModeChanged(activeRefMode);
+
+    if (activeRefMode == ReferenceMode::GoldenSample) {
+        bool anyGolden = false;
+        for (const auto &ch : m_currentProfile.channels) {
+            if (ch.hasGoldenSample) {
+                anyGolden = true;
+                break;
+            }
+        }
+        if (!anyGolden) {
+            auto ans = QMessageBox::question(
+                this,
+                "Golden Sample Kaydı Eksik",
+                QString("Yönetici şu anda 'Kayıtlı Golden Sample' modunu aktif etmiş durumda ancak '%1' profilinde "
+                        "henüz ölçülmüş/kayıtlı bir Golden Sample değeri bulunmuyor (0.0 dB).\n\n"
+                        "Yine de teste devam edilsin mi?")
+                    .arg(m_currentProfile.profileName),
+                QMessageBox::Yes | QMessageBox::No,
+                QMessageBox::No);
+            if (ans != QMessageBox::Yes) {
+                return;
+            }
+        }
+    }
+
     int woId = m_comboOrders->currentData().toInt();
     m_activeAntennaSn = sn;
 
@@ -928,9 +1132,9 @@ void ClientWindow::onStartTestClicked() {
     resetLiveTelemetryPills();
     onClearGraphClicked();
 
-    m_resultBannerFrame->setStyleSheet("background-color: #112240; border: 2px solid #38BDF8; border-radius: 6px; padding: 10px;");
+    m_resultBannerFrame->setStyleSheet("background-color: #112D21; border: 2px solid #10B981; border-radius: 6px; padding: 10px;");
     m_lblOverallResult->setText("TEST DEVAM EDİYOR");
-    m_lblOverallResult->setStyleSheet("font-size: 20pt; font-weight: bold; color: #38BDF8;");
+    m_lblOverallResult->setStyleSheet("font-size: 20pt; font-weight: bold; color: #34D399;");
     m_lblOverallDetails->setText("Referans kilidi talep ediliyor...");
 
     m_btnStartTest->setEnabled(false);
@@ -940,9 +1144,9 @@ void ClientWindow::onStartTestClicked() {
     if (!m_stateMachine->startTest(sn, m_currentProfile, woId)) {
         m_btnStartTest->setEnabled(true);
         m_btnAbortTest->setEnabled(false);
-        m_resultBannerFrame->setStyleSheet("background-color: #112240; border: 1px solid #1E2D4A; border-radius: 6px; padding: 10px;");
+        m_resultBannerFrame->setStyleSheet("background-color: #112D21; border: 1px solid #1A3D2B; border-radius: 6px; padding: 10px;");
         m_lblOverallResult->setText("BEKLEMEDE");
-        m_lblOverallResult->setStyleSheet("font-size: 20pt; font-weight: bold; color: #94A3B8;");
+        m_lblOverallResult->setStyleSheet("font-size: 20pt; font-weight: bold; color: #A7C4B5;");
         m_lblOverallDetails->setText("Hazır: Uydu profili veya kanal listesi yüklenemedi.");
         QMessageBox::warning(this, "Test Başlatılamadı",
                              "Aktif uydu transponder profili bulunamadı veya test zaten devam ediyor.\n"
@@ -978,12 +1182,12 @@ void ClientWindow::onChannelStarted(int channelNo, const QString &name, int freq
     if (row >= 0 && row < m_tableChannels->rowCount()) {
         for (int c = 0; c < m_tableChannels->columnCount(); ++c) {
             if (auto *item = m_tableChannels->item(row, c)) {
-                item->setBackground(QBrush(QColor("#172B4D")));
+                item->setBackground(QBrush(QColor("#164832")));
             }
         }
         if (auto *itStat = m_tableChannels->item(row, 6)) {
             itStat->setText("TESTTE...");
-            itStat->setForeground(QBrush(QColor("#38BDF8")));
+            itStat->setForeground(QBrush(QColor("#34D399")));
         }
         m_tableChannels->scrollToItem(m_tableChannels->item(row, 0));
     }
@@ -1029,8 +1233,8 @@ void ClientWindow::onChannelCompleted(const ChannelSampleResult &result) {
         m_tableChannels->item(row, 4)->setText(QString("%1%2 dB").arg(sign).arg(result.deltaDb, 0, 'f', 2));
         m_tableChannels->item(row, 5)->setText(lockStr);
 
-        QColor rowBg("#0F1E3A");
-        QColor statFg("#94A3B8");
+        QColor rowBg("#0A1F17");
+        QColor statFg("#A7C4B5");
         QString statText = result.status;
 
         if (result.status == "PASS") {
@@ -1178,6 +1382,18 @@ void ClientWindow::onAboutClicked() {
     dlg.exec();
 }
 
+/**
+ * @brief Switches the stacked page view when a sidebar navigation row is selected.
+ * @param row Selected row index inside m_sideNav (rows 0..1 are header & separator).
+ */
+void ClientWindow::onNavItemChanged(int row) {
+    if (!m_pageStack) return;
+    int pageIdx = row - 2; // rows 0 and 1 are header & separator
+    if (pageIdx >= 0 && pageIdx < m_pageStack->count()) {
+        m_pageStack->setCurrentIndex(pageIdx);
+    }
+}
+
 void ClientWindow::applyUserRoleUi() {
     AppConfig &cfg = AppConfig::instance();
     bool isEng = cfg.isEngineer();
@@ -1191,25 +1407,29 @@ void ClientWindow::applyUserRoleUi() {
 
     if (isEng) {
         m_lblRolePill->setText("ROL: Mühendis");
-        m_lblRolePill->setStyleSheet("background-color: #2563EB; color: white; border-radius: 4px; padding: 3px 8px; font-weight: bold;");
+        m_lblRolePill->setStyleSheet("background-color: #059669; color: white; border-radius: 4px; padding: 3px 8px; font-weight: bold;");
     } else {
         m_lblRolePill->setText("ROL: Tekniker");
-        m_lblRolePill->setStyleSheet("background-color: #059669; color: white; border-radius: 4px; padding: 3px 8px; font-weight: bold;");
+        m_lblRolePill->setStyleSheet("background-color: #065F46; color: #34D399; border: 1px solid #10B981; border-radius: 4px; padding: 3px 8px; font-weight: bold;");
     }
 
-    if (m_tabWidget) {
-        int engIdx = m_tabWidget->indexOf(m_tabEngineer);
-        int logIdx = m_tabWidget->indexOf(m_tabLogs);
-        if (engIdx >= 0) {
-            m_tabWidget->setTabVisible(engIdx, isEng);
-            m_tabWidget->setTabEnabled(engIdx, isEng);
+    // Sidebar items:
+    // row 0: header, row 1: separator
+    // row 2: Üretim Testi (page 0)
+    // row 3: Canlı Grafik (page 1)
+    // row 4: Uydu Profilleri (page 2 - Station & Engineer access)
+    // row 5: Mühendis Ayarları (page 3 - Engineer only)
+    // row 6: Sistem Logları (page 4 - Engineer only)
+    if (m_sideNav && m_pageStack) {
+        if (QListWidgetItem *engItem = m_sideNav->item(5)) {
+            engItem->setHidden(!isEng);
         }
-        if (logIdx >= 0) {
-            m_tabWidget->setTabVisible(logIdx, isEng);
-            m_tabWidget->setTabEnabled(logIdx, isEng);
+        if (QListWidgetItem *logItem = m_sideNav->item(6)) {
+            logItem->setHidden(!isEng);
         }
-        if (!isEng && m_tabWidget->currentIndex() >= 2) {
-            m_tabWidget->setCurrentIndex(0);
+        if (!isEng && m_pageStack->currentIndex() >= 3) {
+            m_sideNav->setCurrentRow(2);
+            m_pageStack->setCurrentIndex(0);
         }
     }
 }

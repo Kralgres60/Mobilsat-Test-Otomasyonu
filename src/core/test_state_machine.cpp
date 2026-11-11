@@ -232,21 +232,35 @@ void TestStateMachine::runCurrentChannel() {
         m_dutSerial->sendTune(ch.frequencyMhz, ch.symbolRate, ch.polarization);
     }
 
+    // 2. Reference comparison handling:
+    //    - GoldenSample: use stored profile baseline directly without tuning physical Reference DRX
+    //    - LiveReference: tune shared Reference DRX (via Host TCP in Alg 1, or direct LAN in Alg 2)
+    if (m_referenceMode == ReferenceMode::GoldenSample) {
+        m_lastRefCn = ch.goldenCnDb;
+        m_lastRefPow = ch.goldenPowDbm;
+        m_refCarrierLocked = true;
+        m_refVideoLocked = true;
+        m_refCnSamples.append(ch.goldenCnDb);
+        m_refPowSamples.append(ch.goldenPowDbm);
+        emit logMessage(QString("[Golden Sample] Kayıtlı referans kullanılıyor (%1): C/N=%2 dB | POW=%3 dBm%4")
+                            .arg(ch.channelName)
+                            .arg(ch.goldenCnDb, 0, 'f', 2)
+                            .arg(ch.goldenPowDbm, 0, 'f', 2)
+                            .arg(ch.hasGoldenSample ? "" : " [UYARI: Kalibrasyon henüz kaydedilmemiş!]"));
+    } else {
 #if defined(NETA_ALGORITMA_2_THREE_PC)
-    // 2. Algorithm 2:
-    // a) Update MariaDB lock heartbeat and active channel
-    DbManager::instance().updateDbLockHeartbeat(AppConfig::instance().stationId(), ch.channelNo);
-
-    // b) Directly tune the shared Reference DRX9000 via Web CGI over LAN
-    if (m_refWebClient) {
-        m_refWebClient->sendTune(ch.frequencyMhz, ch.symbolRate, ch.polarization);
-    }
+        // Algorithm 2: Update MariaDB lock heartbeat and tune shared Reference DRX9000 via Web CGI
+        DbManager::instance().updateDbLockHeartbeat(AppConfig::instance().stationId(), ch.channelNo);
+        if (m_refWebClient) {
+            m_refWebClient->sendTune(ch.frequencyMhz, ch.symbolRate, ch.polarization);
+        }
 #else
-    // 2. Algorithm 1: Request Host to tune Golden Sample Reference DRX (TCP :9100)
-    if (m_netClient) {
-        m_netClient->requestRefTune(ch.channelNo, ch.frequencyMhz, ch.symbolRate, ch.polarization);
-    }
+        // Algorithm 1: Request Host to tune Golden Sample Reference DRX (TCP :9100)
+        if (m_netClient) {
+            m_netClient->requestRefTune(ch.channelNo, ch.frequencyMhz, ch.symbolRate, ch.polarization);
+        }
 #endif
+    }
 
     changeState(TestState::WaitingCarrierLock);
     m_carrierWaitTimer.start(6000); // Allow up to 6 seconds for Carrier Lock (S:+)
@@ -294,6 +308,9 @@ void TestStateMachine::onDutTelemetry(double powerDbm, double cnDb, double /*ber
 }
 
 void TestStateMachine::onRefData(double refCn, double refPow, bool carrierLocked, bool videoLocked) {
+    if (m_referenceMode == ReferenceMode::GoldenSample) {
+        return; // Keep stored Golden Sample baseline unchanged
+    }
     m_lastRefCn = refCn;
     m_lastRefPow = refPow;
     m_refCarrierLocked = carrierLocked;
@@ -310,7 +327,7 @@ void TestStateMachine::onSampleTimerTick() {
         m_dutWebClient->requestStatus();
     }
 #if defined(NETA_ALGORITMA_2_THREE_PC)
-    if (m_refWebClient) {
+    if (m_referenceMode == ReferenceMode::LiveReference && m_refWebClient) {
         m_refWebClient->requestStatus();
     }
 #endif

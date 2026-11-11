@@ -7,6 +7,10 @@ QT += core gui widgets network serialport printsupport sql gui-private
 
 CONFIG += c++17
 
+win32-g++ {
+    QMAKE_CXXFLAGS += -finput-charset=UTF-8 -fexec-charset=UTF-8
+}
+
 TARGET = NETA_Antenna_Test
 VERSION = 1.0.0
 TEMPLATE = app
@@ -42,6 +46,7 @@ SOURCES += \
     src/ui/common/mode_select_dialog.cpp \
     src/ui/common/login_dialog.cpp \
     src/ui/common/about_dialog.cpp \
+    src/ui/common/profile_manager_widget.cpp \
     src/ui/common/dependency_install_dialog.cpp \
     src/ui/common/qcustomplot.cpp \
     src/ui/client/channel_card_widget.cpp \
@@ -73,6 +78,7 @@ HEADERS += \
     src/ui/common/mode_select_dialog.h \
     src/ui/common/login_dialog.h \
     src/ui/common/about_dialog.h \
+    src/ui/common/profile_manager_widget.h \
     src/ui/common/dependency_install_dialog.h \
     src/ui/common/qcustomplot.h \
     src/ui/client/channel_card_widget.h \

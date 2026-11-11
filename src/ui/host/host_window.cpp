@@ -1,6 +1,6 @@
 /**
  * @file host_window.cpp
- * @brief Implementation of the NETA Blue Central Host dashboard with Reference Ethernet Ping & Web CGI control.
+ * @brief Implementation of the NETA Yeşili Central Host dashboard with sidebar navigation and Reference Ethernet Ping & Web CGI control.
  * @author Semi Eren Gökyıldız
  * @copyright Copyright (C) 2026 NETA Elektronik A.Ş.
  */
@@ -29,6 +29,8 @@
 #include <QFileDialog>
 #include <QDateTime>
 #include <QPixmap>
+#include <QSplitter>
+#include <QFrame>
 
 HostWindow::HostWindow(QWidget *parent)
     : QMainWindow(parent),
@@ -119,6 +121,13 @@ HostWindow::HostWindow(QWidget *parent)
     if (DbManager::instance().isConnected()) {
         DbManager::instance().ensureDefaultDataIfMissing();
     }
+    ReferenceMode activeMode = DbManager::instance().getReferenceMode();
+    m_tcpServer.setReferenceMode(activeMode);
+    updateRefModeBadgeUi(activeMode);
+    if (m_profileManager) {
+        m_profileManager->setActiveReferenceMode(activeMode);
+        m_profileManager->reloadProfiles();
+    }
     onRefreshHistoryClicked();
 
     // Immediate startup sequence: ICMP Ping -> Web CGI Login -> DeviceInfo & Status Pull
@@ -158,7 +167,7 @@ void HostWindow::setupUi() {
     QWidget *central = new QWidget(this);
     setCentralWidget(central);
     QVBoxLayout *mainLayout = new QVBoxLayout(central);
-    mainLayout->setSpacing(8);
+    mainLayout->setSpacing(6);
     mainLayout->setContentsMargins(8, 6, 8, 6);
 
     // 1. Top Executive Summary Card (CAT6 Ethernet + Ping status, NO serial ports on main header)
@@ -172,11 +181,14 @@ void HostWindow::setupUi() {
     if (!pix.isNull()) {
         lblLogo->setPixmap(pix.scaled(118, 34, Qt::KeepAspectRatio, Qt::SmoothTransformation));
     } else {
-        lblLogo->setText("<b style='color:#0A192F; font-size:13pt;'>NETA</b>");
+        lblLogo->setText("<b style='color:#064E3B; font-size:13pt;'>NETA</b>");
     }
 
     m_lblServerStatus = new QLabel(QString("🟢 Host Aktif (Port %1)").arg(AppConfig::instance().tcpPort()), grpHeader);
     m_lblServerStatus->setStyleSheet(StyleHelper::getPastelGreenStyle());
+
+    m_lblRefModeBadge = new QLabel("🟢 Mod: Canlı Referans", grpHeader);
+    m_lblRefModeBadge->setStyleSheet(StyleHelper::getPastelGreenStyle());
 
     m_lblRefPingBadge = new QLabel("📶 Ref Ping: Test...", grpHeader);
     m_lblRefPingBadge->setStyleSheet(StyleHelper::getPastelAmberStyle());
@@ -185,21 +197,22 @@ void HostWindow::setupUi() {
     m_lblRefTelemetry->setStyleSheet(StyleHelper::getPastelRedStyle());
 
     QLabel *lblRoleBadge = new QLabel("HOST YÖNETİCİ", grpHeader);
-    lblRoleBadge->setStyleSheet("background-color: #2563EB; color: white; border-radius: 4px; padding: 3px 8px; font-weight: bold;");
+    lblRoleBadge->setStyleSheet("background-color: #059669; color: white; border-radius: 4px; padding: 3px 8px; font-weight: bold;");
 
     m_lblOperatorName = new QLabel(AppConfig::instance().currentUserFullName(), grpHeader);
-    m_lblOperatorName->setStyleSheet("color: #38BDF8; font-weight: bold;");
+    m_lblOperatorName->setStyleSheet("color: #34D399; font-weight: bold;");
 
     m_lblRefIpBadge = new QLabel(QString("🌐 Ref IP: %1").arg(AppConfig::instance().refDrxHost()), grpHeader);
-    m_lblRefIpBadge->setStyleSheet("background-color: #112240; color: #64FFDA; border: 1px solid #233554; border-radius: 4px; padding: 5px 10px; font-weight: bold;");
+    m_lblRefIpBadge->setStyleSheet("background-color: #112D21; color: #34D399; border: 1px solid #1A3D2B; border-radius: 4px; padding: 5px 10px; font-weight: bold;");
 
     m_btnRefEthPingSync = new QPushButton("🔌 Ref Ping & Bağlan (ETH)", grpHeader);
     m_btnRefEthPingSync->setCursor(Qt::PointingHandCursor);
-    m_btnRefEthPingSync->setStyleSheet("background-color: #0284C7; color: #FFFFFF; border: none; border-radius: 4px; padding: 6px 12px; font-weight: bold;");
+    m_btnRefEthPingSync->setStyleSheet("background-color: #059669; color: #FFFFFF; border: none; border-radius: 4px; padding: 6px 12px; font-weight: bold;");
     connect(m_btnRefEthPingSync, &QPushButton::clicked, this, &HostWindow::onRefEthPingSyncClicked);
 
     topLayout->addWidget(lblLogo);
     topLayout->addWidget(m_lblServerStatus);
+    topLayout->addWidget(m_lblRefModeBadge);
     topLayout->addWidget(m_lblRefPingBadge);
     topLayout->addWidget(m_lblRefTelemetry);
     topLayout->addWidget(lblRoleBadge);
@@ -209,71 +222,131 @@ void HostWindow::setupUi() {
     topLayout->addWidget(m_btnRefEthPingSync);
     mainLayout->addWidget(grpHeader);
 
-    // 2. Clean 5-Tab Workspace
-    m_tabWidget = new QTabWidget(central);
-    setupLobbyTab();
-    setupHistoryTab();
-    setupOrdersTab();
-    setupSettingsTab();
-    setupLogsTab();
+    // 2. Sidebar + Stacked Workspace
+    QSplitter *splitter = new QSplitter(Qt::Horizontal, central);
+    splitter->setHandleWidth(2);
+    splitter->setChildrenCollapsible(false);
 
-    m_tabWidget->addTab(findChild<QWidget*>("lobbyTab"), "🎮 Canlı Test Lobisi");
-    m_tabWidget->addTab(findChild<QWidget*>("historyTab"), "📊 Test Geçmişi & Raporlama");
-    m_tabWidget->addTab(findChild<QWidget*>("ordersTab"), "📦 İş Emirleri");
-    m_tabWidget->addTab(findChild<QWidget*>("settingsTab"), "⚙️ Sistem Ayarları");
-    m_tabWidget->addTab(findChild<QWidget*>("logsTab"), "📜 Sistem Logları");
-    mainLayout->addWidget(m_tabWidget, 1);
+    m_sideNav = new QListWidget(splitter);
+    m_sideNav->setObjectName("sideNav");
+    m_sideNav->setFixedWidth(215);
+    m_sideNav->setSpacing(2);
+    m_sideNav->setFrameShape(QFrame::NoFrame);
+
+    QListWidgetItem *headerItem = new QListWidgetItem("  🏢  HOST YÖNETİCİ");
+    headerItem->setFlags(Qt::NoItemFlags);
+    headerItem->setFont(QFont("Segoe UI", 10, QFont::Bold));
+    headerItem->setForeground(QColor("#34D399"));
+    headerItem->setBackground(QColor("#064E3B"));
+    headerItem->setSizeHint(QSize(215, 42));
+    m_sideNav->addItem(headerItem);
+
+    QListWidgetItem *sepItem = new QListWidgetItem();
+    sepItem->setFlags(Qt::NoItemFlags);
+    sepItem->setSizeHint(QSize(215, 1));
+    sepItem->setBackground(QColor("#1A3D2B"));
+    m_sideNav->addItem(sepItem);
+
+    auto addNavItem = [&](const QString &text) {
+        QListWidgetItem *item = new QListWidgetItem(text);
+        item->setSizeHint(QSize(215, 46));
+        m_sideNav->addItem(item);
+    };
+    addNavItem("  🎮  Canlı Test Lobisi");
+    addNavItem("  🛰️  Profiller & Golden");
+    addNavItem("  📊  Test Geçmişi & Rapor");
+    addNavItem("  📦  İş Emirleri");
+    addNavItem("  ⚙️  Sistem Ayarları");
+    addNavItem("  📜  Sistem Logları");
+
+    m_sideNav->setCurrentRow(2);
+
+    m_pageStack = new QStackedWidget(splitter);
+    setupLobbyPage();
+    setupProfilesPage();
+    setupHistoryPage();
+    setupOrdersPage();
+    setupSettingsPage();
+    setupLogsPage();
+
+    m_pageStack->addWidget(m_pageLobby);     // index 0
+    m_pageStack->addWidget(m_pageProfiles);  // index 1
+    m_pageStack->addWidget(m_pageHistory);   // index 2
+    m_pageStack->addWidget(m_pageOrders);    // index 3
+    m_pageStack->addWidget(m_pageSettings);  // index 4
+    m_pageStack->addWidget(m_pageLogs);      // index 5
+
+    splitter->addWidget(m_sideNav);
+    splitter->addWidget(m_pageStack);
+    splitter->setStretchFactor(0, 0);
+    splitter->setStretchFactor(1, 1);
+
+    mainLayout->addWidget(splitter, 1);
+
+    connect(m_sideNav, &QListWidget::currentRowChanged, this, &HostWindow::onNavItemChanged);
 
     // 3. Clean Single-Line Status Bar
     m_statusLabel = new QLabel("Hazır", this);
-    m_statusLabel->setStyleSheet("color: #94A3B8; padding-left: 4px;");
+    m_statusLabel->setStyleSheet("color: #A7C4B5; padding-left: 4px;");
     statusBar()->addWidget(m_statusLabel, 1);
 
     QLabel *lblFooterRight = new QLabel(
         QString("NETA Elektronik A.Ş.  |  Geliştirici: %1  |  v%2")
             .arg(NETA_APP_DEVELOPER, NETA_APP_VERSION), this);
-    lblFooterRight->setStyleSheet("color: #64748B; padding-right: 6px; font-size: 8.5pt;");
+    lblFooterRight->setStyleSheet("color: #4B7A66; padding-right: 6px; font-size: 8.5pt;");
     statusBar()->addPermanentWidget(lblFooterRight);
 }
 
-void HostWindow::setupLobbyTab() {
-    QWidget *tab = new QWidget(this);
-    tab->setObjectName("lobbyTab");
-    QVBoxLayout *vbox = new QVBoxLayout(tab);
+/**
+ * @brief Switches the stacked page view when a sidebar navigation row is selected.
+ * @param row Selected row index inside m_sideNav (rows 0..1 are header & separator).
+ */
+void HostWindow::onNavItemChanged(int row) {
+    if (!m_pageStack) return;
+    int pageIdx = row - 2;
+    if (pageIdx >= 0 && pageIdx < m_pageStack->count()) {
+        m_pageStack->setCurrentIndex(pageIdx);
+    }
+}
+
+void HostWindow::setupLobbyPage() {
+    m_pageLobby = new QWidget(this);
+    QVBoxLayout *vbox = new QVBoxLayout(m_pageLobby);
+    vbox->setContentsMargins(10, 10, 10, 10);
     vbox->setSpacing(10);
 
-    QGroupBox *grpArbiter = new QGroupBox("🔒 Merkezi Referans Kilit Durumu (Mutex Arbiter)", tab);
+    QGroupBox *grpArbiter = new QGroupBox("🔒 Merkezi Referans Kilit Durumu (Mutex Arbiter)", m_pageLobby);
     QHBoxLayout *arbLayout = new QHBoxLayout(grpArbiter);
     m_lblArbiterStatus = new QLabel("🟢 Referans Alıcısı BOŞTA (Tüm İstasyonlar İçin Müsait)", grpArbiter);
     m_lblArbiterStatus->setStyleSheet("font-size: 13pt; font-weight: bold; color: #34D399;");
     arbLayout->addWidget(m_lblArbiterStatus);
     vbox->addWidget(grpArbiter);
 
-    QGroupBox *grpStations = new QGroupBox("🖥️ Üretim Hattındaki Test Masaları (İstasyon 1 - 3)", tab);
+    QGroupBox *grpStations = new QGroupBox("🖥️ Üretim Hattındaki Test Masaları (İstasyon 1 - 3)", m_pageLobby);
     QHBoxLayout *stLayout = new QHBoxLayout(grpStations);
     stLayout->setSpacing(12);
 
     for (int stId = 1; stId <= 3; ++stId) {
         QFrame *card = new QFrame(grpStations);
-        card->setStyleSheet("background-color: #112240; border: 1px solid #1E2D4A; border-radius: 6px; padding: 12px;");
+        card->setStyleSheet("background-color: #112D21; border: 1px solid #1A3D2B; border-radius: 6px; padding: 12px;");
         QVBoxLayout *cardVBox = new QVBoxLayout(card);
         cardVBox->setSpacing(8);
 
         QLabel *lblTitle = new QLabel(QString("🖥️ İSTASYON %1").arg(stId), card);
-        lblTitle->setStyleSheet("font-size: 13pt; font-weight: bold; color: #64FFDA;");
+        lblTitle->setStyleSheet("font-size: 13pt; font-weight: bold; color: #34D399;");
 
         StationCardWidgets widgets;
         widgets.lblState = new QLabel("DURUM: BAĞLI DEĞİL", card);
         widgets.lblState->setStyleSheet(StyleHelper::getPendingBadgeStyle());
 
         widgets.lblIp = new QLabel("IP Adresi: --", card);
-        widgets.lblIp->setStyleSheet("color: #94A3B8;");
+        widgets.lblIp->setStyleSheet("color: #A7C4B5;");
 
         widgets.lblSn = new QLabel("Anten Barkodu: --", card);
-        widgets.lblSn->setStyleSheet("font-weight: bold; color: #E6F1FF;");
+        widgets.lblSn->setStyleSheet("font-weight: bold; color: #E6F4EE;");
 
         widgets.lblChannel = new QLabel("Aktif Kanal: --", card);
-        widgets.lblChannel->setStyleSheet("color: #CBD5E1;");
+        widgets.lblChannel->setStyleSheet("color: #E6F4EE;");
 
         cardVBox->addWidget(lblTitle);
         cardVBox->addWidget(widgets.lblState);
@@ -289,22 +362,31 @@ void HostWindow::setupLobbyTab() {
     vbox->addStretch();
 }
 
-void HostWindow::setupHistoryTab() {
-    QWidget *tab = new QWidget(this);
-    tab->setObjectName("historyTab");
-    QVBoxLayout *vbox = new QVBoxLayout(tab);
+void HostWindow::setupProfilesPage() {
+    m_profileManager = new ProfileManagerWidget(true, &m_refWebClient, &m_refSerial, this);
+    connect(m_profileManager, &ProfileManagerWidget::referenceModeApplyRequested,
+            this, &HostWindow::onReferenceModeApplyRequested);
+    connect(m_profileManager, &ProfileManagerWidget::logMessage,
+            this, &HostWindow::appendLog);
+    m_pageProfiles = m_profileManager;
+}
+
+void HostWindow::setupHistoryPage() {
+    m_pageHistory = new QWidget(this);
+    QVBoxLayout *vbox = new QVBoxLayout(m_pageHistory);
+    vbox->setContentsMargins(10, 10, 10, 10);
     vbox->setSpacing(8);
 
     QHBoxLayout *filterRow = new QHBoxLayout();
-    QLabel *lblSearch = new QLabel("Seri No Ara:", tab);
-    m_txtSearchSn = new QLineEdit(tab);
+    QLabel *lblSearch = new QLabel("Seri No Ara:", m_pageHistory);
+    m_txtSearchSn = new QLineEdit(m_pageHistory);
     m_txtSearchSn->setPlaceholderText("Barkod / Seri No...");
     connect(m_txtSearchSn, &QLineEdit::returnPressed, this, &HostWindow::onRefreshHistoryClicked);
 
-    QPushButton *btnSearch = new QPushButton("🔍 Filtrele / Yenile", tab);
+    QPushButton *btnSearch = new QPushButton("🔍 Filtrele / Yenile", m_pageHistory);
     connect(btnSearch, &QPushButton::clicked, this, &HostWindow::onRefreshHistoryClicked);
 
-    QPushButton *btnExportExcel = new QPushButton("📄 Excel Kalite Raporu Üret", tab);
+    QPushButton *btnExportExcel = new QPushButton("📄 Excel Kalite Raporu Üret", m_pageHistory);
     btnExportExcel->setStyleSheet("background-color: #059669; color: #FFFFFF; border: none; border-radius: 4px; padding: 6px 14px; font-weight: bold;");
     connect(btnExportExcel, &QPushButton::clicked, this, &HostWindow::onExportExcelClicked);
 
@@ -315,7 +397,7 @@ void HostWindow::setupHistoryTab() {
     filterRow->addWidget(btnExportExcel);
     vbox->addLayout(filterRow);
 
-    m_tableHistory = new QTableWidget(tab);
+    m_tableHistory = new QTableWidget(m_pageHistory);
     m_tableHistory->setColumnCount(9);
     m_tableHistory->setHorizontalHeaderLabels({"ID", "Seri No", "İş Emri", "Masa", "Tarih/Saat", "Süre (sn)", "Sonuç", "Ort. Delta", "Max Delta"});
     m_tableHistory->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
@@ -326,12 +408,12 @@ void HostWindow::setupHistoryTab() {
     vbox->addWidget(m_tableHistory);
 }
 
-void HostWindow::setupOrdersTab() {
-    QWidget *tab = new QWidget(this);
-    tab->setObjectName("ordersTab");
-    QVBoxLayout *vbox = new QVBoxLayout(tab);
+void HostWindow::setupOrdersPage() {
+    m_pageOrders = new QWidget(this);
+    QVBoxLayout *vbox = new QVBoxLayout(m_pageOrders);
+    vbox->setContentsMargins(10, 10, 10, 10);
 
-    m_tableOrders = new QTableWidget(tab);
+    m_tableOrders = new QTableWidget(m_pageOrders);
     m_tableOrders->setColumnCount(7);
     m_tableOrders->setHorizontalHeaderLabels({"Sipariş No", "Müşteri", "Ürün Kodu", "Hedef Adet", "Tamamlanan", "Başarılı", "Durum"});
     m_tableOrders->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
@@ -342,17 +424,17 @@ void HostWindow::setupOrdersTab() {
     vbox->addWidget(m_tableOrders);
 }
 
-void HostWindow::setupSettingsTab() {
-    QWidget *tab = new QWidget(this);
-    tab->setObjectName("settingsTab");
-    QVBoxLayout *vbox = new QVBoxLayout(tab);
+void HostWindow::setupSettingsPage() {
+    m_pageSettings = new QWidget(this);
+    QVBoxLayout *vbox = new QVBoxLayout(m_pageSettings);
+    vbox->setContentsMargins(10, 10, 10, 10);
     vbox->setSpacing(10);
 
     QGridLayout *cardsGrid = new QGridLayout();
     cardsGrid->setSpacing(10);
 
     // Card 1: Test Parameters
-    QGroupBox *grpTestSettings = new QGroupBox("⚖️ Test ve Tolerans Parametreleri", tab);
+    QGroupBox *grpTestSettings = new QGroupBox("⚖️ Test ve Tolerans Parametreleri", m_pageSettings);
     QFormLayout *testForm = new QFormLayout(grpTestSettings);
     testForm->setSpacing(10);
 
@@ -373,7 +455,7 @@ void HostWindow::setupSettingsTab() {
     m_spinTolerance->setValue(AppConfig::instance().defaultToleranceDb());
 
     QPushButton *btnSave = new QPushButton("💾 Ayarları Kaydet", grpTestSettings);
-    btnSave->setStyleSheet("background-color: #0284C7; color: #FFFFFF; border: none; border-radius: 4px; padding: 8px 16px; font-weight: bold;");
+    btnSave->setStyleSheet("background-color: #059669; color: #FFFFFF; border: none; border-radius: 4px; padding: 8px 16px; font-weight: bold;");
     connect(btnSave, &QPushButton::clicked, this, &HostWindow::onSaveSettingsClicked);
 
     testForm->addRow("Maksimum Kilit Zaman Aşımı:", m_spinLockTimeout);
@@ -383,7 +465,7 @@ void HostWindow::setupSettingsTab() {
     cardsGrid->addWidget(grpTestSettings, 0, 0);
 
     // Card 2: Reference DRX Ethernet (Primary)
-    QGroupBox *grpRefEth = new QGroupBox("🌐 Referans DRX9000 Ethernet & Web CGI Ayarları", tab);
+    QGroupBox *grpRefEth = new QGroupBox("🌐 Referans DRX9000 Ethernet & Web CGI Ayarları", m_pageSettings);
     QFormLayout *refForm = new QFormLayout(grpRefEth);
     refForm->setSpacing(10);
 
@@ -393,7 +475,7 @@ void HostWindow::setupSettingsTab() {
     m_txtRefDrxPass->setEchoMode(QLineEdit::Password);
 
     QPushButton *btnSaveRefEth = new QPushButton("🔗 Kaydet & Ref Ping Testi Yap", grpRefEth);
-    btnSaveRefEth->setStyleSheet("background-color: #059669; color: #FFFFFF; border: none; border-radius: 4px; padding: 8px 14px; font-weight: bold;");
+    btnSaveRefEth->setStyleSheet("background-color: #10B981; color: #071210; border: none; border-radius: 4px; padding: 8px 14px; font-weight: bold;");
     connect(btnSaveRefEth, &QPushButton::clicked, this, &HostWindow::onSaveRefWebSettingsClicked);
 
     refForm->addRow("Referans (Golden) DRX IP:", m_txtRefDrxIp);
@@ -403,7 +485,7 @@ void HostWindow::setupSettingsTab() {
     cardsGrid->addWidget(grpRefEth, 0, 1);
 
     // Card 3: Database Management
-    QGroupBox *grpDbSettings = new QGroupBox("🗄️ Merkezi Veritabanı & MariaDB Servisi", tab);
+    QGroupBox *grpDbSettings = new QGroupBox("🗄️ Merkezi Veritabanı & MariaDB Servisi", m_pageSettings);
     QVBoxLayout *vboxDb = new QVBoxLayout(grpDbSettings);
     vboxDb->setSpacing(10);
 
@@ -440,13 +522,13 @@ void HostWindow::setupSettingsTab() {
     cardsGrid->addWidget(grpDbSettings, 1, 0);
 
     // Card 4: Optional Legacy RS232 Fallback for Reference DRX
-    QGroupBox *grpRefSerial = new QGroupBox("🔧 Gelişmiş: Referans RS232 Yedek Seri Port (Opsiyonel)", tab);
+    QGroupBox *grpRefSerial = new QGroupBox("🔧 Gelişmiş: Referans RS232 Yedek Seri Port (Opsiyonel)", m_pageSettings);
     QFormLayout *serForm = new QFormLayout(grpRefSerial);
     serForm->setSpacing(10);
 
     QLabel *lblSerNote = new QLabel("Birincil iletişim Ethernet (CAT6) Web CGI üzerindendir. Sadece acil debug için RS232 seçin.", grpRefSerial);
     lblSerNote->setWordWrap(true);
-    lblSerNote->setStyleSheet("color: #94A3B8; font-size: 8.5pt;");
+    lblSerNote->setStyleSheet("color: #A7C4B5; font-size: 8.5pt;");
 
     QHBoxLayout *serCtrlRow = new QHBoxLayout();
     m_comboSerialPorts = new QComboBox(grpRefSerial);
@@ -454,7 +536,7 @@ void HostWindow::setupSettingsTab() {
     btnRefresh->setFixedSize(32, 28);
     connect(btnRefresh, &QPushButton::clicked, this, &HostWindow::onRefreshPortsClicked);
     m_btnConnectRefSerial = new QPushButton("RS232 Bağlan", grpRefSerial);
-    m_btnConnectRefSerial->setStyleSheet("background-color: #0284C7; color: #FFFFFF; border: none; border-radius: 4px; padding: 6px 12px; font-weight: bold;");
+    m_btnConnectRefSerial->setStyleSheet("background-color: #059669; color: #FFFFFF; border: none; border-radius: 4px; padding: 6px 12px; font-weight: bold;");
     connect(m_btnConnectRefSerial, &QPushButton::clicked, this, &HostWindow::onConnectRefSerialClicked);
 
     serCtrlRow->addWidget(m_comboSerialPorts, 1);
@@ -471,17 +553,17 @@ void HostWindow::setupSettingsTab() {
     onCheckDbClicked();
 }
 
-void HostWindow::setupLogsTab() {
-    QWidget *tab = new QWidget(this);
-    tab->setObjectName("logsTab");
-    QVBoxLayout *vbox = new QVBoxLayout(tab);
+void HostWindow::setupLogsPage() {
+    m_pageLogs = new QWidget(this);
+    QVBoxLayout *vbox = new QVBoxLayout(m_pageLogs);
+    vbox->setContentsMargins(10, 10, 10, 10);
 
-    QGroupBox *grpLogs = new QGroupBox("📜 Sunucu, Hakem (Mutex Arbiter) ve Referans Ethernet Logları", tab);
+    QGroupBox *grpLogs = new QGroupBox("📜 Sunucu, Hakem (Mutex Arbiter) ve Referans Ethernet Logları", m_pageLogs);
     QVBoxLayout *logBox = new QVBoxLayout(grpLogs);
 
     m_txtLog = new QTextEdit(grpLogs);
     m_txtLog->setReadOnly(true);
-    m_txtLog->setStyleSheet("background-color: #071120; color: #64FFDA; font-family: Consolas, 'Courier New', monospace; font-size: 9.5pt;");
+    m_txtLog->setStyleSheet("background-color: #040B09; color: #34D399; font-family: Consolas, 'Courier New', monospace; font-size: 9.5pt;");
     logBox->addWidget(m_txtLog);
 
     vbox->addWidget(grpLogs);
@@ -754,4 +836,28 @@ void HostWindow::onLogoutClicked() {
             setStatusMessage("Yönetici oturumu yenilendi: " + AppConfig::instance().currentUserFullName());
         }
     }
+}
+
+void HostWindow::updateRefModeBadgeUi(ReferenceMode mode) {
+    if (!m_lblRefModeBadge) return;
+    if (mode == ReferenceMode::GoldenSample) {
+        m_lblRefModeBadge->setText("🌟 Mod: Golden Sample (Kayıtlı)");
+        m_lblRefModeBadge->setStyleSheet(StyleHelper::getPastelAmberStyle());
+    } else {
+        m_lblRefModeBadge->setText("🟢 Mod: Canlı Referans");
+        m_lblRefModeBadge->setStyleSheet(StyleHelper::getPastelGreenStyle());
+    }
+}
+
+void HostWindow::onReferenceModeApplyRequested(ReferenceMode mode) {
+    DbManager::instance().setReferenceMode(mode);
+    m_tcpServer.setReferenceMode(mode);
+    updateRefModeBadgeUi(mode);
+
+    QString modeDesc = (mode == ReferenceMode::GoldenSample)
+                           ? "Kayıtlı Golden Sample (Referans Anten Olmadan)"
+                           : "Canlı Referans Anten (Live Reference)";
+    setStatusMessage("Aktif referans modu güncellendi: " + modeDesc);
+    QMessageBox::information(this, "Referans Modu Güncellendi",
+                             QString("Tüm test istasyonları için aktif referans modu güncellendi:\n\n• %1").arg(modeDesc));
 }

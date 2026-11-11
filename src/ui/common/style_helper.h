@@ -1,6 +1,6 @@
 /**
  * @file style_helper.h
- * @brief NETA Blue corporate theme QSS stylesheets, palette setup, and high-contrast telemetry badge helpers.
+ * @brief NETA Yeşili (NETA Green) corporate theme QSS stylesheets, palette setup, and high-contrast telemetry badge helpers.
  * @author Semi Eren Gökyıldız
  * @copyright Copyright (C) 2026 NETA Elektronik A.Ş.
  */
@@ -14,8 +14,13 @@ class QApplication;
 
 /**
  * @class StyleHelper
- * @brief Provides the unified NETA Blue theme (inspired by DRX Test Interface),
+ * @brief Provides the unified NETA Yeşili (NETA Green) dark theme,
  *        application QPalette setup, and high-contrast pastel telemetry pill stylesheets.
+ *
+ * Color palette reference (NETA Yeşili):
+ *   Background:   #071210  |  Surface:  #0A1F17 / #112D21
+ *   Border:       #1A3D2B  |  Accent:   #10B981  |  Accent2: #34D399
+ *   Text Primary: #E6F4EE  |  Text2:    #A7C4B5
  */
 class StyleHelper {
 public:

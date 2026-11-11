@@ -22,6 +22,7 @@ VALUES
     ('DEFAULT_TOLERANCE_DB', '1.50', 'Varsayılan Delta dB izin verilen tolerans payı'),
     ('TCP_PORT', '9100', 'Merkezi Host TCP komut ve senkronizasyon portu'),
     ('UDP_BEACON_PORT', '9101', 'LAN lobi anonsu ve otomatik keşif portu'),
+    ('REFERENCE_MODE', 'LIVE', 'Referans kaynağı: LIVE (Canlı Anten) veya GOLDEN (Kayıtlı Golden Sample)'),
     ('REPORT_OUTPUT_DIR', 'reports', 'Excel test raporlarının kaydedileceği yerel/ağ dizini')
 ON DUPLICATE KEY UPDATE `description` = VALUES(`description`);
 

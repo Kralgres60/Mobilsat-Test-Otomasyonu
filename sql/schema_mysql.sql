@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS `satellite_profiles` (
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
--- 4. Profil Kanal Tanımları (Her Profil İçin 10 Kanal)
+-- 4. Profil Kanal Tanımları (Her Profil İçin Kanallar + Golden Sample Referans Değerleri)
 CREATE TABLE IF NOT EXISTS `profile_channels` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `profile_id` INT NOT NULL,
@@ -57,6 +57,10 @@ CREATE TABLE IF NOT EXISTS `profile_channels` (
     `symbol_rate` INT NOT NULL,
     `polarization` ENUM('V', 'H') NOT NULL,
     `tolerance_db` DECIMAL(4, 2) NOT NULL DEFAULT 1.50,
+    `golden_cn_db` DECIMAL(5, 2) NOT NULL DEFAULT 0.00,
+    `golden_pow_dbm` DECIMAL(6, 2) NOT NULL DEFAULT 0.00,
+    `has_golden_sample` TINYINT(1) NOT NULL DEFAULT 0,
+    `golden_updated_at` TIMESTAMP NULL DEFAULT NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (`profile_id`) REFERENCES `satellite_profiles`(`id`) ON DELETE CASCADE,
     UNIQUE KEY `uk_profile_channel` (`profile_id`, `channel_no`)

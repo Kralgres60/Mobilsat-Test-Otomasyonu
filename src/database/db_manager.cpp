@@ -129,6 +129,11 @@ bool DbManager::connectToDatabase(const QString &host, int port, const QString &
     }
 
     qDebug() << QString("[Database Service] Connected successfully to %1:%2 (Driver: %3)").arg(host).arg(port).arg(m_driverName);
+    if (m_driverName == "QMYSQL" || m_driverName == "QODBC") {
+        QSqlQuery qUtf(db);
+        qUtf.exec("SET NAMES 'utf8mb4'");
+        qUtf.exec("SET CHARACTER SET utf8mb4");
+    }
     if (m_driverName == "QSQLITE") {
         initTablesIfSqlite();
     }
@@ -156,7 +161,7 @@ bool DbManager::initTablesIfSqlite() {
     // SQLite için temel tablolar
     q.exec("CREATE TABLE IF NOT EXISTS system_settings (setting_key TEXT PRIMARY KEY, setting_value TEXT, description TEXT);");
     q.exec("CREATE TABLE IF NOT EXISTS satellite_profiles (id INTEGER PRIMARY KEY AUTOINCREMENT, profile_name TEXT, satellite_name TEXT, orbital_position TEXT, default_tolerance_db REAL, is_active INTEGER);");
-    q.exec("CREATE TABLE IF NOT EXISTS profile_channels (id INTEGER PRIMARY KEY AUTOINCREMENT, profile_id INTEGER, channel_no INTEGER, channel_name TEXT, frequency_mhz INTEGER, symbol_rate INTEGER, polarization TEXT, tolerance_db REAL);");
+    q.exec("CREATE TABLE IF NOT EXISTS profile_channels (id INTEGER PRIMARY KEY AUTOINCREMENT, profile_id INTEGER, channel_no INTEGER, channel_name TEXT, frequency_mhz INTEGER, symbol_rate INTEGER, polarization TEXT, tolerance_db REAL, golden_cn_db REAL DEFAULT 0.0, golden_pow_dbm REAL DEFAULT 0.0, has_golden_sample INTEGER DEFAULT 0);");
     q.exec("CREATE TABLE IF NOT EXISTS work_orders (id INTEGER PRIMARY KEY AUTOINCREMENT, order_no TEXT, customer_name TEXT, product_code TEXT, satellite_profile_id INTEGER, target_quantity INTEGER, completed_quantity INTEGER, passed_quantity INTEGER, failed_quantity INTEGER, status TEXT, notes TEXT);");
     q.exec("CREATE TABLE IF NOT EXISTS test_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, work_order_id INTEGER, station_id INTEGER, operator_id INTEGER, antenna_sn TEXT, satellite_profile_id INTEGER, test_timestamp TEXT, duration_sec INTEGER, overall_result TEXT, fail_reason TEXT, avg_delta_db REAL, max_delta_db REAL, notes TEXT);");
     q.exec("CREATE TABLE IF NOT EXISTS test_run_channels (id INTEGER PRIMARY KEY AUTOINCREMENT, test_run_id INTEGER, channel_no INTEGER, channel_name TEXT, frequency_mhz INTEGER, symbol_rate INTEGER, polarization TEXT, dut_cn_avg REAL, dut_pow_avg REAL, ref_cn_avg REAL, ref_pow_avg REAL, delta_db REAL, carrier_locked INTEGER, video_locked INTEGER, audio_locked INTEGER, tolerance_db REAL, result TEXT);");
@@ -326,6 +331,21 @@ bool DbManager::ensureDefaultDataIfMissing() {
     q.exec("INSERT INTO reference_lock (id, locked_by_station, current_channel_no) VALUES (1, 0, 0) "
            "ON DUPLICATE KEY UPDATE id=id;");
 
+    // 6. Geriye uyumlu şema göçü: profile_channels tablosunda Golden Sample sütunları yoksa ekle
+    q.exec("SHOW COLUMNS FROM profile_channels LIKE 'golden_cn_db';");
+    if (!q.next()) {
+        q.exec("ALTER TABLE profile_channels "
+               "ADD COLUMN golden_cn_db DECIMAL(5, 2) NOT NULL DEFAULT 0.00 AFTER tolerance_db, "
+               "ADD COLUMN golden_pow_dbm DECIMAL(6, 2) NOT NULL DEFAULT 0.00 AFTER golden_cn_db, "
+               "ADD COLUMN has_golden_sample TINYINT(1) NOT NULL DEFAULT 0 AFTER golden_pow_dbm, "
+               "ADD COLUMN golden_updated_at TIMESTAMP NULL DEFAULT NULL AFTER has_golden_sample;");
+    }
+
+    // Referans Modu varsayılanı yoksa ekle
+    q.exec("INSERT INTO system_settings (setting_key, setting_value, description) "
+           "VALUES ('REFERENCE_MODE', 'LIVE', 'Referans kaynağı: LIVE (Canlı Anten) veya GOLDEN (Kayıtlı Golden Sample)') "
+           "ON DUPLICATE KEY UPDATE setting_key=setting_key;");
+
     qInfo() << "[MySQL Servisi] Veritabanı şeması ve fabrika başlangıç değerleri hazır.";
     return true;
 }
@@ -335,7 +355,7 @@ QVector<SatelliteProfileInfo> DbManager::getProfiles() {
     if (!isConnected()) return list;
 
     QSqlDatabase db = QSqlDatabase::database(m_connectionName);
-    QSqlQuery q("SELECT id, profile_name, satellite_name, orbital_position, default_tolerance_db, is_active FROM satellite_profiles WHERE is_active = 1", db);
+    QSqlQuery q("SELECT id, profile_name, satellite_name, orbital_position, default_tolerance_db, is_active FROM satellite_profiles WHERE is_active = 1 ORDER BY id ASC", db);
 
     while (q.next()) {
         SatelliteProfileInfo p;
@@ -346,9 +366,10 @@ QVector<SatelliteProfileInfo> DbManager::getProfiles() {
         p.defaultToleranceDb = q.value(4).toDouble();
         p.isActive = q.value(5).toBool();
 
-        // Kanalları doldur
+        // Kanalları ve Golden Sample verilerini doldur
         QSqlQuery qCh(db);
-        qCh.prepare("SELECT channel_no, channel_name, frequency_mhz, symbol_rate, polarization, tolerance_db "
+        qCh.prepare("SELECT channel_no, channel_name, frequency_mhz, symbol_rate, polarization, tolerance_db, "
+                    "golden_cn_db, golden_pow_dbm, has_golden_sample "
                     "FROM profile_channels WHERE profile_id = :pid ORDER BY channel_no ASC");
         qCh.bindValue(":pid", p.id);
         if (qCh.exec()) {
@@ -360,6 +381,9 @@ QVector<SatelliteProfileInfo> DbManager::getProfiles() {
                 c.symbolRate = qCh.value(3).toInt();
                 c.polarization = qCh.value(4).toString();
                 c.toleranceDb = qCh.value(5).toDouble();
+                c.goldenCnDb = qCh.value(6).toDouble();
+                c.goldenPowDbm = qCh.value(7).toDouble();
+                c.hasGoldenSample = qCh.value(8).toBool();
                 p.channels.append(c);
             }
         }
@@ -374,6 +398,119 @@ SatelliteProfileInfo DbManager::getProfile(int profileId) {
         if (p.id == profileId) return p;
     }
     return SatelliteProfileInfo();
+}
+
+bool DbManager::saveProfile(const SatelliteProfileInfo &profile) {
+    if (!isConnected()) return false;
+    QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+    db.transaction();
+
+    int profileId = profile.id;
+    QSqlQuery q(db);
+
+    if (profileId <= 0) {
+        q.prepare("INSERT INTO satellite_profiles (profile_name, satellite_name, orbital_position, default_tolerance_db, is_active) "
+                  "VALUES (:pname, :sname, :orb, :tol, :act)");
+        q.bindValue(":pname", profile.profileName);
+        q.bindValue(":sname", profile.satelliteName);
+        q.bindValue(":orb", profile.orbitalPosition);
+        q.bindValue(":tol", profile.defaultToleranceDb);
+        q.bindValue(":act", profile.isActive ? 1 : 0);
+        if (!q.exec()) {
+            m_lastError = q.lastError().text();
+            db.rollback();
+            return false;
+        }
+        profileId = q.lastInsertId().toInt();
+    } else {
+        q.prepare("UPDATE satellite_profiles SET profile_name = :pname, satellite_name = :sname, "
+                  "orbital_position = :orb, default_tolerance_db = :tol, is_active = :act WHERE id = :id");
+        q.bindValue(":pname", profile.profileName);
+        q.bindValue(":sname", profile.satelliteName);
+        q.bindValue(":orb", profile.orbitalPosition);
+        q.bindValue(":tol", profile.defaultToleranceDb);
+        q.bindValue(":act", profile.isActive ? 1 : 0);
+        q.bindValue(":id", profileId);
+        if (!q.exec()) {
+            m_lastError = q.lastError().text();
+            db.rollback();
+            return false;
+        }
+    }
+
+    // Mevcut kanalları temizle ve güncel listeyi ekle
+    QSqlQuery qDel(db);
+    qDel.prepare("DELETE FROM profile_channels WHERE profile_id = :pid");
+    qDel.bindValue(":pid", profileId);
+    if (!qDel.exec()) {
+        m_lastError = qDel.lastError().text();
+        db.rollback();
+        return false;
+    }
+
+    for (const auto &ch : profile.channels) {
+        QSqlQuery qIns(db);
+        qIns.prepare("INSERT INTO profile_channels (profile_id, channel_no, channel_name, frequency_mhz, "
+                     "symbol_rate, polarization, tolerance_db, golden_cn_db, golden_pow_dbm, has_golden_sample) "
+                     "VALUES (:pid, :cno, :cname, :freq, :sr, :pol, :tol, :gcn, :gpow, :hasg)");
+        qIns.bindValue(":pid", profileId);
+        qIns.bindValue(":cno", ch.channelNo);
+        qIns.bindValue(":cname", ch.channelName);
+        qIns.bindValue(":freq", ch.frequencyMhz);
+        qIns.bindValue(":sr", ch.symbolRate);
+        qIns.bindValue(":pol", ch.polarization);
+        qIns.bindValue(":tol", ch.toleranceDb);
+        qIns.bindValue(":gcn", ch.goldenCnDb);
+        qIns.bindValue(":gpow", ch.goldenPowDbm);
+        qIns.bindValue(":hasg", ch.hasGoldenSample ? 1 : 0);
+        if (!qIns.exec()) {
+            m_lastError = qIns.lastError().text();
+            db.rollback();
+            return false;
+        }
+    }
+
+    return db.commit();
+}
+
+bool DbManager::deleteProfile(int profileId) {
+    if (!isConnected() || profileId <= 1) return false; // Varsayılan profil 1 silinmez
+    QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+    QSqlQuery q(db);
+    q.prepare("UPDATE satellite_profiles SET is_active = 0 WHERE id = :id");
+    q.bindValue(":id", profileId);
+    return q.exec();
+}
+
+bool DbManager::updateChannelGoldenSample(int profileId, int channelNo, double cnDb, double powDbm) {
+    if (!isConnected() || profileId <= 0) return false;
+    QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+    QSqlQuery q(db);
+    if (m_driverName == "QSQLITE") {
+        q.prepare("UPDATE profile_channels SET golden_cn_db = :cn, golden_pow_dbm = :pow, has_golden_sample = 1 "
+                  "WHERE profile_id = :pid AND channel_no = :cno");
+    } else {
+        q.prepare("UPDATE profile_channels SET golden_cn_db = :cn, golden_pow_dbm = :pow, has_golden_sample = 1, "
+                  "golden_updated_at = CURRENT_TIMESTAMP WHERE profile_id = :pid AND channel_no = :cno");
+    }
+    q.bindValue(":cn", cnDb);
+    q.bindValue(":pow", powDbm);
+    q.bindValue(":pid", profileId);
+    q.bindValue(":cno", channelNo);
+    return q.exec();
+}
+
+ReferenceMode DbManager::getReferenceMode() {
+    QString val = getSetting("REFERENCE_MODE", "LIVE");
+    return (val.compare("GOLDEN", Qt::CaseInsensitive) == 0)
+               ? ReferenceMode::GoldenSample
+               : ReferenceMode::LiveReference;
+}
+
+bool DbManager::setReferenceMode(ReferenceMode mode) {
+    QString val = (mode == ReferenceMode::GoldenSample) ? "GOLDEN" : "LIVE";
+    return setSetting("REFERENCE_MODE", val,
+                      "Referans kaynağı: LIVE (Canlı Anten) veya GOLDEN (Kayıtlı Golden Sample)");
 }
 
 QVector<WorkOrderInfo> DbManager::getActiveWorkOrders() {

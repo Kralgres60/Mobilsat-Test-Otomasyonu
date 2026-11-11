@@ -9,6 +9,7 @@
 #include <QIcon>
 #include <QCommandLineParser>
 #include <QDebug>
+#include <QTextCodec>
 #include "core/appinfo.h"
 #include "core/app_config.h"
 #include "core/build_config.h"
@@ -29,6 +30,7 @@
 
 int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
+    QTextCodec::setCodecForLocale(QTextCodec::codecForName("UTF-8"));
 
 #if defined(NETA_DEBUG_MODE)
     qInfo() << "==========================================================";

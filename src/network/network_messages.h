@@ -24,9 +24,10 @@ namespace NetMsg {
     inline const QString TYPE_LOCK_RELEASE  = "LOCK_RELEASE";     ///< Request lock release
     inline const QString TYPE_LOCK_RELEASED = "LOCK_RELEASED";    ///< Lock release confirmation
     inline const QString TYPE_LOCK_EXPIRED  = "LOCK_EXPIRED";     ///< Guard timeout expiration notice
-    inline const QString TYPE_REF_TUNE      = "REF_TUNE";         ///< Request Reference DRX to tune transponder
-    inline const QString TYPE_REF_TUNE_ACK  = "REF_TUNE_ACK";     ///< Reference DRX tune confirmation
-    inline const QString TYPE_REF_DATA      = "REF_DATA";         ///< Streaming Golden Sample RF telemetry
+    inline const QString TYPE_REF_TUNE        = "REF_TUNE";         ///< Request Reference DRX to tune transponder
+    inline const QString TYPE_REF_TUNE_ACK    = "REF_TUNE_ACK";     ///< Reference DRX tune confirmation
+    inline const QString TYPE_REF_DATA        = "REF_DATA";         ///< Streaming Golden Sample RF telemetry
+    inline const QString TYPE_REF_MODE_UPDATE = "REF_MODE_UPDATE";  ///< Broadcast active reference mode (LIVE vs GOLDEN)
 
     /**
      * @brief Serializes a QJsonObject to a newline-terminated JSON stream.

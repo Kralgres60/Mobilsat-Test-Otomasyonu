@@ -65,10 +65,14 @@ public:
     bool ensureDefaultDataIfMissing();
     bool executeSqlScript(const QString &resourceOrFilePath);
 
-    // Profile Management
+    // Profile & Golden Sample Management
     QVector<SatelliteProfileInfo> getProfiles();
     SatelliteProfileInfo getProfile(int profileId);
     bool saveProfile(const SatelliteProfileInfo &profile);
+    /** @brief Deactivates or deletes a satellite profile by ID (protects profile 1). */
+    bool deleteProfile(int profileId);
+    /** @brief Stores measured Golden Sample C/N and RF power baseline for a specific profile channel. */
+    bool updateChannelGoldenSample(int profileId, int channelNo, double cnDb, double powDbm);
 
     // Work Order Management
     QVector<WorkOrderInfo> getActiveWorkOrders();
@@ -82,6 +86,11 @@ public:
     // System Settings Key-Value Store
     QString getSetting(const QString &key, const QString &defaultValue = QString());
     bool setSetting(const QString &key, const QString &value, const QString &desc = QString());
+
+    /** @brief Reads the active reference mode (LiveReference vs GoldenSample) set by the Administrator. */
+    ReferenceMode getReferenceMode();
+    /** @brief Persists the active reference mode (LiveReference vs GoldenSample) in system_settings. */
+    bool setReferenceMode(ReferenceMode mode);
 
     // User Authentication & Roles
     /**
