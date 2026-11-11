@@ -167,6 +167,7 @@ ClientWindow::ClientWindow(QWidget *parent)
 }
 
 ClientWindow::~ClientWindow() {
+    AppConfig::instance().save();
     m_ethPingTimer.stop();
     m_beaconListener.stop();
     m_dutSerial.closePort();
@@ -398,14 +399,24 @@ void ClientWindow::setupProductionPage() {
     m_comboProfiles = new QComboBox(grpLaunch);
     connect(m_comboProfiles, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &ClientWindow::onProfileComboChanged);
-    QPushButton *btnRefreshProfiles = new QPushButton("🔄", grpLaunch);
+    QPushButton *btnRefreshProfiles = new QPushButton("🔄 Yenile", grpLaunch);
     btnRefreshProfiles->setToolTip("Uydu profillerini ve Golden Sample değerlerini veritabanından yenile");
-    btnRefreshProfiles->setFixedSize(34, 28);
+    btnRefreshProfiles->setCursor(Qt::PointingHandCursor);
+    btnRefreshProfiles->setMinimumHeight(30);
+    btnRefreshProfiles->setStyleSheet(
+        "QPushButton { background-color: #065F46; color: #E6F4EE; border: 1px solid #10B981; border-radius: 4px; padding: 4px 10px; font-weight: bold; }"
+        "QPushButton:hover { background-color: #10B981; color: #071210; }"
+    );
     connect(btnRefreshProfiles, &QPushButton::clicked, this, &ClientWindow::loadWorkOrdersAndProfiles);
 
     QPushButton *btnManageProfiles = new QPushButton("➕ Ekle / Düzenle", grpLaunch);
     btnManageProfiles->setToolTip("Yeni uydu profili ekle veya frekansları düzenle");
-    btnManageProfiles->setFixedHeight(28);
+    btnManageProfiles->setCursor(Qt::PointingHandCursor);
+    btnManageProfiles->setMinimumHeight(30);
+    btnManageProfiles->setStyleSheet(
+        "QPushButton { background-color: #112D21; color: #34D399; border: 1px solid #34D399; border-radius: 4px; padding: 4px 10px; font-weight: bold; }"
+        "QPushButton:hover { background-color: #34D399; color: #071210; }"
+    );
     connect(btnManageProfiles, &QPushButton::clicked, this, [this]() {
         if (m_sideNav) m_sideNav->setCurrentRow(4); // Uydu Profilleri sayfasına geç
     });
@@ -414,6 +425,10 @@ void ClientWindow::setupProductionPage() {
     profRow->addWidget(btnRefreshProfiles);
     profRow->addWidget(btnManageProfiles);
 
+    m_txtTesterName = new QLineEdit(grpLaunch);
+    m_txtTesterName->setPlaceholderText("Testi yapan kişi adını giriniz (Zorunlu - Kullanıcı adı değildir)...");
+    m_txtTesterName->setStyleSheet("font-size: 10.5pt; font-weight: bold; padding: 6px 10px; border: 1px solid #10B981;");
+
     m_txtAntennaSn = new QLineEdit(grpLaunch);
     m_txtAntennaSn->setPlaceholderText("Anten barkodunu okutunuz ve Enter'a basınız...");
     m_txtAntennaSn->setStyleSheet("font-size: 11pt; font-weight: bold; padding: 6px 10px;");
@@ -421,7 +436,8 @@ void ClientWindow::setupProductionPage() {
 
     launchForm->addRow(new QLabel("İş Emri:", grpLaunch), m_comboOrders);
     launchForm->addRow(new QLabel("Uydu Profili:", grpLaunch), profRow);
-    launchForm->addRow(new QLabel("Barkod / Seri No:", grpLaunch), m_txtAntennaSn);
+    launchForm->addRow(new QLabel("Testi Yapan İsim *:", grpLaunch), m_txtTesterName);
+    launchForm->addRow(new QLabel("Barkod / Seri No *:", grpLaunch), m_txtAntennaSn);
 
     QHBoxLayout *btnRow = new QHBoxLayout();
     btnRow->setSpacing(8);
@@ -673,6 +689,30 @@ void ClientWindow::setupEngineerSettingsPage() {
     netForm->addRow(btnReconnect);
     cardsGrid->addWidget(grpNet, 1, 0);
 
+    // Anında QSettings (.ini) otomatik kayıt bağlantıları
+    auto autoSaveClientSettings = [this]() {
+        AppConfig &cfg = AppConfig::instance();
+        cfg.setDefaultToleranceDb(m_spinTolerance->value());
+        cfg.setSampleDurationSec(m_spinSampleDuration->value());
+        cfg.setStationDrxHost(m_txtDutDrxIp->text().trimmed());
+        cfg.setRefDrxHost(m_txtRefDrxIp->text().trimmed());
+        cfg.setDrxUsername(m_txtDrxUser->text().trimmed());
+        cfg.setDrxPassword(m_txtDrxPass->text());
+        cfg.setHostIp(m_txtHostIp->text().trimmed());
+        cfg.setTcpPort(static_cast<quint16>(m_spinTcpPort->value()));
+        cfg.setUdpBeaconPort(static_cast<quint16>(m_spinUdpPort->value()));
+        cfg.save();
+    };
+    connect(m_spinTolerance, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, autoSaveClientSettings);
+    connect(m_spinSampleDuration, QOverload<int>::of(&QSpinBox::valueChanged), this, autoSaveClientSettings);
+    connect(m_txtDutDrxIp, &QLineEdit::editingFinished, this, autoSaveClientSettings);
+    connect(m_txtRefDrxIp, &QLineEdit::editingFinished, this, autoSaveClientSettings);
+    connect(m_txtDrxUser, &QLineEdit::editingFinished, this, autoSaveClientSettings);
+    connect(m_txtDrxPass, &QLineEdit::editingFinished, this, autoSaveClientSettings);
+    connect(m_txtHostIp, &QLineEdit::editingFinished, this, autoSaveClientSettings);
+    connect(m_spinTcpPort, QOverload<int>::of(&QSpinBox::valueChanged), this, autoSaveClientSettings);
+    connect(m_spinUdpPort, QOverload<int>::of(&QSpinBox::valueChanged), this, autoSaveClientSettings);
+
     // Card 4: Optional Legacy RS232 Fallback (strictly tucked away from Technician screen!)
     QGroupBox *grpSerial = new QGroupBox("🔧 Gelişmiş: RS232 Yedek Seri Port (Opsiyonel)", m_pageEngineer);
     QFormLayout *serForm = new QFormLayout(grpSerial);
@@ -799,22 +839,35 @@ void ClientWindow::loadWorkOrdersAndProfiles() {
                              AppConfig::instance().dbName(), AppConfig::instance().dbUser(),
                              AppConfig::instance().dbPassword());
     }
+    if (db.isConnected()) {
+        db.ensureDefaultDataIfMissing();
+    }
 
     m_workOrders = db.getActiveWorkOrders();
     m_profiles = db.getProfiles();
+    AppConfig &cfg = AppConfig::instance();
 
     if (m_comboOrders) {
         m_comboOrders->blockSignals(true);
         m_comboOrders->clear();
-        for (const auto &wo : m_workOrders) {
+        int targetWoIdx = 0;
+        const int savedWoId = cfg.lastWorkOrderId();
+        for (int i = 0; i < m_workOrders.size(); ++i) {
+            const auto &wo = m_workOrders[i];
             m_comboOrders->addItem(QString("%1 - %2 (%3)").arg(wo.orderNo, wo.customerName, wo.productCode), wo.id);
+            if (savedWoId > 0 && wo.id == savedWoId) {
+                targetWoIdx = i;
+            }
+        }
+        if (!m_workOrders.isEmpty()) {
+            m_comboOrders->setCurrentIndex(targetWoIdx);
         }
         m_comboOrders->blockSignals(false);
     }
 
     if (m_comboProfiles) {
         m_comboProfiles->blockSignals(true);
-        int prevId = m_currentProfile.id;
+        int prevId = (m_currentProfile.id > 0) ? m_currentProfile.id : cfg.lastProfileId();
         m_comboProfiles->clear();
         int targetIdx = 0;
         for (int i = 0; i < m_profiles.size(); ++i) {
@@ -838,9 +891,6 @@ void ClientWindow::loadWorkOrdersAndProfiles() {
         populateChannelTable();
     }
 
-    if (!m_workOrders.isEmpty() && m_comboOrders) {
-        onWorkOrderComboChanged(m_comboOrders->currentIndex());
-    }
     if (m_profileManager) {
         m_profileManager->reloadProfiles(m_currentProfile.id);
     }
@@ -848,6 +898,8 @@ void ClientWindow::loadWorkOrdersAndProfiles() {
 
 void ClientWindow::onWorkOrderComboChanged(int index) {
     if (index < 0 || index >= m_workOrders.size() || !m_comboProfiles) return;
+    AppConfig::instance().setLastWorkOrderId(m_workOrders[index].id);
+
     int targetProfId = m_workOrders[index].satelliteProfileId;
     for (int i = 0; i < m_profiles.size(); ++i) {
         if (m_profiles[i].id == targetProfId) {
@@ -860,6 +912,7 @@ void ClientWindow::onWorkOrderComboChanged(int index) {
 void ClientWindow::onProfileComboChanged(int index) {
     if (index < 0 || index >= m_profiles.size()) return;
     m_currentProfile = m_profiles[index];
+    AppConfig::instance().setLastProfileId(m_currentProfile.id);
 
     if (m_lblProfileSummary) {
         m_lblProfileSummary->setText(QString("%1 (%2, %3 Kanal)")
@@ -873,6 +926,7 @@ void ClientWindow::onProfileComboChanged(int index) {
 }
 
 void ClientWindow::onReferenceModeChanged(ReferenceMode mode) {
+    AppConfig::instance().setLastReferenceMode(mode);
     if (m_stateMachine) {
         m_stateMachine->setReferenceMode(mode);
     }
@@ -1032,6 +1086,8 @@ void ClientWindow::onHostDiscovered(const QString &hostIp, const QString &server
         appendLog(QString("Lobi keşfedildi: %1 (%2:%3). Bağlanılıyor...").arg(serverName, hostIp).arg(tcpPort));
         AppConfig::instance().setHostIp(hostIp);
         AppConfig::instance().setDbHost(hostIp);
+        AppConfig::instance().setTcpPort(tcpPort);
+        AppConfig::instance().save();
         if (m_txtHostIp) m_txtHostIp->setText(hostIp);
         m_netClient.connectToHost(hostIp, tcpPort);
     }
@@ -1065,6 +1121,16 @@ void ClientWindow::onTcpDisconnected() {
 }
 
 void ClientWindow::onStartTestClicked() {
+    QString testerName = m_txtTesterName ? m_txtTesterName->text().trimmed() : QString();
+    if (testerName.isEmpty()) {
+        QMessageBox::warning(this, "Zorunlu İsim Eksik",
+                             "Her test için 'Testi Yapan İsim' alanını doldurmak zorunludur!\n\n"
+                             "• Bu alan giriş kullanıcı adından bağımsızdır.\n"
+                             "• İsim girilmeden hiçbir koşulda test başlatılamaz.");
+        if (m_txtTesterName) m_txtTesterName->setFocus();
+        return;
+    }
+
     QString sn = m_txtAntennaSn->text().trimmed();
     if (sn.isEmpty()) {
         QMessageBox::warning(this, "Uyarı", "Lütfen anten barkodunu okutunuz!");
@@ -1141,7 +1207,7 @@ void ClientWindow::onStartTestClicked() {
     m_btnAbortTest->setEnabled(true);
     setStatusMessage(QString("Test başlatıldı (CAT6 Ethernet): Seri No %1").arg(sn));
 
-    if (!m_stateMachine->startTest(sn, m_currentProfile, woId)) {
+    if (!m_stateMachine->startTest(sn, m_currentProfile, woId, 1, testerName)) {
         m_btnStartTest->setEnabled(true);
         m_btnAbortTest->setEnabled(false);
         m_resultBannerFrame->setStyleSheet("background-color: #112D21; border: 1px solid #1A3D2B; border-radius: 6px; padding: 10px;");
@@ -1306,8 +1372,13 @@ void ClientWindow::onTestFinished(const TestRunData &finalResult) {
 
     DbManager::instance().insertTestRun(finalResult);
 
+    if (m_txtTesterName) m_txtTesterName->clear();
     m_txtAntennaSn->clear();
-    m_txtAntennaSn->setFocus();
+    if (m_txtTesterName) {
+        m_txtTesterName->setFocus();
+    } else {
+        m_txtAntennaSn->setFocus();
+    }
 }
 
 void ClientWindow::onSaveEngineerSettingsClicked() {

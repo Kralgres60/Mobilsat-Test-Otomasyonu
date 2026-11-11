@@ -73,6 +73,9 @@ private slots:
 
 private:
     void setupUi();
+    void populateChannelRow(int row, const ChannelConfig &ch);
+    ChannelConfig readChannelFromRow(int row, double fallbackTol) const;
+    void setGoldenCellsOnRow(int row, double cnDb, double powDbm, const QString &statusText, const QColor &statusColor);
     void triggerGoldenCaptureCurrentRow();
 
     bool m_isHostMode = false;

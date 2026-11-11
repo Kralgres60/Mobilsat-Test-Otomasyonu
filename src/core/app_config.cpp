@@ -1,11 +1,14 @@
 /**
  * @file app_config.cpp
- * @brief Implementation of AppConfig persistent settings loader and saver.
+ * @brief Implementation of AppConfig persistent portable INI settings loader and immediate saver.
  * @author Semi Eren Gökyıldız
  * @copyright Copyright (C) 2026 NETA Elektronik A.Ş.
  */
 
 #include "app_config.h"
+#include <QCoreApplication>
+#include <QDir>
+#include <QFile>
 
 AppConfig& AppConfig::instance() {
     static AppConfig s_instance;
@@ -16,49 +19,86 @@ AppConfig::AppConfig() {
     load();
 }
 
+QString AppConfig::configFilePath() {
+    QString baseDir = QCoreApplication::instance()
+                          ? QCoreApplication::applicationDirPath()
+                          : QDir::currentPath();
+    return QDir(baseDir).filePath("neta_config.ini");
+}
+
 void AppConfig::load() {
-    QSettings settings("NETA", "DRX_Antenna_Test");
+    m_isLoading = true;
+    const QString iniPath = configFilePath();
+    const bool iniExists = QFile::exists(iniPath);
 
-    int roleInt = settings.value("General/Role", static_cast<int>(AppRole::Client)).toInt();
+    QSettings settings(iniPath, QSettings::IniFormat);
+    settings.setIniCodec("UTF-8");
+
+    // If portable neta_config.ini does not exist yet, read any legacy registry values once as defaults
+    QSettings legacySettings("NETA", "DRX_Antenna_Test");
+    auto readVal = [&](const QString &key, const QVariant &def) -> QVariant {
+        if (settings.contains(key)) {
+            return settings.value(key, def);
+        }
+        return iniExists ? def : legacySettings.value(key, def);
+    };
+
+    int roleInt = readVal("General/Role", static_cast<int>(AppRole::Client)).toInt();
     m_role = static_cast<AppRole>(roleInt);
-    m_stationId = settings.value("General/StationId", 1).toInt();
+    m_stationId = readVal("General/StationId", 1).toInt();
 
-    int userRoleInt = settings.value("User/Role", static_cast<int>(UserRole::Technician)).toInt();
+    int userRoleInt = readVal("User/Role", static_cast<int>(UserRole::Technician)).toInt();
     m_userRole = static_cast<UserRole>(userRoleInt);
-    m_currentUsername = settings.value("User/Username", "operator1").toString();
-    m_currentUserFullName = settings.value("User/FullName", "Masa 1 Operatörü").toString();
+    m_currentUsername = readVal("User/Username", "operator1").toString();
+    m_currentUserFullName = readVal("User/FullName", "Masa 1 Operatörü").toString();
 
-    m_hostIp = settings.value("Network/HostIp", "127.0.0.1").toString();
-    m_tcpPort = static_cast<quint16>(settings.value("Network/TcpPort", 9100).toUInt());
-    m_udpBeaconPort = static_cast<quint16>(settings.value("Network/UdpPort", 9101).toUInt());
+    m_hostIp = readVal("Network/HostIp", "127.0.0.1").toString();
+    m_tcpPort = static_cast<quint16>(readVal("Network/TcpPort", 9100).toUInt());
+    m_udpBeaconPort = static_cast<quint16>(readVal("Network/UdpPort", 9101).toUInt());
 
-    m_dbHost = settings.value("Database/Host", "127.0.0.1").toString();
-    m_dbPort = settings.value("Database/Port", 3306).toInt();
-    m_dbName = settings.value("Database/Name", "neta_antenna_test").toString();
-    m_dbUser = settings.value("Database/User", "root").toString();
-    m_dbPassword = settings.value("Database/Password", "neta123").toString();
+    m_dbHost = readVal("Database/Host", "127.0.0.1").toString();
+    m_dbPort = readVal("Database/Port", 3306).toInt();
+    m_dbName = readVal("Database/Name", "neta_antenna_test").toString();
+    m_dbUser = readVal("Database/User", "root").toString();
+    m_dbPassword = readVal("Database/Password", "neta123").toString();
     if (m_dbPassword.isEmpty()) {
         m_dbPassword = "neta123";
     }
 
-    m_serialPort = settings.value("Hardware/SerialPort", "COM1").toString();
-    m_serialBaudRate = settings.value("Hardware/BaudRate", 115200).toInt();
+    m_serialPort = readVal("Hardware/SerialPort", "COM1").toString();
+    m_serialBaudRate = readVal("Hardware/BaudRate", 115200).toInt();
 
-    m_lockTimeoutSec = settings.value("Test/LockTimeoutSec", 90).toInt();
-    m_sampleDurationSec = settings.value("Test/SampleDurationSec", 5).toInt();
-    m_defaultToleranceDb = settings.value("Test/DefaultToleranceDb", 1.50).toDouble();
-    m_reportDir = settings.value("Report/OutputDir", "reports").toString();
+    m_lockTimeoutSec = readVal("Test/LockTimeoutSec", 90).toInt();
+    m_sampleDurationSec = readVal("Test/SampleDurationSec", 5).toInt();
+    m_defaultToleranceDb = readVal("Test/DefaultToleranceDb", 1.50).toDouble();
+    m_reportDir = readVal("Report/OutputDir", "reports").toString();
 
-    m_refDrxHost = settings.value("DrxWeb/RefHost", "192.168.0.167").toString();
-    m_refDrxPort = settings.value("DrxWeb/RefPort", 80).toInt();
-    m_stationDrxHost = settings.value("DrxWeb/StationHost", "192.168.0.167").toString();
-    m_stationDrxPort = settings.value("DrxWeb/StationPort", 80).toInt();
-    m_drxUsername = settings.value("DrxWeb/Username", "admin").toString();
-    m_drxPassword = settings.value("DrxWeb/Password", "1234").toString();
+    m_refDrxHost = readVal("DrxWeb/RefHost", "192.168.0.167").toString();
+    m_refDrxPort = readVal("DrxWeb/RefPort", 80).toInt();
+    m_stationDrxHost = readVal("DrxWeb/StationHost", "192.168.0.167").toString();
+    m_stationDrxPort = readVal("DrxWeb/StationPort", 80).toInt();
+    m_drxUsername = readVal("DrxWeb/Username", "admin").toString();
+    m_drxPassword = readVal("DrxWeb/Password", "1234").toString();
+
+    m_lastWorkOrderId = readVal("Session/LastWorkOrderId", 0).toInt();
+    m_lastProfileId = readVal("Session/LastProfileId", 1).toInt();
+    int refModeInt = readVal("Session/LastReferenceMode", static_cast<int>(ReferenceMode::LiveReference)).toInt();
+    m_lastReferenceMode = (refModeInt == static_cast<int>(ReferenceMode::GoldenSample))
+                              ? ReferenceMode::GoldenSample
+                              : ReferenceMode::LiveReference;
+
+    m_isLoading = false;
+
+    if (!iniExists) {
+        save();
+    }
 }
 
 void AppConfig::save() {
-    QSettings settings("NETA", "DRX_Antenna_Test");
+    if (m_isLoading) return;
+
+    QSettings settings(configFilePath(), QSettings::IniFormat);
+    settings.setIniCodec("UTF-8");
 
     settings.setValue("General/Role", static_cast<int>(m_role));
     settings.setValue("General/StationId", m_stationId);
@@ -90,6 +130,10 @@ void AppConfig::save() {
     settings.setValue("DrxWeb/StationPort", m_stationDrxPort);
     settings.setValue("DrxWeb/Username", m_drxUsername);
     settings.setValue("DrxWeb/Password", m_drxPassword);
+
+    settings.setValue("Session/LastWorkOrderId", m_lastWorkOrderId);
+    settings.setValue("Session/LastProfileId", m_lastProfileId);
+    settings.setValue("Session/LastReferenceMode", static_cast<int>(m_lastReferenceMode));
 
     settings.sync();
 }

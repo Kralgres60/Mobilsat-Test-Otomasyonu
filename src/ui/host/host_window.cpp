@@ -135,6 +135,7 @@ HostWindow::HostWindow(QWidget *parent)
 }
 
 HostWindow::~HostWindow() {
+    AppConfig::instance().save();
     m_refEthPingTimer.stop();
     m_beaconBroadcaster.stop();
     m_tcpServer.stop();
@@ -398,8 +399,8 @@ void HostWindow::setupHistoryPage() {
     vbox->addLayout(filterRow);
 
     m_tableHistory = new QTableWidget(m_pageHistory);
-    m_tableHistory->setColumnCount(9);
-    m_tableHistory->setHorizontalHeaderLabels({"ID", "Seri No", "İş Emri", "Masa", "Tarih/Saat", "Süre (sn)", "Sonuç", "Ort. Delta", "Max Delta"});
+    m_tableHistory->setColumnCount(10);
+    m_tableHistory->setHorizontalHeaderLabels({"ID", "Seri No", "Testi Yapan", "İş Emri", "Masa", "Tarih/Saat", "Süre (sn)", "Sonuç", "Ort. Delta", "Max Delta"});
     m_tableHistory->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     m_tableHistory->verticalHeader()->setVisible(false);
     m_tableHistory->setAlternatingRowColors(true);
@@ -549,6 +550,28 @@ void HostWindow::setupSettingsPage() {
 
     vbox->addLayout(cardsGrid);
     vbox->addStretch();
+
+    // Anında QSettings (.ini) otomatik kayıt bağlantıları
+    auto autoSaveHostSettings = [this]() {
+        AppConfig &cfg = AppConfig::instance();
+        cfg.setLockTimeoutSec(m_spinLockTimeout->value());
+        cfg.setSampleDurationSec(m_spinSampleDuration->value());
+        cfg.setDefaultToleranceDb(m_spinTolerance->value());
+        cfg.setRefDrxHost(m_txtRefDrxIp->text().trimmed());
+        cfg.setDrxUsername(m_txtRefDrxUser->text().trimmed());
+        cfg.setDrxPassword(m_txtRefDrxPass->text());
+        cfg.setDbHost(m_txtDbHost->text().trimmed());
+        cfg.setDbName(m_txtDbName->text().trimmed());
+        cfg.save();
+    };
+    connect(m_spinLockTimeout, QOverload<int>::of(&QSpinBox::valueChanged), this, autoSaveHostSettings);
+    connect(m_spinSampleDuration, QOverload<int>::of(&QSpinBox::valueChanged), this, autoSaveHostSettings);
+    connect(m_spinTolerance, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, autoSaveHostSettings);
+    connect(m_txtRefDrxIp, &QLineEdit::editingFinished, this, autoSaveHostSettings);
+    connect(m_txtRefDrxUser, &QLineEdit::editingFinished, this, autoSaveHostSettings);
+    connect(m_txtRefDrxPass, &QLineEdit::editingFinished, this, autoSaveHostSettings);
+    connect(m_txtDbHost, &QLineEdit::editingFinished, this, autoSaveHostSettings);
+    connect(m_txtDbName, &QLineEdit::editingFinished, this, autoSaveHostSettings);
 
     onCheckDbClicked();
 }
@@ -712,10 +735,11 @@ void HostWindow::onRefreshHistoryClicked() {
         const auto &r = runs[i];
         m_tableHistory->setItem(i, 0, new QTableWidgetItem(QString::number(r.id)));
         m_tableHistory->setItem(i, 1, new QTableWidgetItem(r.antennaSn));
-        m_tableHistory->setItem(i, 2, new QTableWidgetItem(QString::number(r.workOrderId)));
-        m_tableHistory->setItem(i, 3, new QTableWidgetItem(QString("İstasyon %1").arg(r.stationId)));
-        m_tableHistory->setItem(i, 4, new QTableWidgetItem(r.timestamp.toString("dd.MM.yyyy hh:mm:ss")));
-        m_tableHistory->setItem(i, 5, new QTableWidgetItem(QString::number(r.durationSec)));
+        m_tableHistory->setItem(i, 2, new QTableWidgetItem(r.testerName.isEmpty() ? "--" : r.testerName));
+        m_tableHistory->setItem(i, 3, new QTableWidgetItem(QString::number(r.workOrderId)));
+        m_tableHistory->setItem(i, 4, new QTableWidgetItem(QString("İstasyon %1").arg(r.stationId)));
+        m_tableHistory->setItem(i, 5, new QTableWidgetItem(r.timestamp.toString("dd.MM.yyyy hh:mm:ss")));
+        m_tableHistory->setItem(i, 6, new QTableWidgetItem(QString::number(r.durationSec)));
 
         QTableWidgetItem *resItem = new QTableWidgetItem(r.overallResult);
         if (r.overallResult == "PASS") {
@@ -723,9 +747,9 @@ void HostWindow::onRefreshHistoryClicked() {
         } else {
             resItem->setForeground(QBrush(QColor("#F87171")));
         }
-        m_tableHistory->setItem(i, 6, resItem);
-        m_tableHistory->setItem(i, 7, new QTableWidgetItem(QString::number(r.avgDeltaDb, 'f', 2) + " dB"));
-        m_tableHistory->setItem(i, 8, new QTableWidgetItem(QString::number(r.maxDeltaDb, 'f', 2) + " dB"));
+        m_tableHistory->setItem(i, 7, resItem);
+        m_tableHistory->setItem(i, 8, new QTableWidgetItem(QString::number(r.avgDeltaDb, 'f', 2) + " dB"));
+        m_tableHistory->setItem(i, 9, new QTableWidgetItem(QString::number(r.maxDeltaDb, 'f', 2) + " dB"));
     }
 
     auto orders = db.getActiveWorkOrders();
@@ -850,6 +874,7 @@ void HostWindow::updateRefModeBadgeUi(ReferenceMode mode) {
 }
 
 void HostWindow::onReferenceModeApplyRequested(ReferenceMode mode) {
+    AppConfig::instance().setLastReferenceMode(mode);
     DbManager::instance().setReferenceMode(mode);
     m_tcpServer.setReferenceMode(mode);
     updateRefModeBadgeUi(mode);

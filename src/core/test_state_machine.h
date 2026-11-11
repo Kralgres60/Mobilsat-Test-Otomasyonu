@@ -67,12 +67,17 @@ public:
     /**
      * @brief Starts the automated multi-channel test sequence.
      * @param antennaSn Antenna serial number scanned from barcode
-     * @param profile Satellite profile containing 10 transponders
+     * @param profile Satellite profile containing transponders
      * @param workOrderId Production work order ID
      * @param operatorId Station operator ID
-     * @return true if started successfully; false if already busy
+     * @param testerName Mandatory tester name entered for this test (cannot be empty)
+     * @return true if started successfully; false if busy or mandatory fields missing
      */
-    bool startTest(const QString &antennaSn, const SatelliteProfileInfo &profile, int workOrderId = 0, int operatorId = 1);
+    bool startTest(const QString &antennaSn,
+                   const SatelliteProfileInfo &profile,
+                   int workOrderId = 0,
+                   int operatorId = 1,
+                   const QString &testerName = QString());
 
     /**
      * @brief Aborts currently active test execution immediately.

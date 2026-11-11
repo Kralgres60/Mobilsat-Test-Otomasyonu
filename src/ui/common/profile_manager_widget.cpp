@@ -14,6 +14,8 @@
 #include <QGroupBox>
 #include <QHeaderView>
 #include <QMessageBox>
+#include <QSpinBox>
+#include <QAbstractSpinBox>
 #include <numeric>
 
 ProfileManagerWidget::ProfileManagerWidget(bool isHostMode,
@@ -124,7 +126,11 @@ void ProfileManagerWidget::setupUi() {
     profForm->addRow("Profil Adı:", m_txtProfName);
     profForm->addRow("Uydu Adı:", m_txtSatName);
     profForm->addRow("Yörünge:", m_txtOrbitalPos);
-    profForm->addRow("Vars. Tolerans:", m_spinProfTol);
+    if (m_isHostMode) {
+        profForm->addRow("Vars. Tolerans:", m_spinProfTol);
+    } else {
+        m_spinProfTol->setVisible(false);
+    }
     leftVBox->addLayout(profForm);
 
     splitHBox->addWidget(grpProfLeft);
@@ -143,13 +149,22 @@ void ProfileManagerWidget::setupUi() {
     m_tableProfileChannels->setAlternatingRowColors(true);
     m_tableProfileChannels->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     m_tableProfileChannels->setColumnWidth(0, 36);
-    m_tableProfileChannels->setColumnWidth(2, 95);
-    m_tableProfileChannels->setColumnWidth(3, 90);
-    m_tableProfileChannels->setColumnWidth(4, 66);
-    m_tableProfileChannels->setColumnWidth(5, 92);
-    m_tableProfileChannels->setColumnWidth(6, 86);
-    m_tableProfileChannels->setColumnWidth(7, 88);
+    m_tableProfileChannels->setColumnWidth(2, 115);
+    m_tableProfileChannels->setColumnWidth(3, 110);
+    m_tableProfileChannels->setColumnWidth(4, 68);
+    m_tableProfileChannels->setColumnWidth(5, 96);
+    m_tableProfileChannels->setColumnWidth(6, 94);
+    m_tableProfileChannels->setColumnWidth(7, 100);
     m_tableProfileChannels->setColumnWidth(8, 105);
+
+    // İstasyon tarafında referans / kalibrasyon alanları gösterilmez (yalnızca Yönetici görür)
+    if (!m_isHostMode) {
+        m_tableProfileChannels->setColumnHidden(5, true); // Tolerans (dB)
+        m_tableProfileChannels->setColumnHidden(6, true); // Golden C/N
+        m_tableProfileChannels->setColumnHidden(7, true); // Golden POW
+        m_tableProfileChannels->setColumnHidden(8, true); // Golden Durum
+    }
+
     chVBox->addWidget(m_tableProfileChannels, 1);
 
     QHBoxLayout *chActionRow = new QHBoxLayout();
@@ -232,6 +247,147 @@ void ProfileManagerWidget::reloadProfiles(int selectProfileId) {
     }
 }
 
+void ProfileManagerWidget::populateChannelRow(int row, const ChannelConfig &ch) {
+    if (!m_tableProfileChannels) return;
+    m_tableProfileChannels->setRowHeight(row, 36);
+
+    auto *itNo = new QTableWidgetItem(QString::number(ch.channelNo));
+    itNo->setTextAlignment(Qt::AlignCenter);
+    itNo->setFlags(itNo->flags() & ~Qt::ItemIsEditable);
+    m_tableProfileChannels->setItem(row, 0, itNo);
+
+    m_tableProfileChannels->setItem(row, 1, new QTableWidgetItem(ch.channelName));
+
+    // Frekans (MHz): Sadece geçerli uydu frekans aralığı (950 - 14500 MHz)
+    auto *spinFreq = new QSpinBox(m_tableProfileChannels);
+    spinFreq->setRange(950, 14500);
+    spinFreq->setButtonSymbols(QAbstractSpinBox::NoButtons);
+    spinFreq->setAlignment(Qt::AlignCenter);
+    spinFreq->setSuffix(" MHz");
+    spinFreq->setValue(qBound(950, ch.frequencyMhz, 14500));
+    spinFreq->setToolTip("Frekans formatı: 950 - 14500 MHz (Örn: 11054)");
+    m_tableProfileChannels->setCellWidget(row, 2, spinFreq);
+
+    // Sembol Hızı (kS/s): Sadece geçerli sembol hızı aralığı (1000 - 65000 kS/s)
+    auto *spinSr = new QSpinBox(m_tableProfileChannels);
+    spinSr->setRange(1000, 65000);
+    spinSr->setButtonSymbols(QAbstractSpinBox::NoButtons);
+    spinSr->setAlignment(Qt::AlignCenter);
+    spinSr->setSuffix(" kS/s");
+    spinSr->setValue(qBound(1000, ch.symbolRate, 65000));
+    spinSr->setToolTip("Sembol hızı formatı: 1000 - 65000 kS/s (Örn: 30000)");
+    m_tableProfileChannels->setCellWidget(row, 3, spinSr);
+
+    // Polarizasyon: Yalnızca V veya H seçilebilir
+    auto *comboPol = new QComboBox(m_tableProfileChannels);
+    comboPol->addItem("V");
+    comboPol->addItem("H");
+    comboPol->setCurrentIndex(ch.polarization.trimmed().toUpper() == "H" ? 1 : 0);
+    comboPol->setToolTip("Polarizasyon: Dikey (V) veya Yatay (H)");
+    m_tableProfileChannels->setCellWidget(row, 4, comboPol);
+
+    // Tolerans (dB)
+    auto *spinTol = new QDoubleSpinBox(m_tableProfileChannels);
+    spinTol->setRange(0.10, 10.00);
+    spinTol->setDecimals(2);
+    spinTol->setSingleStep(0.10);
+    spinTol->setButtonSymbols(QAbstractSpinBox::NoButtons);
+    spinTol->setAlignment(Qt::AlignCenter);
+    spinTol->setSuffix(" dB");
+    spinTol->setValue(qBound(0.10, ch.toleranceDb, 10.00));
+    m_tableProfileChannels->setCellWidget(row, 5, spinTol);
+
+    // Golden C/N (dB)
+    auto *spinGcn = new QDoubleSpinBox(m_tableProfileChannels);
+    spinGcn->setRange(0.0, 40.0);
+    spinGcn->setDecimals(2);
+    spinGcn->setButtonSymbols(QAbstractSpinBox::NoButtons);
+    spinGcn->setAlignment(Qt::AlignCenter);
+    spinGcn->setSuffix(" dB");
+    spinGcn->setValue(qBound(0.0, ch.goldenCnDb, 40.0));
+    m_tableProfileChannels->setCellWidget(row, 6, spinGcn);
+
+    // Golden Power (dBm)
+    auto *spinGpow = new QDoubleSpinBox(m_tableProfileChannels);
+    spinGpow->setRange(-120.0, 20.0);
+    spinGpow->setDecimals(2);
+    spinGpow->setButtonSymbols(QAbstractSpinBox::NoButtons);
+    spinGpow->setAlignment(Qt::AlignCenter);
+    spinGpow->setSuffix(" dBm");
+    spinGpow->setValue(qBound(-120.0, ch.goldenPowDbm, 20.0));
+    m_tableProfileChannels->setCellWidget(row, 7, spinGpow);
+
+    auto *itStat = new QTableWidgetItem(ch.hasGoldenSample ? "✔ KAYITLI" : "⚪ YOK");
+    itStat->setTextAlignment(Qt::AlignCenter);
+    itStat->setFlags(itStat->flags() & ~Qt::ItemIsEditable);
+    itStat->setForeground(QBrush(QColor(ch.hasGoldenSample ? "#34D399" : "#94A3B8")));
+    m_tableProfileChannels->setItem(row, 8, itStat);
+}
+
+ChannelConfig ProfileManagerWidget::readChannelFromRow(int row, double fallbackTol) const {
+    ChannelConfig ch;
+    ch.channelNo = row + 1;
+    if (!m_tableProfileChannels || row < 0 || row >= m_tableProfileChannels->rowCount()) {
+        return ch;
+    }
+
+    auto *itName = m_tableProfileChannels->item(row, 1);
+    ch.channelName = itName ? itName->text().trimmed() : QString("Frekans %1").arg(row + 1);
+    if (ch.channelName.isEmpty()) {
+        ch.channelName = QString("Frekans %1").arg(row + 1);
+    }
+
+    if (auto *wFreq = qobject_cast<QSpinBox*>(m_tableProfileChannels->cellWidget(row, 2))) {
+        ch.frequencyMhz = wFreq->value();
+    } else if (auto *itFreq = m_tableProfileChannels->item(row, 2)) {
+        ch.frequencyMhz = itFreq->text().toInt();
+    }
+
+    if (auto *wSr = qobject_cast<QSpinBox*>(m_tableProfileChannels->cellWidget(row, 3))) {
+        ch.symbolRate = wSr->value();
+    } else if (auto *itSr = m_tableProfileChannels->item(row, 3)) {
+        ch.symbolRate = itSr->text().toInt();
+    }
+
+    if (auto *wPol = qobject_cast<QComboBox*>(m_tableProfileChannels->cellWidget(row, 4))) {
+        ch.polarization = wPol->currentText();
+    } else if (auto *itPol = m_tableProfileChannels->item(row, 4)) {
+        QString pol = itPol->text().trimmed().toUpper();
+        ch.polarization = (pol == "H") ? "H" : "V";
+    }
+
+    if (auto *wTol = qobject_cast<QDoubleSpinBox*>(m_tableProfileChannels->cellWidget(row, 5))) {
+        ch.toleranceDb = wTol->value();
+    } else {
+        ch.toleranceDb = fallbackTol;
+    }
+
+    if (auto *wGcn = qobject_cast<QDoubleSpinBox*>(m_tableProfileChannels->cellWidget(row, 6))) {
+        ch.goldenCnDb = wGcn->value();
+    }
+    if (auto *wGpow = qobject_cast<QDoubleSpinBox*>(m_tableProfileChannels->cellWidget(row, 7))) {
+        ch.goldenPowDbm = wGpow->value();
+    }
+
+    ch.hasGoldenSample = (ch.goldenCnDb > 0.1 || qAbs(ch.goldenPowDbm) > 0.1);
+    return ch;
+}
+
+void ProfileManagerWidget::setGoldenCellsOnRow(int row, double cnDb, double powDbm,
+                                               const QString &statusText, const QColor &statusColor) {
+    if (!m_tableProfileChannels || row < 0 || row >= m_tableProfileChannels->rowCount()) return;
+    if (auto *wGcn = qobject_cast<QDoubleSpinBox*>(m_tableProfileChannels->cellWidget(row, 6))) {
+        wGcn->setValue(cnDb);
+    }
+    if (auto *wGpow = qobject_cast<QDoubleSpinBox*>(m_tableProfileChannels->cellWidget(row, 7))) {
+        wGpow->setValue(powDbm);
+    }
+    if (auto *itStat = m_tableProfileChannels->item(row, 8)) {
+        itStat->setText(statusText);
+        itStat->setForeground(QBrush(statusColor));
+    }
+}
+
 void ProfileManagerWidget::onProfileSelected(int row) {
     if (row < 0 || row >= m_profiles.size() || !m_tableProfileChannels) return;
     const auto &p = m_profiles[row];
@@ -243,27 +399,7 @@ void ProfileManagerWidget::onProfileSelected(int row) {
 
     m_tableProfileChannels->setRowCount(p.channels.size());
     for (int i = 0; i < p.channels.size(); ++i) {
-        const auto &ch = p.channels[i];
-        m_tableProfileChannels->setRowHeight(i, 30);
-
-        auto *itNo = new QTableWidgetItem(QString::number(ch.channelNo));
-        itNo->setTextAlignment(Qt::AlignCenter);
-        itNo->setFlags(itNo->flags() & ~Qt::ItemIsEditable);
-
-        m_tableProfileChannels->setItem(i, 0, itNo);
-        m_tableProfileChannels->setItem(i, 1, new QTableWidgetItem(ch.channelName));
-        m_tableProfileChannels->setItem(i, 2, new QTableWidgetItem(QString::number(ch.frequencyMhz)));
-        m_tableProfileChannels->setItem(i, 3, new QTableWidgetItem(QString::number(ch.symbolRate)));
-        m_tableProfileChannels->setItem(i, 4, new QTableWidgetItem(ch.polarization));
-        m_tableProfileChannels->setItem(i, 5, new QTableWidgetItem(QString::number(ch.toleranceDb, 'f', 2)));
-        m_tableProfileChannels->setItem(i, 6, new QTableWidgetItem(QString::number(ch.goldenCnDb, 'f', 2)));
-        m_tableProfileChannels->setItem(i, 7, new QTableWidgetItem(QString::number(ch.goldenPowDbm, 'f', 2)));
-
-        auto *itStat = new QTableWidgetItem(ch.hasGoldenSample ? "✔ KAYITLI" : "⚪ YOK");
-        itStat->setTextAlignment(Qt::AlignCenter);
-        itStat->setFlags(itStat->flags() & ~Qt::ItemIsEditable);
-        itStat->setForeground(QBrush(QColor(ch.hasGoldenSample ? "#34D399" : "#94A3B8")));
-        m_tableProfileChannels->setItem(i, 8, itStat);
+        populateChannelRow(i, p.channels[i]);
     }
 }
 
@@ -314,26 +450,16 @@ void ProfileManagerWidget::onAddChannelRowClicked() {
     if (!m_tableProfileChannels) return;
     int row = m_tableProfileChannels->rowCount();
     m_tableProfileChannels->insertRow(row);
-    m_tableProfileChannels->setRowHeight(row, 30);
 
-    auto *itNo = new QTableWidgetItem(QString::number(row + 1));
-    itNo->setTextAlignment(Qt::AlignCenter);
-    itNo->setFlags(itNo->flags() & ~Qt::ItemIsEditable);
+    ChannelConfig ch;
+    ch.channelNo = row + 1;
+    ch.channelName = QString("Frekans %1").arg(row + 1);
+    ch.frequencyMhz = 11054;
+    ch.symbolRate = 30000;
+    ch.polarization = "V";
+    ch.toleranceDb = m_spinProfTol ? m_spinProfTol->value() : 1.50;
+    populateChannelRow(row, ch);
 
-    m_tableProfileChannels->setItem(row, 0, itNo);
-    m_tableProfileChannels->setItem(row, 1, new QTableWidgetItem(QString("Frekans %1").arg(row + 1)));
-    m_tableProfileChannels->setItem(row, 2, new QTableWidgetItem("11054"));
-    m_tableProfileChannels->setItem(row, 3, new QTableWidgetItem("30000"));
-    m_tableProfileChannels->setItem(row, 4, new QTableWidgetItem("V"));
-    m_tableProfileChannels->setItem(row, 5, new QTableWidgetItem(QString::number(m_spinProfTol->value(), 'f', 2)));
-    m_tableProfileChannels->setItem(row, 6, new QTableWidgetItem("0.00"));
-    m_tableProfileChannels->setItem(row, 7, new QTableWidgetItem("0.00"));
-
-    auto *itStat = new QTableWidgetItem("⚪ YOK");
-    itStat->setTextAlignment(Qt::AlignCenter);
-    itStat->setFlags(itStat->flags() & ~Qt::ItemIsEditable);
-    itStat->setForeground(QBrush(QColor("#94A3B8")));
-    m_tableProfileChannels->setItem(row, 8, itStat);
     m_tableProfileChannels->scrollToBottom();
 }
 
@@ -359,10 +485,14 @@ void ProfileManagerWidget::onSaveProfileClicked() {
     if (row < 0 || row >= m_profiles.size()) return;
 
     SatelliteProfileInfo p = m_profiles[row];
+    const QVector<ChannelConfig> prevChannels = p.channels;
+
     p.profileName = m_txtProfName->text().trimmed();
     p.satelliteName = m_txtSatName->text().trimmed();
     p.orbitalPosition = m_txtOrbitalPos->text().trimmed();
-    p.defaultToleranceDb = m_spinProfTol->value();
+    if (m_isHostMode) {
+        p.defaultToleranceDb = m_spinProfTol->value();
+    }
     p.isActive = true;
     p.channels.clear();
 
@@ -372,17 +502,14 @@ void ProfileManagerWidget::onSaveProfileClicked() {
     }
 
     for (int r = 0; r < m_tableProfileChannels->rowCount(); ++r) {
-        ChannelConfig ch;
-        ch.channelNo = r + 1;
-        ch.channelName = m_tableProfileChannels->item(r, 1) ? m_tableProfileChannels->item(r, 1)->text().trimmed() : QString("Frekans %1").arg(r + 1);
-        ch.frequencyMhz = m_tableProfileChannels->item(r, 2) ? m_tableProfileChannels->item(r, 2)->text().toInt() : 11054;
-        ch.symbolRate = m_tableProfileChannels->item(r, 3) ? m_tableProfileChannels->item(r, 3)->text().toInt() : 30000;
-        QString pol = m_tableProfileChannels->item(r, 4) ? m_tableProfileChannels->item(r, 4)->text().trimmed().toUpper() : "V";
-        ch.polarization = (pol == "H") ? "H" : "V";
-        ch.toleranceDb = m_tableProfileChannels->item(r, 5) ? m_tableProfileChannels->item(r, 5)->text().toDouble() : p.defaultToleranceDb;
-        ch.goldenCnDb = m_tableProfileChannels->item(r, 6) ? m_tableProfileChannels->item(r, 6)->text().toDouble() : 0.0;
-        ch.goldenPowDbm = m_tableProfileChannels->item(r, 7) ? m_tableProfileChannels->item(r, 7)->text().toDouble() : 0.0;
-        ch.hasGoldenSample = (ch.goldenCnDb > 0.1 || qAbs(ch.goldenPowDbm) > 0.1);
+        ChannelConfig ch = readChannelFromRow(r, p.defaultToleranceDb);
+        // İstasyon düzenlemelerinde yöneticinin kayıtlı tolerans ve Golden Sample verilerini koru
+        if (!m_isHostMode && r < prevChannels.size()) {
+            ch.toleranceDb = prevChannels[r].toleranceDb;
+            ch.goldenCnDb = prevChannels[r].goldenCnDb;
+            ch.goldenPowDbm = prevChannels[r].goldenPowDbm;
+            ch.hasGoldenSample = prevChannels[r].hasGoldenSample;
+        }
         p.channels.append(ch);
     }
 
@@ -440,10 +567,7 @@ void ProfileManagerWidget::onStartGoldenCaptureClicked() {
 
 void ProfileManagerWidget::triggerGoldenCaptureCurrentRow() {
     if (!m_goldenCaptureActive || !m_tableProfileChannels) return;
-    int freq = m_tableProfileChannels->item(m_goldenCaptureRow, 2)->text().toInt();
-    int sr = m_tableProfileChannels->item(m_goldenCaptureRow, 3)->text().toInt();
-    QString pol = m_tableProfileChannels->item(m_goldenCaptureRow, 4)->text().trimmed().toUpper();
-    QString name = m_tableProfileChannels->item(m_goldenCaptureRow, 1)->text();
+    ChannelConfig ch = readChannelFromRow(m_goldenCaptureRow, 1.50);
 
     m_goldenCnSamples.clear();
     m_goldenPowSamples.clear();
@@ -451,15 +575,15 @@ void ProfileManagerWidget::triggerGoldenCaptureCurrentRow() {
         QString("⏳ Ölçülüyor [%1/%2]: %3 (%4 MHz %5)...")
             .arg(m_goldenCaptureRow + 1)
             .arg(m_tableProfileChannels->rowCount())
-            .arg(name).arg(freq).arg(pol));
+            .arg(ch.channelName).arg(ch.frequencyMhz).arg(ch.polarization));
 
     if (m_refWebClient && m_refWebClient->isReachable()) {
-        m_refWebClient->sendTune(freq, sr, pol);
+        m_refWebClient->sendTune(ch.frequencyMhz, ch.symbolRate, ch.polarization);
         QTimer::singleShot(900, this, [this]() { if (m_goldenCaptureActive && m_refWebClient) m_refWebClient->requestStatus(); });
         QTimer::singleShot(1600, this, [this]() { if (m_goldenCaptureActive && m_refWebClient) m_refWebClient->requestStatus(); });
     }
     if (m_refSerial && m_refSerial->isConnected()) {
-        m_refSerial->sendTune(freq, sr, pol);
+        m_refSerial->sendTune(ch.frequencyMhz, ch.symbolRate, ch.polarization);
         QTimer::singleShot(1000, this, [this]() { if (m_goldenCaptureActive && m_refSerial) m_refSerial->requestStatus(); });
     }
     m_goldenStepTimer.start(2400);
@@ -471,17 +595,16 @@ void ProfileManagerWidget::onGoldenCaptureStepTimeout() {
     if (!m_goldenCnSamples.isEmpty()) {
         double avgCn = std::accumulate(m_goldenCnSamples.begin(), m_goldenCnSamples.end(), 0.0) / m_goldenCnSamples.size();
         double avgPow = std::accumulate(m_goldenPowSamples.begin(), m_goldenPowSamples.end(), 0.0) / m_goldenPowSamples.size();
-        m_tableProfileChannels->item(m_goldenCaptureRow, 6)->setText(QString::number(avgCn, 'f', 2));
-        m_tableProfileChannels->item(m_goldenCaptureRow, 7)->setText(QString::number(avgPow, 'f', 2));
-        m_tableProfileChannels->item(m_goldenCaptureRow, 8)->setText("✔ ÖLÇÜLDÜ");
-        m_tableProfileChannels->item(m_goldenCaptureRow, 8)->setForeground(QBrush(QColor("#34D399")));
+        setGoldenCellsOnRow(m_goldenCaptureRow, avgCn, avgPow, "✔ ÖLÇÜLDÜ", QColor("#34D399"));
 
         int chNo = m_goldenCaptureRow + 1;
         DbManager::instance().updateChannelGoldenSample(m_goldenCaptureProfileId, chNo, avgCn, avgPow);
         emit logMessage(QString("[Golden Sample] CH%1 kaydedildi: C/N=%2 dB | POW=%3 dBm").arg(chNo).arg(avgCn, 0, 'f', 2).arg(avgPow, 0, 'f', 2));
     } else {
-        m_tableProfileChannels->item(m_goldenCaptureRow, 8)->setText("⚠ VERİ YOK");
-        m_tableProfileChannels->item(m_goldenCaptureRow, 8)->setForeground(QBrush(QColor("#FBBF24")));
+        if (auto *itStat = m_tableProfileChannels->item(m_goldenCaptureRow, 8)) {
+            itStat->setText("⚠ VERİ YOK");
+            itStat->setForeground(QBrush(QColor("#FBBF24")));
+        }
     }
 
     m_goldenCaptureRow++;

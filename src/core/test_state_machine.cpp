@@ -82,9 +82,18 @@ void TestStateMachine::changeState(TestState newState) {
     emit stateChanged(newState, currentStateString());
 }
 
-bool TestStateMachine::startTest(const QString &antennaSn, const SatelliteProfileInfo &profile, int workOrderId, int operatorId) {
+bool TestStateMachine::startTest(const QString &antennaSn,
+                                 const SatelliteProfileInfo &profile,
+                                 int workOrderId,
+                                 int operatorId,
+                                 const QString &testerName) {
     if (m_state != TestState::Idle && m_state != TestState::Completed && m_state != TestState::Aborted) {
         emit logMessage("Test is already running!");
+        return false;
+    }
+
+    if (testerName.trimmed().isEmpty()) {
+        emit logMessage("Test başlatılamadı: Testi yapan kişi adı girilmesi zorunludur!");
         return false;
     }
 
@@ -98,6 +107,7 @@ bool TestStateMachine::startTest(const QString &antennaSn, const SatelliteProfil
     m_testRun.antennaSn = antennaSn;
     m_testRun.workOrderId = workOrderId;
     m_testRun.operatorId = operatorId;
+    m_testRun.testerName = testerName.trimmed();
     m_testRun.satelliteProfileId = profile.id;
     m_testRun.profileName = profile.profileName;
     m_testRun.stationId = AppConfig::instance().stationId();
@@ -107,8 +117,8 @@ bool TestStateMachine::startTest(const QString &antennaSn, const SatelliteProfil
     m_currentChannelIndex = 0;
     m_totalTestTimer.restart();
 
-    emit logMessage(QString("Starting Automated Test: Serial Number=%1, Profile=%2 (%3 Channels)")
-                        .arg(antennaSn, profile.profileName).arg(profile.channels.size()));
+    emit logMessage(QString("Starting Automated Test: Tester=%1, Serial Number=%2, Profile=%3 (%4 Channels)")
+                        .arg(m_testRun.testerName, antennaSn, profile.profileName).arg(profile.channels.size()));
 
     changeState(TestState::WaitingForLock);
 

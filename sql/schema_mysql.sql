@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS `test_runs` (
     `work_order_id` INT DEFAULT NULL,
     `station_id` TINYINT NOT NULL, -- 1, 2, 3
     `operator_id` INT DEFAULT NULL,
+    `tester_name` VARCHAR(100) NOT NULL DEFAULT '',
     `antenna_sn` VARCHAR(64) NOT NULL,
     `satellite_profile_id` INT NOT NULL,
     `test_timestamp` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

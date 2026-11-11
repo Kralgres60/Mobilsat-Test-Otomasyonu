@@ -97,6 +97,17 @@ public:
     QString reportDir() const { return m_reportDir; }
     void setReportDir(const QString &dir) { m_reportDir = dir; }
 
+    // Last Selected UI State (Auto-persisted immediately)
+    int lastWorkOrderId() const { return m_lastWorkOrderId; }
+    void setLastWorkOrderId(int id) { m_lastWorkOrderId = id; save(); }
+    int lastProfileId() const { return m_lastProfileId; }
+    void setLastProfileId(int id) { m_lastProfileId = id; save(); }
+    ReferenceMode lastReferenceMode() const { return m_lastReferenceMode; }
+    void setLastReferenceMode(ReferenceMode mode) { m_lastReferenceMode = mode; save(); }
+
+    /** @brief Returns the portable INI configuration file path beside the executable. */
+    static QString configFilePath();
+
     // DRX Web Server / CGI Parameters
     QString refDrxHost() const { return m_refDrxHost; }
     void setRefDrxHost(const QString &host) { m_refDrxHost = host; }
@@ -150,6 +161,11 @@ private:
     int m_sampleDurationSec = 5;
     double m_defaultToleranceDb = 1.50;
     QString m_reportDir = "reports";
+
+    int m_lastWorkOrderId = 0;
+    int m_lastProfileId = 1;
+    ReferenceMode m_lastReferenceMode = ReferenceMode::LiveReference;
+    bool m_isLoading = false;
 };
 
 #endif // APP_CONFIG_H

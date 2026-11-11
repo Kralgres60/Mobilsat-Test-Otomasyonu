@@ -56,6 +56,7 @@ bool DbManager::connectToDatabase(const QString &host, int port, const QString &
         db.setDatabaseName(dbName);
         db.setUserName(effectiveUser);
         db.setPassword(effectivePassword);
+        db.setConnectOptions("MYSQL_OPT_SET_CHARSET_NAME=utf8mb4");
     } else if (m_driverName == "QODBC") {
         // MySQL ODBC DSN-less connection string
         QString dsn = QString("DRIVER={MySQL ODBC 8.0 Driver};SERVER=%1;PORT=%2;DATABASE=%3;UID=%4;PWD=%5;")
@@ -163,7 +164,7 @@ bool DbManager::initTablesIfSqlite() {
     q.exec("CREATE TABLE IF NOT EXISTS satellite_profiles (id INTEGER PRIMARY KEY AUTOINCREMENT, profile_name TEXT, satellite_name TEXT, orbital_position TEXT, default_tolerance_db REAL, is_active INTEGER);");
     q.exec("CREATE TABLE IF NOT EXISTS profile_channels (id INTEGER PRIMARY KEY AUTOINCREMENT, profile_id INTEGER, channel_no INTEGER, channel_name TEXT, frequency_mhz INTEGER, symbol_rate INTEGER, polarization TEXT, tolerance_db REAL, golden_cn_db REAL DEFAULT 0.0, golden_pow_dbm REAL DEFAULT 0.0, has_golden_sample INTEGER DEFAULT 0);");
     q.exec("CREATE TABLE IF NOT EXISTS work_orders (id INTEGER PRIMARY KEY AUTOINCREMENT, order_no TEXT, customer_name TEXT, product_code TEXT, satellite_profile_id INTEGER, target_quantity INTEGER, completed_quantity INTEGER, passed_quantity INTEGER, failed_quantity INTEGER, status TEXT, notes TEXT);");
-    q.exec("CREATE TABLE IF NOT EXISTS test_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, work_order_id INTEGER, station_id INTEGER, operator_id INTEGER, antenna_sn TEXT, satellite_profile_id INTEGER, test_timestamp TEXT, duration_sec INTEGER, overall_result TEXT, fail_reason TEXT, avg_delta_db REAL, max_delta_db REAL, notes TEXT);");
+    q.exec("CREATE TABLE IF NOT EXISTS test_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, work_order_id INTEGER, station_id INTEGER, operator_id INTEGER, tester_name TEXT DEFAULT '', antenna_sn TEXT, satellite_profile_id INTEGER, test_timestamp TEXT, duration_sec INTEGER, overall_result TEXT, fail_reason TEXT, avg_delta_db REAL, max_delta_db REAL, notes TEXT);");
     q.exec("CREATE TABLE IF NOT EXISTS test_run_channels (id INTEGER PRIMARY KEY AUTOINCREMENT, test_run_id INTEGER, channel_no INTEGER, channel_name TEXT, frequency_mhz INTEGER, symbol_rate INTEGER, polarization TEXT, dut_cn_avg REAL, dut_pow_avg REAL, ref_cn_avg REAL, ref_pow_avg REAL, delta_db REAL, carrier_locked INTEGER, video_locked INTEGER, audio_locked INTEGER, tolerance_db REAL, result TEXT);");
 
     // Varsayılan profil var mı kontrol et
@@ -341,10 +342,30 @@ bool DbManager::ensureDefaultDataIfMissing() {
                "ADD COLUMN golden_updated_at TIMESTAMP NULL DEFAULT NULL AFTER has_golden_sample;");
     }
 
+    // 6b. Geriye uyumlu şema göçü: test_runs tablosunda tester_name sütunu yoksa ekle
+    q.exec("SHOW COLUMNS FROM test_runs LIKE 'tester_name';");
+    if (!q.next()) {
+        q.exec("ALTER TABLE test_runs ADD COLUMN tester_name VARCHAR(100) NOT NULL DEFAULT '' AFTER operator_id;");
+    }
+
     // Referans Modu varsayılanı yoksa ekle
     q.exec("INSERT INTO system_settings (setting_key, setting_value, description) "
            "VALUES ('REFERENCE_MODE', 'LIVE', 'Referans kaynağı: LIVE (Canlı Anten) veya GOLDEN (Kayıtlı Golden Sample)') "
            "ON DUPLICATE KEY UPDATE setting_key=setting_key;");
+
+    // 7. Önceki latin1/mojibake oturumlardan DB'de bozuk kalmış Türkçe seed metinlerini düzelt
+    q.exec("SET NAMES 'utf8mb4'");
+    q.exec("UPDATE satellite_profiles "
+           "SET profile_name = 'Türksat Standart Üretim Testi (10 Kanal)', "
+           "    satellite_name = 'Türksat 42.0°E' "
+           "WHERE id = 1 AND (profile_name LIKE '%Ã%' OR satellite_name LIKE '%Ã%' OR satellite_name LIKE '%Â%');");
+    q.exec("UPDATE work_orders "
+           "SET customer_name = 'Genel Üretim' "
+           "WHERE id = 1 AND customer_name LIKE '%Ã%';");
+    q.exec("UPDATE users SET full_name = 'Sistem Yöneticisi' WHERE username = 'admin' AND full_name LIKE '%Ã%';");
+    q.exec("UPDATE users SET full_name = 'Masa 1 Operatörü' WHERE username = 'operator1' AND full_name LIKE '%Ã%';");
+    q.exec("UPDATE users SET full_name = 'Masa 2 Operatörü' WHERE username = 'operator2' AND full_name LIKE '%Ã%';");
+    q.exec("UPDATE users SET full_name = 'Masa 3 Operatörü' WHERE username = 'operator3' AND full_name LIKE '%Ã%';");
 
     qInfo() << "[MySQL Servisi] Veritabanı şeması ve fabrika başlangıç değerleri hazır.";
     return true;
@@ -561,13 +582,14 @@ qint64 DbManager::insertTestRun(const TestRunData &run) {
     db.transaction();
 
     QSqlQuery q(db);
-    q.prepare("INSERT INTO test_runs (work_order_id, station_id, operator_id, antenna_sn, "
+    q.prepare("INSERT INTO test_runs (work_order_id, station_id, operator_id, tester_name, antenna_sn, "
               "satellite_profile_id, test_timestamp, duration_sec, overall_result, fail_reason, "
               "avg_delta_db, max_delta_db, notes) "
-              "VALUES (:wo, :st, :op, :sn, :sp, :ts, :dur, :res, :fr, :avg, :max, :notes)");
+              "VALUES (:wo, :st, :op, :tname, :sn, :sp, :ts, :dur, :res, :fr, :avg, :max, :notes)");
     q.bindValue(":wo", run.workOrderId > 0 ? run.workOrderId : QVariant());
     q.bindValue(":st", run.stationId);
     q.bindValue(":op", run.operatorId);
+    q.bindValue(":tname", run.testerName);
     q.bindValue(":sn", run.antennaSn);
     q.bindValue(":sp", run.satelliteProfileId);
     q.bindValue(":ts", run.timestamp.toString(Qt::ISODate));
@@ -631,11 +653,11 @@ QVector<TestRunData> DbManager::getTestRuns(int limit, const QString &searchSn) 
     if (!isConnected()) return list;
 
     QSqlDatabase db = QSqlDatabase::database(m_connectionName);
-    QString sql = "SELECT id, work_order_id, station_id, operator_id, antenna_sn, satellite_profile_id, "
+    QString sql = "SELECT id, work_order_id, station_id, operator_id, tester_name, antenna_sn, satellite_profile_id, "
                   "test_timestamp, duration_sec, overall_result, fail_reason, avg_delta_db, max_delta_db, notes "
                   "FROM test_runs ";
     if (!searchSn.isEmpty()) {
-        sql += QString("WHERE antenna_sn LIKE '%%1%' ").arg(searchSn);
+        sql += QString("WHERE antenna_sn LIKE '%%1%' OR tester_name LIKE '%%1%' ").arg(searchSn);
     }
     sql += QString("ORDER BY id DESC LIMIT %1").arg(limit);
 
@@ -646,15 +668,16 @@ QVector<TestRunData> DbManager::getTestRuns(int limit, const QString &searchSn) 
         r.workOrderId = q.value(1).toInt();
         r.stationId = q.value(2).toInt();
         r.operatorId = q.value(3).toInt();
-        r.antennaSn = q.value(4).toString();
-        r.satelliteProfileId = q.value(5).toInt();
-        r.timestamp = QDateTime::fromString(q.value(6).toString(), Qt::ISODate);
-        r.durationSec = q.value(7).toInt();
-        r.overallResult = q.value(8).toString();
-        r.failReason = q.value(9).toString();
-        r.avgDeltaDb = q.value(10).toDouble();
-        r.maxDeltaDb = q.value(11).toDouble();
-        r.notes = q.value(12).toString();
+        r.testerName = q.value(4).toString();
+        r.antennaSn = q.value(5).toString();
+        r.satelliteProfileId = q.value(6).toInt();
+        r.timestamp = QDateTime::fromString(q.value(7).toString(), Qt::ISODate);
+        r.durationSec = q.value(8).toInt();
+        r.overallResult = q.value(9).toString();
+        r.failReason = q.value(10).toString();
+        r.avgDeltaDb = q.value(11).toDouble();
+        r.maxDeltaDb = q.value(12).toDouble();
+        r.notes = q.value(13).toString();
         list.append(r);
     }
     return list;

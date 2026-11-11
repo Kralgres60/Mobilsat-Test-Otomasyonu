@@ -146,6 +146,7 @@ private:
     // Work Order & Barcode Controls (Page 0)
     QComboBox  *m_comboOrders   = nullptr;
     QComboBox  *m_comboProfiles = nullptr;
+    QLineEdit  *m_txtTesterName = nullptr;  ///< Mandatory per-test tester name (distinct from login username)
     QLineEdit  *m_txtAntennaSn  = nullptr;
     QPushButton *m_btnStartTest = nullptr;
     QPushButton *m_btnAbortTest = nullptr;

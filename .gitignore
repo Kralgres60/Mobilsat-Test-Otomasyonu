@@ -78,6 +78,7 @@ AGENTS.md
 *~
 *.db
 *.sqlite
+neta_config.ini
 tools/mariadb_portable/data/*
 !tools/mariadb_portable/data/my.ini
 
