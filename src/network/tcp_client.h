@@ -36,6 +36,8 @@ public:
 
     /** @brief Registers station ID and name upon connecting. */
     void registerStation(int stationId, const QString &stationName);
+    /** @brief Returns the active station ID assigned/confirmed by the Host server. */
+    int assignedStationId() const { return m_stationId; }
 
     /** @brief Dispatches periodic heartbeat telemetry. */
     void sendHeartbeat(const QString &state, int currentChannel = 0, const QString &antennaSn = QString());
@@ -56,6 +58,8 @@ signals:
     void connected();
     void disconnected();
     void registered();
+    /** @brief Emitted when Host assigns/confirms the unique station ID for this workstation. */
+    void stationIdAssigned(int stationId);
     void lockGranted(int timeoutSec);
     void lockWaiting(int queuePosition, int activeStationId);
     void lockExpired(const QString &reason);

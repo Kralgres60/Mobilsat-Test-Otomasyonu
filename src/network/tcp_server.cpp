@@ -138,15 +138,37 @@ void TcpServer::processClientMessage(QTcpSocket *socket, const QJsonObject &msg)
     QString type = msg["type"].toString();
 
     if (type == NetMsg::TYPE_REGISTER) {
-        session.stationId = msg["station_id"].toInt();
+        int requestedId = msg["station_id"].toInt();
+
+        auto isIdInUseByOther = [&](int candidate) {
+            if (candidate <= 0) return true;
+            for (auto it = m_clients.constBegin(); it != m_clients.constEnd(); ++it) {
+                if (it.key() != socket && it.value().stationId == candidate) {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        int assignedId = requestedId;
+        if (isIdInUseByOther(assignedId)) {
+            assignedId = 1;
+            while (isIdInUseByOther(assignedId)) {
+                ++assignedId;
+            }
+        }
+
+        session.stationId = assignedId;
         session.status.stationId = session.stationId;
-        session.status.stationName = msg["station_name"].toString();
+        QString reqName = msg["station_name"].toString().trimmed();
+        session.status.stationName = reqName.isEmpty() ? QString("İstasyon %1").arg(assignedId) : reqName;
         session.status.currentState = "IDLE";
         session.status.lastHeartbeat = QDateTime::currentDateTime();
 
         QJsonObject ack;
         ack["type"] = NetMsg::TYPE_REGISTER_ACK;
         ack["status"] = "OK";
+        ack["assigned_station_id"] = session.stationId;
         ack["ref_mode"] = (m_referenceMode == ReferenceMode::GoldenSample) ? "GOLDEN" : "LIVE";
         ack["server_time"] = QDateTime::currentDateTime().toString(Qt::ISODate);
         socket->write(NetMsg::serialize(ack));

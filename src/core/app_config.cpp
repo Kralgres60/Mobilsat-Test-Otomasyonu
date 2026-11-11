@@ -9,6 +9,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QHostInfo>
 
 AppConfig& AppConfig::instance() {
     static AppConfig s_instance;
@@ -46,6 +47,8 @@ void AppConfig::load() {
     int roleInt = readVal("General/Role", static_cast<int>(AppRole::Client)).toInt();
     m_role = static_cast<AppRole>(roleInt);
     m_stationId = readVal("General/StationId", 1).toInt();
+    m_stationAlias = readVal("General/StationAlias", QHostInfo::localHostName()).toString();
+    m_serverName = readVal("General/ServerName", QString("NETA-HOST (%1)").arg(QHostInfo::localHostName())).toString();
 
     int userRoleInt = readVal("User/Role", static_cast<int>(UserRole::Technician)).toInt();
     m_userRole = static_cast<UserRole>(userRoleInt);
@@ -102,6 +105,8 @@ void AppConfig::save() {
 
     settings.setValue("General/Role", static_cast<int>(m_role));
     settings.setValue("General/StationId", m_stationId);
+    settings.setValue("General/StationAlias", m_stationAlias);
+    settings.setValue("General/ServerName", m_serverName);
     settings.setValue("User/Role", static_cast<int>(m_userRole));
     settings.setValue("User/Username", m_currentUsername);
     settings.setValue("User/FullName", m_currentUserFullName);

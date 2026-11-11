@@ -222,11 +222,11 @@ struct SatelliteProfileInfo {
 };
 
 /**
- * @brief Live station state model for central monitoring dashboards.
+ * @brief Live station state model for central monitoring dashboards (supports >3 dynamic stations).
  */
 struct StationLiveStatus {
-    int stationId = 1;              ///< Station numeric ID (1..3)
-    QString stationName;            ///< Display name (e.g., "Station #1")
+    int stationId = 1;              ///< Dynamically assigned Station numeric ID (1..N)
+    QString stationName;            ///< Display name / PC hostname
     QString ipAddress;              ///< Workstation IPv4 address
     bool isConnected = false;       ///< Network connectivity flag
     QString currentState = "DISCONNECTED"; ///< FSM state: DISCONNECTED, IDLE, WAITING_LOCK, TESTING, COMPLETED
@@ -234,6 +234,23 @@ struct StationLiveStatus {
     QString currentAntennaSn;       ///< Currently tested antenna serial number
     double lastDeltaDb = 0.0;       ///< Last observed delta attenuation (dB)
     QDateTime lastHeartbeat;        ///< Last received keep-alive timestamp
+};
+
+/**
+ * @brief Frequency-based Golden Sample reference measurement saved by the Host PC.
+ *        Independent of station satellite profiles so the Host can measure frequencies
+ *        and serve them when no physical Reference antenna is attached.
+ */
+struct GoldenFrequencyRecord {
+    int id = 0;                     ///< Primary key
+    QString label;                  ///< Descriptive label (e.g. "11054 V 30000")
+    int frequencyMhz = 11054;       ///< Transponder frequency (MHz)
+    int symbolRate = 30000;         ///< Symbol rate (kSym/s)
+    QString polarization = "V";     ///< Polarization ("V" or "H")
+    double goldenCnDb = 0.0;        ///< Measured Reference C/N (dB)
+    double goldenPowDbm = 0.0;      ///< Measured Reference Power (dBm)
+    double toleranceDb = 1.50;      ///< Reference tolerance delta (dB)
+    QString updatedAt;              ///< Last measurement timestamp string
 };
 
 #endif // DATA_MODELS_H

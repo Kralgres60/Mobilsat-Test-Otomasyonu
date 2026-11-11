@@ -30,8 +30,9 @@ void UdpBeaconBroadcaster::stop() {
 void UdpBeaconBroadcaster::sendBeacon() {
     QJsonObject obj;
     obj["type"] = NetMsg::TYPE_BEACON;
-    obj["server_name"] = QHostInfo::localHostName();
+    obj["server_name"] = m_serverName.isEmpty() ? QHostInfo::localHostName() : m_serverName;
     obj["tcp_port"] = m_tcpPort;
+    obj["station_count"] = m_stationCount;
     obj["version"] = NETA_APP_VERSION;
 
     QByteArray datagram = NetMsg::serialize(obj);
@@ -66,8 +67,11 @@ void UdpBeaconListener::onReadyRead() {
             }
             QString serverName = obj["server_name"].toString();
             quint16 tcpPort = static_cast<quint16>(obj["tcp_port"].toInt(9100));
+            int stationCount = obj["station_count"].toInt(0);
+            QString version = obj["version"].toString();
 
             emit hostDiscovered(hostIp, serverName, tcpPort);
+            emit hostDiscoveredInfo(hostIp, serverName, tcpPort, stationCount, version);
         }
     }
 }

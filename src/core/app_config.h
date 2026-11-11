@@ -54,10 +54,16 @@ public:
     QString currentUserFullName() const { return m_currentUserFullName; }
     void setCurrentUserFullName(const QString &fullName) { m_currentUserFullName = fullName; }
 
-    // Station Identity (Client Mode)
+    // Station Identity (Client Mode - dynamic ID supported)
     int stationId() const { return m_stationId; }
     void setStationId(int id) { m_stationId = id; }
-    QString stationName() const { return QString("Station %1").arg(m_stationId); }
+    QString stationAlias() const { return m_stationAlias; }
+    void setStationAlias(const QString &alias) { m_stationAlias = alias; }
+    QString serverName() const { return m_serverName; }
+    void setServerName(const QString &name) { m_serverName = name; }
+    QString stationName() const {
+        return m_stationAlias.isEmpty() ? QString("İstasyon %1").arg(m_stationId) : m_stationAlias;
+    }
 
     // Network Topology Parameters
     QString hostIp() const { return m_hostIp; }
@@ -134,7 +140,9 @@ private:
     UserRole m_userRole = UserRole::Technician;
     QString m_currentUsername = "operator1";
     QString m_currentUserFullName = "Masa 1 Operatörü";
-    int m_stationId = 1;
+    int m_stationId = 0; // 0 = Server assigns dynamically on JOIN
+    QString m_stationAlias;
+    QString m_serverName = "NETA-FABRIKA-HOST";
 
     QString m_hostIp = "127.0.0.1";
     quint16 m_tcpPort = 9100;

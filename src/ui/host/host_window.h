@@ -21,13 +21,14 @@
 #include <QDoubleSpinBox>
 #include <QTimer>
 #include <QMap>
+#include <QGridLayout>
 #include "hardware/serial_worker.h"
 #include "hardware/drx_web_client.h"
 #include "network/tcp_server.h"
 #include "network/udp_beacon.h"
 #include "core/lock_arbiter.h"
 #include "core/xlsxutil.h"
-#include "ui/common/profile_manager_widget.h"
+#include "ui/host/golden_reference_widget.h"
 
 /**
  * @class HostWindow
@@ -68,6 +69,8 @@ private slots:
     void onCheckDbClicked();
     void onAboutClicked();
     void onLogoutClicked();
+    /** @brief Returns to the unified HOST / JOIN server lobby window. */
+    void onReturnLobbyClicked();
 
     /** @brief Persists and broadcasts the Administrator's Reference Mode selection. */
     void onReferenceModeApplyRequested(ReferenceMode mode);
@@ -81,11 +84,14 @@ private:
     void setupMenuBar();
     void setupUi();
     void setupLobbyPage();
-    void setupProfilesPage();
+    void setupNetworkPcsPage();
+    void setupGoldenPage();
     void setupHistoryPage();
     void setupOrdersPage();
     void setupSettingsPage();
     void setupLogsPage();
+    void ensureStationCard(int stationId, const QString &stationName = QString());
+    void refreshNetworkPcsTable();
     void updateRefModeBadgeUi(ReferenceMode mode);
     void setStatusMessage(const QString &msg);
 
@@ -101,12 +107,13 @@ private:
     QListWidget    *m_sideNav     = nullptr;
     /** @brief Right-side page container matched to sidebar items. */
     QStackedWidget *m_pageStack   = nullptr;
-    QWidget        *m_pageLobby    = nullptr;  ///< Page 0 – Canlı Test Lobisi
-    QWidget        *m_pageProfiles = nullptr;  ///< Page 1 – Uydu Profilleri & Golden Sample
-    QWidget        *m_pageHistory  = nullptr;  ///< Page 2 – Test Geçmişi & Raporlama
-    QWidget        *m_pageOrders   = nullptr;  ///< Page 3 – İş Emirleri
-    QWidget        *m_pageSettings = nullptr;  ///< Page 4 – Sistem Ayarları
-    QWidget        *m_pageLogs     = nullptr;  ///< Page 5 – Sistem Logları
+    QWidget        *m_pageLobby      = nullptr;  ///< Page 0 – Canlı Test Lobisi
+    QWidget        *m_pageNetworkPcs = nullptr;  ///< Page 1 – Ağdaki (Serverdeki) PC'ler ve Durumları
+    QWidget        *m_pageGolden     = nullptr;  ///< Page 2 – Referans & Golden Ölçüm Havuzu
+    QWidget        *m_pageHistory    = nullptr;  ///< Page 3 – Test Geçmişi & Raporlama
+    QWidget        *m_pageOrders     = nullptr;  ///< Page 4 – İş Emirleri
+    QWidget        *m_pageSettings   = nullptr;  ///< Page 5 – Sistem Ayarları
+    QWidget        *m_pageLogs       = nullptr;  ///< Page 6 – Sistem Logları
 
     // Top Header Card Widgets (NO serial port widgets on header)
     QLabel *m_lblServerStatus = nullptr;
@@ -117,16 +124,25 @@ private:
     QLabel *m_lblRefIpBadge = nullptr;
     QPushButton *m_btnRefEthPingSync = nullptr;
 
-    // Lobby Tab Widgets
-    QLabel *m_lblArbiterStatus = nullptr;
+    // Lobby Tab Widgets (dynamic N-station grid)
+    QLabel      *m_lblArbiterStatus = nullptr;
+    QLabel      *m_lblNoStations    = nullptr;
+    QWidget     *m_stationsContainer = nullptr;
+    QGridLayout *m_stationsGrid     = nullptr;
 
     struct StationCardWidgets {
-        QLabel *lblState = nullptr;
-        QLabel *lblIp = nullptr;
-        QLabel *lblSn = nullptr;
+        QLabel *lblTitle   = nullptr;
+        QLabel *lblState   = nullptr;
+        QLabel *lblIp      = nullptr;
+        QLabel *lblSn      = nullptr;
         QLabel *lblChannel = nullptr;
     };
     QMap<int, StationCardWidgets> m_stationWidgets;
+    QMap<int, StationLiveStatus>  m_knownStations;
+
+    // Network PCs Table Page Widgets
+    QTableWidget *m_tableNetworkPcs   = nullptr;
+    QLabel       *m_lblPcSummaryStats = nullptr;
 
     // History Tab Widgets
     QTableWidget *m_tableHistory = nullptr;
@@ -148,8 +164,8 @@ private:
     QLineEdit *m_txtDbHost = nullptr;
     QLineEdit *m_txtDbName = nullptr;
 
-    // Profiles & Golden Sample Widget
-    ProfileManagerWidget *m_profileManager = nullptr;
+    // Host Standalone Golden Reference Widget (NO satellite profiles on Host)
+    GoldenReferenceWidget *m_goldenRefWidget = nullptr;
 
     // System Logs & Status Bar
     QTextEdit *m_txtLog = nullptr;

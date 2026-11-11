@@ -1,6 +1,6 @@
 /**
  * @file login_dialog.cpp
- * @brief Implementation of the minimalist NETA Yeşili authentication dialog.
+ * @brief Implementation of the minimalist NETA Yeşili authentication dialog (no station/host selection here).
  * @author Semi Eren Gökyıldız
  * @copyright Copyright (C) 2026 NETA Elektronik A.Ş.
  */
@@ -21,26 +21,13 @@
 LoginDialog::LoginDialog(QWidget *parent)
     : QDialog(parent) {
     setWindowTitle(QString("%1 - Kullanıcı Girişi").arg(NETA_APP_NAME));
-    setFixedSize(440, 475);
+    setFixedSize(430, 420);
     setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
     setWindowIcon(QIcon(":/resources/images/neta_app.ico"));
 
     setupUi();
 
-    // Restore last saved username & station/host selection
-    AppConfig &cfg = AppConfig::instance();
-    m_txtUsername->setText(cfg.currentUsername());
-    if (cfg.isHost()) {
-        m_comboRoleStation->setCurrentIndex(3);
-        m_selectedAppRole = AppRole::Host;
-        m_selectedStationId = 1;
-    } else {
-        int idx = qBound(0, cfg.stationId() - 1, 2);
-        m_comboRoleStation->setCurrentIndex(idx);
-        m_selectedAppRole = AppRole::Client;
-        m_selectedStationId = idx + 1;
-    }
-
+    m_txtUsername->setText(AppConfig::instance().currentUsername());
     m_txtPassword->setFocus();
 }
 
@@ -80,7 +67,7 @@ void LoginDialog::setupUi() {
             font-size: 9.5pt;
             font-weight: bold;
         }
-        QLineEdit, QComboBox {
+        QLineEdit {
             background-color: #112D21;
             color: #E6F4EE;
             border: 1px solid #1A3D2B;
@@ -90,7 +77,7 @@ void LoginDialog::setupUi() {
             font-weight: bold;
             min-height: 22px;
         }
-        QLineEdit:focus, QComboBox:focus {
+        QLineEdit:focus {
             border: 1px solid #10B981;
         }
         QPushButton#btnLogin {
@@ -118,7 +105,6 @@ void LoginDialog::setupUi() {
     rootLayout->setContentsMargins(18, 18, 18, 18);
     rootLayout->setSpacing(12);
 
-    // 1. Centered NETA Logo
     QHBoxLayout *logoLayout = new QHBoxLayout();
     QLabel *lblLogo = new QLabel(this);
     lblLogo->setMaximumSize(160, 60);
@@ -136,13 +122,11 @@ void LoginDialog::setupUi() {
     logoLayout->addStretch();
     rootLayout->addLayout(logoLayout);
 
-    // 2. Centered Emerald Header Title
     QLabel *lblTitleHeader = new QLabel("DRX ANTEN TESTİ KULLANICI GİRİŞİ", this);
     lblTitleHeader->setAlignment(Qt::AlignCenter);
     lblTitleHeader->setStyleSheet("font-size: 13pt; font-weight: bold; color: #34D399; padding: 2px 0;");
     rootLayout->addWidget(lblTitleHeader);
 
-    // 3. Minimalist Authentication Form Box
     QGroupBox *groupLoginBox = new QGroupBox("Kullanıcı Kimlik Doğrulama", this);
     QFormLayout *formLayout = new QFormLayout(groupLoginBox);
     formLayout->setContentsMargins(16, 18, 16, 16);
@@ -159,26 +143,16 @@ void LoginDialog::setupUi() {
     m_txtPassword->setEchoMode(QLineEdit::Password);
     m_txtPassword->setPlaceholderText("Şifrenizi girin...");
 
-    QLabel *lblStation = new QLabel("İstasyon / Mod:", groupLoginBox);
-    m_comboRoleStation = new QComboBox(groupLoginBox);
-    m_comboRoleStation->addItem("İstasyon 1 (Test Masası 1)");
-    m_comboRoleStation->addItem("İstasyon 2 (Test Masası 2)");
-    m_comboRoleStation->addItem("İstasyon 3 (Test Masası 3)");
-    m_comboRoleStation->addItem("Yönetici Sunucusu (Host)");
-
     formLayout->addRow(lblUsername, m_txtUsername);
     formLayout->addRow(lblPassword, m_txtPassword);
-    formLayout->addRow(lblStation, m_comboRoleStation);
     rootLayout->addWidget(groupLoginBox);
 
-    // 4. Clean Error Indicator Label
     m_lblErrorStatus = new QLabel("", this);
     m_lblErrorStatus->setAlignment(Qt::AlignCenter);
     m_lblErrorStatus->setStyleSheet("color: #EF4444; font-weight: bold; font-size: 9.5pt;");
     m_lblErrorStatus->setMinimumHeight(20);
     rootLayout->addWidget(m_lblErrorStatus);
 
-    // 5. Full-width Login Action Button
     m_btnLogin = new QPushButton("GİRİŞ YAP", this);
     m_btnLogin->setObjectName("btnLogin");
     m_btnLogin->setCursor(Qt::PointingHandCursor);
@@ -187,18 +161,6 @@ void LoginDialog::setupUi() {
     connect(m_btnLogin, &QPushButton::clicked, this, &LoginDialog::onLoginClicked);
     connect(m_txtUsername, &QLineEdit::returnPressed, this, &LoginDialog::onLoginClicked);
     connect(m_txtPassword, &QLineEdit::returnPressed, this, &LoginDialog::onLoginClicked);
-    connect(m_comboRoleStation, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, &LoginDialog::onStationIndexChanged);
-}
-
-void LoginDialog::onStationIndexChanged(int index) {
-    if (index == 3) {
-        m_selectedAppRole = AppRole::Host;
-        m_selectedStationId = 1;
-    } else {
-        m_selectedAppRole = AppRole::Client;
-        m_selectedStationId = qBound(1, index + 1, 3);
-    }
 }
 
 void LoginDialog::onLoginClicked() {
@@ -229,16 +191,10 @@ void LoginDialog::onLoginClicked() {
     m_authenticatedUsername = user;
     m_authenticatedFullName = fullName;
 
-    onStationIndexChanged(m_comboRoleStation->currentIndex());
-
     AppConfig &cfg = AppConfig::instance();
     cfg.setUserRole(m_authenticatedRole);
     cfg.setCurrentUsername(m_authenticatedUsername);
     cfg.setCurrentUserFullName(m_authenticatedFullName);
-    cfg.setRole(m_selectedAppRole);
-    if (m_selectedAppRole == AppRole::Client) {
-        cfg.setStationId(m_selectedStationId);
-    }
     cfg.save();
 
     accept();

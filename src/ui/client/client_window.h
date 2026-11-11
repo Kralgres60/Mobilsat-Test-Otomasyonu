@@ -58,6 +58,8 @@ private slots:
     void onHostDiscovered(const QString &hostIp, const QString &serverName, quint16 tcpPort);
     void onTcpConnected();
     void onTcpDisconnected();
+    /** @brief Applies the dynamic station ID assigned by the Host server on JOIN. */
+    void onStationIdAssigned(int stationId);
 
     // DRX Ethernet Ping & Web CGI Handlers
     void onEthPingFinished(bool reachable, int latencyMs, const QString &hostIp);
@@ -76,6 +78,8 @@ private slots:
     // Actions & Engineer Configuration
     void onAboutClicked();
     void onLogoutClicked();
+    /** @brief Returns to the unified HOST / JOIN server lobby window. */
+    void onReturnLobbyClicked();
     void onSaveEngineerSettingsClicked();
     void onSaveWebSettingsClicked();
     void onClearGraphClicked();

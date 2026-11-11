@@ -74,6 +74,17 @@ public:
     /** @brief Stores measured Golden Sample C/N and RF power baseline for a specific profile channel. */
     bool updateChannelGoldenSample(int profileId, int channelNo, double cnDb, double powDbm);
 
+    // Host Standalone Frequency Golden Sample Pool (independent of station satellite profiles)
+    /** @brief Returns all frequency-based Golden Sample measurements stored by the Host PC. */
+    QVector<GoldenFrequencyRecord> getGoldenFrequencies();
+    /** @brief Saves or updates a frequency-based Golden Sample measurement (upserts by freq+sr+pol). */
+    bool saveGoldenFrequency(const GoldenFrequencyRecord &rec);
+    /** @brief Deletes a frequency-based Golden Sample entry by ID. */
+    bool deleteGoldenFrequency(int id);
+    /** @brief Looks up a Host Golden Sample measurement matching a transponder frequency/sr/pol. */
+    bool findGoldenSampleForChannel(int freqMhz, int symbolRate, const QString &pol,
+                                    double &outCn, double &outPow, double &outTol);
+
     // Work Order Management
     QVector<WorkOrderInfo> getActiveWorkOrders();
     bool saveWorkOrder(const WorkOrderInfo &order);

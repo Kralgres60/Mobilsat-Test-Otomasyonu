@@ -18,6 +18,7 @@
 #include "ui/common/style_helper.h"
 #include "ui/common/mode_select_dialog.h"
 #include "ui/common/login_dialog.h"
+#include "ui/common/lobby_window.h"
 #include "ui/client/client_window.h"
 #include "ui/host/host_window.h"
 #if defined(NETA_DEBUG_MODE)
@@ -106,47 +107,37 @@ int main(int argc, char *argv[]) {
 
     if (parser.isSet(hostOption)) {
         config.setRole(AppRole::Host);
-    } else if (parser.isSet(clientOption)) {
-        config.setRole(AppRole::Client);
-    } else {
-        // DRX-Style Login Dialog (Authenticates Operator / Engineer and selects Station / Host)
-        LoginDialog loginDlg;
-        if (loginDlg.exec() != QDialog::Accepted) {
-            return 0;
-        }
-        config.setRole(loginDlg.selectedAppRole());
-        config.setUserRole(loginDlg.authenticatedRole());
-        config.setCurrentUsername(loginDlg.authenticatedUsername());
-        config.setCurrentUserFullName(loginDlg.authenticatedFullName());
-        if (loginDlg.selectedAppRole() == AppRole::Client) {
-            config.setStationId(loginDlg.selectedStationId());
-        }
-        config.save();
-    }
-
-    if (config.isHost()) {
-        // Host controller operating sequence:
-        // Connect to database (automatically provisions and launches portable MariaDB if local)
         bool connected = DbManager::instance().connectToDatabase(config.dbHost(), config.dbPort(),
                                                                 config.dbName(), config.dbUser(),
                                                                 config.dbPassword());
         if (!connected && !DependencyInstaller::isMySqlListening(config.dbHost(), config.dbPort())) {
-            qInfo() << "[Main] Host database connection failed; checking dependency installer fallback...";
             DependencyInstaller::autoSetupHostEnvironment();
         } else {
             DbManager::instance().ensureDefaultDataIfMissing();
         }
-
         HostWindow *hostWin = new HostWindow();
         hostWin->showMaximized();
-    } else {
-        // Client workstation operating sequence:
+    } else if (parser.isSet(clientOption)) {
+        config.setRole(AppRole::Client);
         DbManager::instance().connectToDatabase(config.dbHost(), config.dbPort(),
                                                config.dbName(), config.dbUser(),
                                                config.dbPassword());
-
         ClientWindow *clientWin = new ClientWindow();
         clientWin->showMaximized();
+    } else {
+        // 1. Minimalist Login (username & password only)
+        LoginDialog loginDlg;
+        if (loginDlg.exec() != QDialog::Accepted) {
+            return 0;
+        }
+        config.setUserRole(loginDlg.authenticatedRole());
+        config.setCurrentUsername(loginDlg.authenticatedUsername());
+        config.setCurrentUserFullName(loginDlg.authenticatedFullName());
+        config.save();
+
+        // 2. Unified Multiplayer-Style Lobby (choose HOST server or JOIN active LAN server)
+        LobbyWindow *lobbyWin = new LobbyWindow();
+        lobbyWin->show();
     }
 
     return app.exec();

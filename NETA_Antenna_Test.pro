@@ -45,12 +45,14 @@ SOURCES += \
     src/ui/common/style_helper.cpp \
     src/ui/common/mode_select_dialog.cpp \
     src/ui/common/login_dialog.cpp \
+    src/ui/common/lobby_window.cpp \
     src/ui/common/about_dialog.cpp \
     src/ui/common/profile_manager_widget.cpp \
     src/ui/common/dependency_install_dialog.cpp \
     src/ui/common/qcustomplot.cpp \
     src/ui/client/channel_card_widget.cpp \
     src/ui/client/client_window.cpp \
+    src/ui/host/golden_reference_widget.cpp \
     src/ui/host/host_window.cpp \
     src/ui/debug/debug_runner_window.cpp \
     src/ui/debug/db_debug_widget.cpp
@@ -77,12 +79,14 @@ HEADERS += \
     src/ui/common/style_helper.h \
     src/ui/common/mode_select_dialog.h \
     src/ui/common/login_dialog.h \
+    src/ui/common/lobby_window.h \
     src/ui/common/about_dialog.h \
     src/ui/common/profile_manager_widget.h \
     src/ui/common/dependency_install_dialog.h \
     src/ui/common/qcustomplot.h \
     src/ui/client/channel_card_widget.h \
     src/ui/client/client_window.h \
+    src/ui/host/golden_reference_widget.h \
     src/ui/host/host_window.h \
     src/ui/debug/debug_runner_window.h \
     src/ui/debug/db_debug_widget.h

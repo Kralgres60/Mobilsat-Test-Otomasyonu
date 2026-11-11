@@ -243,20 +243,32 @@ void TestStateMachine::runCurrentChannel() {
     }
 
     // 2. Reference comparison handling:
-    //    - GoldenSample: use stored profile baseline directly without tuning physical Reference DRX
+    //    - GoldenSample: look up Host-measured golden_frequencies by (freq, sr, pol) or channel fallback
     //    - LiveReference: tune shared Reference DRX (via Host TCP in Alg 1, or direct LAN in Alg 2)
     if (m_referenceMode == ReferenceMode::GoldenSample) {
-        m_lastRefCn = ch.goldenCnDb;
-        m_lastRefPow = ch.goldenPowDbm;
+        double gCn = ch.goldenCnDb;
+        double gPow = ch.goldenPowDbm;
+        double gTol = ch.toleranceDb;
+        bool foundInPool = DbManager::instance().findGoldenSampleForChannel(
+            ch.frequencyMhz, ch.symbolRate, ch.polarization, gCn, gPow, gTol);
+        bool hasBaseline = foundInPool || ch.hasGoldenSample;
+
+        m_lastRefCn = gCn;
+        m_lastRefPow = gPow;
+        if (foundInPool && gTol > 0.05) {
+            m_profile.channels[m_currentChannelIndex].toleranceDb = gTol;
+        }
         m_refCarrierLocked = true;
         m_refVideoLocked = true;
-        m_refCnSamples.append(ch.goldenCnDb);
-        m_refPowSamples.append(ch.goldenPowDbm);
-        emit logMessage(QString("[Golden Sample] Kayıtlı referans kullanılıyor (%1): C/N=%2 dB | POW=%3 dBm%4")
+        m_refCnSamples.append(gCn);
+        m_refPowSamples.append(gPow);
+        emit logMessage(QString("[Golden Sample] Kayıtlı frekans referansı kullanılıyor (%1 - %2 MHz %3): C/N=%4 dB | POW=%5 dBm%6")
                             .arg(ch.channelName)
-                            .arg(ch.goldenCnDb, 0, 'f', 2)
-                            .arg(ch.goldenPowDbm, 0, 'f', 2)
-                            .arg(ch.hasGoldenSample ? "" : " [UYARI: Kalibrasyon henüz kaydedilmemiş!]"));
+                            .arg(ch.frequencyMhz)
+                            .arg(ch.polarization)
+                            .arg(gCn, 0, 'f', 2)
+                            .arg(gPow, 0, 'f', 2)
+                            .arg(hasBaseline ? "" : " [UYARI: Yönetici bu frekans için Golden ölçüm kaydetmemiş!]"));
     } else {
 #if defined(NETA_ALGORITMA_2_THREE_PC)
         // Algorithm 2: Update MariaDB lock heartbeat and tune shared Reference DRX9000 via Web CGI

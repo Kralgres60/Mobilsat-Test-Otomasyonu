@@ -13,6 +13,7 @@
 #include "ui/common/style_helper.h"
 #include "ui/common/about_dialog.h"
 #include "ui/common/login_dialog.h"
+#include "ui/common/lobby_window.h"
 #include "ui/host/host_window.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -101,6 +102,7 @@ ClientWindow::ClientWindow(QWidget *parent)
     connect(&m_beaconListener, &UdpBeaconListener::hostDiscovered, this, &ClientWindow::onHostDiscovered);
     connect(&m_netClient, &TcpClient::connected, this, &ClientWindow::onTcpConnected);
     connect(&m_netClient, &TcpClient::disconnected, this, &ClientWindow::onTcpDisconnected);
+    connect(&m_netClient, &TcpClient::stationIdAssigned, this, &ClientWindow::onStationIdAssigned);
     connect(&m_netClient, &TcpClient::referenceModeChanged, this, &ClientWindow::onReferenceModeChanged);
     connect(&m_netClient, &TcpClient::logMessage, this, &ClientWindow::appendLog);
 
@@ -175,7 +177,10 @@ ClientWindow::~ClientWindow() {
 
 void ClientWindow::setupMenuBar() {
     QMenu *menuOturum = menuBar()->addMenu("Oturum");
-    QAction *actLogout = menuOturum->addAction("Kullanıcı Değiştir / Oturumu Kapat");
+    QAction *actLobby = menuOturum->addAction("🏠 Sunucu Lobisine Dön (HOST / JOIN)");
+    connect(actLobby, &QAction::triggered, this, &ClientWindow::onReturnLobbyClicked);
+
+    QAction *actLogout = menuOturum->addAction("🔄 Kullanıcı Değiştir");
     actLogout->setShortcut(QKeySequence("Ctrl+L"));
     connect(actLogout, &QAction::triggered, this, &ClientWindow::onLogoutClicked);
 
@@ -334,7 +339,11 @@ void ClientWindow::setupProductionPage() {
     QHBoxLayout *badgeRow = new QHBoxLayout();
     badgeRow->setSpacing(6);
 
-    m_lblStationBadge = new QLabel(QString("🖥️ İstasyon %1").arg(AppConfig::instance().stationId()), grpStation);
+    m_lblStationBadge = new QLabel(
+        AppConfig::instance().stationId() > 0
+            ? QString("🖥️ İstasyon %1").arg(AppConfig::instance().stationId())
+            : QString("🖥️ İstasyon (Atanıyor...)"),
+        grpStation);
     m_lblStationBadge->setStyleSheet(StyleHelper::getPastelBlueStyle());
 
     m_lblConnectionStatus = new QLabel("🌐 Host: Aranıyor...", grpStation);
@@ -962,9 +971,14 @@ void ClientWindow::populateChannelTable() {
             const auto &ch = m_currentProfile.channels[i];
             chLabel = QString("%1 (%2 MHz %3)").arg(ch.channelName).arg(ch.frequencyMhz).arg(ch.polarization);
             if (isGoldenMode) {
-                refPreview = ch.hasGoldenSample
-                                 ? QString("%1 dB (G)").arg(ch.goldenCnDb, 0, 'f', 1)
-                                 : "0.0 dB (!)";
+                double gCn = ch.goldenCnDb;
+                double gPow = ch.goldenPowDbm;
+                double gTol = ch.toleranceDb;
+                bool found = DbManager::instance().findGoldenSampleForChannel(
+                    ch.frequencyMhz, ch.symbolRate, ch.polarization, gCn, gPow, gTol);
+                refPreview = (found || ch.hasGoldenSample)
+                                 ? QString("%1 dB (G)").arg(gCn, 0, 'f', 1)
+                                 : "Ölçülmedi";
             }
         }
 
@@ -1170,7 +1184,9 @@ void ClientWindow::onStartTestClicked() {
     if (activeRefMode == ReferenceMode::GoldenSample) {
         bool anyGolden = false;
         for (const auto &ch : m_currentProfile.channels) {
-            if (ch.hasGoldenSample) {
+            double gCn = 0.0, gPow = 0.0, gTol = 1.5;
+            if (ch.hasGoldenSample || DbManager::instance().findGoldenSampleForChannel(
+                    ch.frequencyMhz, ch.symbolRate, ch.polarization, gCn, gPow, gTol)) {
                 anyGolden = true;
                 break;
             }
@@ -1470,7 +1486,10 @@ void ClientWindow::applyUserRoleUi() {
     bool isEng = cfg.isEngineer();
 
     if (m_lblStationBadge) {
-        m_lblStationBadge->setText(QString("🖥️ İstasyon %1").arg(cfg.stationId()));
+        m_lblStationBadge->setText(
+            cfg.stationId() > 0
+                ? QString("🖥️ İstasyon %1").arg(cfg.stationId())
+                : QString("🖥️ İstasyon (Atanıyor...)"));
     }
     if (m_lblOperatorName) {
         m_lblOperatorName->setText(cfg.currentUserFullName());
@@ -1505,31 +1524,41 @@ void ClientWindow::applyUserRoleUi() {
     }
 }
 
+void ClientWindow::onStationIdAssigned(int stationId) {
+    AppConfig &cfg = AppConfig::instance();
+    cfg.setStationId(stationId);
+    cfg.save();
+
+#if defined(NETA_ALGORITMA_1_FOUR_PC)
+    QString algoTitle = "[4 PC - Kilitli Kuyruk]";
+#elif defined(NETA_ALGORITMA_2_THREE_PC)
+    QString algoTitle = "[3 PC - DB Kuyruk]";
+#else
+    QString algoTitle = "";
+#endif
+
+    setWindowTitle(QString("%1 - İstasyon %2 (%3) %4 v%5")
+                       .arg(NETA_APP_TITLE)
+                       .arg(stationId)
+                       .arg(cfg.stationName())
+                       .arg(algoTitle)
+                       .arg(NETA_APP_VERSION));
+    if (m_lblStationBadge) {
+        m_lblStationBadge->setText(QString("🖥️ İstasyon %1").arg(stationId));
+    }
+    setStatusMessage(QString("Sunucu tarafından İstasyon #%1 olarak atandı (%2)").arg(stationId).arg(cfg.hostIp()));
+}
+
 void ClientWindow::onLogoutClicked() {
     LoginDialog dlg(this);
     if (dlg.exec() == QDialog::Accepted) {
-        if (AppConfig::instance().isHost()) {
-            HostWindow *hostWin = new HostWindow();
-            hostWin->showMaximized();
-            this->close();
-        } else {
-#if defined(NETA_ALGORITMA_1_FOUR_PC)
-            QString algoTitle = "[4 PC - Kilitli Kuyruk]";
-#elif defined(NETA_ALGORITMA_2_THREE_PC)
-            QString algoTitle = "[3 PC - DB Kuyruk]";
-#else
-            QString algoTitle = "";
-#endif
-            setWindowTitle(QString("%1 - İstasyon %2 %3 v%4")
-                               .arg(NETA_APP_TITLE)
-                               .arg(AppConfig::instance().stationId())
-                               .arg(algoTitle)
-                               .arg(NETA_APP_VERSION));
-            applyUserRoleUi();
-            if (m_netClient.isConnected()) {
-                m_netClient.registerStation(AppConfig::instance().stationId(), AppConfig::instance().stationName());
-            }
-            setStatusMessage(QString("Oturum güncellendi: %1").arg(AppConfig::instance().currentUserFullName()));
-        }
+        applyUserRoleUi();
+        setStatusMessage(QString("Oturum güncellendi: %1").arg(AppConfig::instance().currentUserFullName()));
     }
+}
+
+void ClientWindow::onReturnLobbyClicked() {
+    LobbyWindow *lobbyWin = new LobbyWindow();
+    lobbyWin->show();
+    this->close();
 }

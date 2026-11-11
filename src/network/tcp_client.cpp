@@ -118,6 +118,13 @@ void TcpClient::processMessage(const QJsonObject &msg) {
     QString type = msg["type"].toString();
 
     if (type == NetMsg::TYPE_REGISTER_ACK) {
+        if (msg.contains("assigned_station_id")) {
+            int assigned = msg["assigned_station_id"].toInt();
+            if (assigned > 0) {
+                m_stationId = assigned;
+                emit stationIdAssigned(assigned);
+            }
+        }
         if (msg.contains("ref_mode")) {
             QString modeStr = msg["ref_mode"].toString();
             m_referenceMode = (modeStr.compare("GOLDEN", Qt::CaseInsensitive) == 0)
@@ -126,7 +133,7 @@ void TcpClient::processMessage(const QJsonObject &msg) {
             emit referenceModeChanged(m_referenceMode);
         }
         emit registered();
-        emit logMessage("Host registration acknowledged.");
+        emit logMessage(QString("Host registration acknowledged (Assigned ID: %1).").arg(m_stationId));
     }
     else if (type == NetMsg::TYPE_REF_MODE_UPDATE) {
         QString modeStr = msg["ref_mode"].toString();
