@@ -121,9 +121,15 @@ Copy-Item "$MinGWBin\libgcc_s_dw2-1.dll" "$OutputDir\" -Force
 Copy-Item "$MinGWBin\libstdc++-6.dll" "$OutputDir\" -Force
 Copy-Item "$MinGWBin\libwinpthread-1.dll" "$OutputDir\" -Force
 
-# MySQL DLL'leri
+# MySQL DLL'leri (+ 32-bit VC++ Runtime: libmysql.dll bağımlılığı)
 Copy-Item "$ProjectDir\tools\sqldrivers\libmysql.dll" "$OutputDir\" -Force
 Copy-Item "$ProjectDir\tools\sqldrivers\qsqlmysql.dll" "$OutputDir\sqldrivers\" -Force
+foreach ($vcDll in @("vcruntime140.dll", "msvcp140.dll")) {
+    $sysWowPath = Join-Path "$env:WINDIR\SysWOW64" $vcDll
+    if (Test-Path $sysWowPath) {
+        Copy-Item $sysWowPath "$OutputDir\" -Force
+    }
+}
 
 # 6. Yönetici, Kurulum Betikleri, Portable MariaDB ve DRX Simülatörü OUTPUT'a Ekle
 Write-Host "[6/6] Yonetici ag paylasim, Tasinabilir MariaDB ve DRX Simulator ekleniyor..." -ForegroundColor Yellow

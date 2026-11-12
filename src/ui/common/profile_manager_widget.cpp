@@ -14,6 +14,7 @@
 #include <QGroupBox>
 #include <QHeaderView>
 #include <QMessageBox>
+#include <QInputDialog>
 #include <QSpinBox>
 #include <QAbstractSpinBox>
 #include <numeric>
@@ -404,9 +405,26 @@ void ProfileManagerWidget::onProfileSelected(int row) {
 }
 
 void ProfileManagerWidget::onNewProfileClicked() {
+    bool ok = false;
+    const QString enteredName = QInputDialog::getText(
+        this,
+        "Yeni Uydu Profili",
+        "Profil Adı (zorunlu):",
+        QLineEdit::Normal,
+        QString(),
+        &ok).trimmed();
+
+    if (!ok) {
+        return;
+    }
+    if (enteredName.isEmpty()) {
+        QMessageBox::warning(this, "Eksik Bilgi", "Profil ismi girmeden yeni profil oluşturulamaz.");
+        return;
+    }
+
     SatelliteProfileInfo p;
     p.id = 0;
-    p.profileName = QString("Yeni Uydu Profili %1").arg(m_profiles.size() + 1);
+    p.profileName = enteredName;
     p.satelliteName = "Türksat 42.0°E";
     p.orbitalPosition = "42.0E";
     p.defaultToleranceDb = AppConfig::instance().defaultToleranceDb();

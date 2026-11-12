@@ -125,6 +125,10 @@ bool DbManager::connectToDatabase(const QString &host, int port, const QString &
         }
 
         if (!db.isOpen()) {
+            if (m_lastError.contains("Driver not loaded", Qt::CaseInsensitive)) {
+                m_lastError = QString("Veritabanı sürücüsü yüklenemedi (%1). libmysql.dll veya 32-bit vcruntime140.dll eksik olabilir. [%2]")
+                                  .arg(m_driverName, m_lastError);
+            }
             qWarning() << "[Database Service] Unable to open database:" << m_lastError;
             emit connectionStatusChanged(false, m_lastError);
             return false;
@@ -439,7 +443,12 @@ SatelliteProfileInfo DbManager::getProfile(int profileId) {
 }
 
 bool DbManager::saveProfile(const SatelliteProfileInfo &profile) {
-    if (!isConnected()) return false;
+    if (!isConnected()) {
+        if (m_lastError.isEmpty()) {
+            m_lastError = "Veritabanı bağlantısı aktif değil.";
+        }
+        return false;
+    }
     QSqlDatabase db = QSqlDatabase::database(m_connectionName);
     db.transaction();
 
