@@ -103,7 +103,12 @@ if (Test-Path "$ProjectDir\build") {
 
 # 5. windeployqt ile Bağımlılıkları Çek
 Write-Host "[5/6] Qt ve MinGW bagimliliklari paketleniyor (windeployqt)..." -ForegroundColor Yellow
-& "$QtBin\windeployqt.exe" --no-translations --no-opengl-sw "$OutputDir\$TargetExe.exe" | Out-Null
+& "$QtBin\windeployqt.exe" --no-translations --no-opengl-sw --no-system-d3d-compiler "$OutputDir\$TargetExe.exe" | Out-Null
+
+# Qt5 bearer eklentisi Windows'ta acilis gecikmesine neden olur; kullanilmadigi icin kaldirilir
+if (Test-Path "$OutputDir\bearer") {
+    Remove-Item -Path "$OutputDir\bearer" -Recurse -Force -ErrorAction SilentlyContinue
+}
 
 # Platform eklentisi (qwindows.dll) kontrolü ve güvenlik kopyalaması
 if (-not (Test-Path "$OutputDir\platforms\qwindows.dll")) {

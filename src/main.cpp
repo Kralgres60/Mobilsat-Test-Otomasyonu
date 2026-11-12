@@ -6,6 +6,7 @@
  */
 
 #include <QApplication>
+#include <QFont>
 #include <QIcon>
 #include <QCommandLineParser>
 #include <QDebug>
@@ -30,7 +31,11 @@
 #endif
 
 int main(int argc, char *argv[]) {
+    // Disable Qt5 bearer network adapter polling that stalls Windows startup
+    qputenv("QT_BEARER_POLL_TIMEOUT", QByteArray::number(-1));
+
     QApplication app(argc, argv);
+    app.setFont(QFont("Segoe UI", 9));
     QTextCodec::setCodecForLocale(QTextCodec::codecForName("UTF-8"));
 
 #if defined(NETA_DEBUG_MODE)

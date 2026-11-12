@@ -14,6 +14,8 @@
 #include <QDir>
 #include <QStringList>
 #include <QCoreApplication>
+#include <QTcpSocket>
+#include <QElapsedTimer>
 
 DbManager& DbManager::instance() {
     static DbManager s_instance;
@@ -975,7 +977,19 @@ bool DbManager::startPortableMariaDbIfPresent() {
 
         m_launchedPortableMysqld = true;
         qInfo() << "[DbManager] Portable MariaDB launched in background (PID:" << m_portableProcess->processId() << ")";
-        QThread::msleep(2000);
+
+        // Poll port 3306 instead of sleeping a fixed 2000 ms
+        QElapsedTimer waitTimer;
+        waitTimer.start();
+        while (waitTimer.elapsed() < 2500) {
+            QTcpSocket probe;
+            probe.connectToHost(QStringLiteral("127.0.0.1"), 3306);
+            if (probe.waitForConnected(100)) {
+                probe.disconnectFromHost();
+                break;
+            }
+            QThread::msleep(80);
+        }
     }
     return true;
 }

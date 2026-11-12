@@ -10,6 +10,7 @@
 #include <QDir>
 #include <QFile>
 #include <QHostInfo>
+#include <memory>
 
 AppConfig& AppConfig::instance() {
     static AppConfig s_instance;
@@ -36,19 +37,26 @@ void AppConfig::load() {
     settings.setIniCodec("UTF-8");
 
     // If portable neta_config.ini does not exist yet, read any legacy registry values once as defaults
-    QSettings legacySettings("NETA", "DRX_Antenna_Test");
+    std::unique_ptr<QSettings> legacySettings;
+    if (!iniExists) {
+        legacySettings = std::make_unique<QSettings>("NETA", "DRX_Antenna_Test");
+    }
     auto readVal = [&](const QString &key, const QVariant &def) -> QVariant {
         if (settings.contains(key)) {
             return settings.value(key, def);
         }
-        return iniExists ? def : legacySettings.value(key, def);
+        return (iniExists || !legacySettings) ? def : legacySettings->value(key, def);
     };
+
+    const QString localHost = (settings.contains("General/StationAlias") && settings.contains("General/ServerName"))
+                                  ? QString()
+                                  : QHostInfo::localHostName();
 
     int roleInt = readVal("General/Role", static_cast<int>(AppRole::Client)).toInt();
     m_role = static_cast<AppRole>(roleInt);
     m_stationId = readVal("General/StationId", 1).toInt();
-    m_stationAlias = readVal("General/StationAlias", QHostInfo::localHostName()).toString();
-    m_serverName = readVal("General/ServerName", QString("NETA-HOST (%1)").arg(QHostInfo::localHostName())).toString();
+    m_stationAlias = readVal("General/StationAlias", localHost).toString();
+    m_serverName = readVal("General/ServerName", QString("NETA-HOST (%1)").arg(localHost)).toString();
 
     int userRoleInt = readVal("User/Role", static_cast<int>(UserRole::Technician)).toInt();
     m_userRole = static_cast<UserRole>(userRoleInt);
