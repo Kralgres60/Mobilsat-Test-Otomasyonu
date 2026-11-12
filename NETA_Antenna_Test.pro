@@ -55,6 +55,7 @@ SOURCES += \
     src/ui/client/client_window.cpp \
     src/ui/host/golden_reference_widget.cpp \
     src/ui/host/db_viewer_widget.cpp \
+    src/ui/host/user_manager_widget.cpp \
     src/ui/host/host_window.cpp \
     src/ui/debug/debug_runner_window.cpp \
     src/ui/debug/db_debug_widget.cpp
@@ -92,6 +93,7 @@ HEADERS += \
     src/ui/client/client_window.h \
     src/ui/host/golden_reference_widget.h \
     src/ui/host/db_viewer_widget.h \
+    src/ui/host/user_manager_widget.h \
     src/ui/host/host_window.h \
     src/ui/debug/debug_runner_window.h \
     src/ui/debug/db_debug_widget.h

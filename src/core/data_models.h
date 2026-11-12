@@ -253,4 +253,16 @@ struct GoldenFrequencyRecord {
     QString updatedAt;              ///< Last measurement timestamp string
 };
 
+/**
+ * @brief User account and role authorization record stored in the users table.
+ */
+struct UserRecord {
+    int id = 0;                     ///< Primary key
+    QString username;               ///< Unique login username
+    QString password;               ///< Plain/stored password in password_hash
+    QString fullName;               ///< Display full name
+    QString role = "OPERATOR";      ///< Role: "ADMIN" (Mühendis) or "OPERATOR" (Tekniker)
+    bool isActive = true;           ///< Account enabled flag
+};
+
 #endif // DATA_MODELS_H

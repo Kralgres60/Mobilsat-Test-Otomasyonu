@@ -466,7 +466,13 @@ void ProfileManagerWidget::onDeleteProfileClicked() {
 
 void ProfileManagerWidget::onAddChannelRowClicked() {
     if (!m_tableProfileChannels) return;
+    constexpr int kMaxChannels = 50;
     int row = m_tableProfileChannels->rowCount();
+    if (row >= kMaxChannels) {
+        QMessageBox::information(this, "Kanal Sınırı",
+                                 QString("Bir uydu profiline en fazla %1 frekans/kanal eklenebilir.").arg(kMaxChannels));
+        return;
+    }
     m_tableProfileChannels->insertRow(row);
 
     ChannelConfig ch;

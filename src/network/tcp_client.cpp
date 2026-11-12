@@ -7,6 +7,7 @@
 
 #include "tcp_client.h"
 #include "network_messages.h"
+#include "core/app_config.h"
 #include <QDebug>
 
 TcpClient::TcpClient(QObject *parent) : QObject(parent) {
@@ -51,6 +52,7 @@ void TcpClient::registerStation(int stationId, const QString &stationName) {
     obj["type"] = NetMsg::TYPE_REGISTER;
     obj["station_id"] = stationId;
     obj["station_name"] = stationName;
+    obj["username"] = AppConfig::instance().currentUsername();
     sendJson(obj);
 }
 
@@ -132,6 +134,11 @@ void TcpClient::processMessage(const QJsonObject &msg) {
                                   : ReferenceMode::LiveReference;
             emit referenceModeChanged(m_referenceMode);
         }
+        if (msg.contains("user_role")) {
+            emit userAuthorizationReceived(msg["user_role"].toString(),
+                                           msg["user_full_name"].toString(),
+                                           msg["user_active"].toBool(true));
+        }
         emit registered();
         emit logMessage(QString("Host registration acknowledged (Assigned ID: %1).").arg(m_stationId));
     }
@@ -168,6 +175,20 @@ void TcpClient::processMessage(const QJsonObject &msg) {
         bool cLocked = msg["carrier_locked"].toBool();
         bool vLocked = msg["video_locked"].toBool();
         emit refDataReceived(refCn, refPow, cLocked, vLocked);
+    }
+    else if (type == "ROLE_UPDATE") {
+        const QString targetUser = msg["username"].toString();
+        if (targetUser.compare(AppConfig::instance().currentUsername(), Qt::CaseInsensitive) == 0) {
+            emit userAuthorizationReceived(msg["user_role"].toString(),
+                                           msg["user_full_name"].toString(),
+                                           msg["user_active"].toBool(true));
+        }
+    }
+    else if (type == "SERVER_SHUTDOWN") {
+        emit logMessage("Yönetici Sunucu (Host) kapatıldı!");
+        emit serverShutdown();
+        m_heartbeatTimer.stop();
+        m_socket.disconnectFromHost();
     }
 }
 

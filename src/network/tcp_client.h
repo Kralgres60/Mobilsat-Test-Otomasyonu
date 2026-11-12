@@ -66,6 +66,10 @@ signals:
     void refDataReceived(double refCn, double refPow, bool carrierLocked, bool videoLocked);
     /** @brief Emitted when Host updates or sends the active reference mode (Live vs Golden Sample). */
     void referenceModeChanged(ReferenceMode mode);
+    /** @brief Emitted when Host gracefully shuts down the server. */
+    void serverShutdown();
+    /** @brief Emitted when Host returns or pushes live user authorization for the logged-in username. */
+    void userAuthorizationReceived(const QString &role, const QString &fullName, bool isActive);
     void logMessage(const QString &msg);
 
 private slots:

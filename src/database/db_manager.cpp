@@ -285,6 +285,42 @@ bool DbManager::ensureDefaultDataIfMissing() {
     if (needSchema) {
         qInfo() << "[DbManager] MySQL tabloları bulunamadı, şema otomatik yükleniyor...";
         executeSqlScript(":/sql/schema_mysql.sql");
+
+        // Emniyet ağı: profile_channels veya golden_frequencies hala yoksa doğrudan SQL ile oluştur
+        q.exec("SHOW TABLES LIKE 'profile_channels';");
+        if (!q.next() || q.value(0).toString().isEmpty()) {
+            q.exec("CREATE TABLE IF NOT EXISTS `profile_channels` ("
+                   "`id` INT AUTO_INCREMENT PRIMARY KEY,"
+                   "`profile_id` INT NOT NULL,"
+                   "`channel_no` INT NOT NULL,"
+                   "`channel_name` VARCHAR(64) NOT NULL,"
+                   "`frequency_mhz` INT NOT NULL,"
+                   "`symbol_rate` INT NOT NULL,"
+                   "`polarization` ENUM('V', 'H') NOT NULL,"
+                   "`tolerance_db` DECIMAL(4, 2) NOT NULL DEFAULT 1.50,"
+                   "`golden_cn_db` DECIMAL(5, 2) NOT NULL DEFAULT 0.00,"
+                   "`golden_pow_dbm` DECIMAL(6, 2) NOT NULL DEFAULT 0.00,"
+                   "`has_golden_sample` TINYINT(1) NOT NULL DEFAULT 0,"
+                   "`golden_updated_at` TIMESTAMP NULL DEFAULT NULL,"
+                   "`created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+                   "UNIQUE KEY `uk_profile_channel` (`profile_id`, `channel_no`)"
+                   ") ENGINE=InnoDB;");
+        }
+        q.exec("SHOW TABLES LIKE 'golden_frequencies';");
+        if (!q.next() || q.value(0).toString().isEmpty()) {
+            q.exec("CREATE TABLE IF NOT EXISTS `golden_frequencies` ("
+                   "`id` INT AUTO_INCREMENT PRIMARY KEY,"
+                   "`label` VARCHAR(100) NOT NULL DEFAULT '',"
+                   "`frequency_mhz` INT NOT NULL,"
+                   "`symbol_rate` INT NOT NULL,"
+                   "`polarization` ENUM('V', 'H') NOT NULL,"
+                   "`golden_cn_db` DECIMAL(5, 2) NOT NULL DEFAULT 0.00,"
+                   "`golden_pow_dbm` DECIMAL(6, 2) NOT NULL DEFAULT 0.00,"
+                   "`tolerance_db` DECIMAL(4, 2) NOT NULL DEFAULT 1.50,"
+                   "`updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,"
+                   "UNIQUE KEY `uk_golden_freq_key` (`frequency_mhz`, `symbol_rate`, `polarization`)"
+                   ") ENGINE=InnoDB;");
+        }
     }
 
     // 2. Varsayılan profil ve kanalların varlığını denetle
@@ -493,9 +529,22 @@ bool DbManager::saveProfile(const SatelliteProfileInfo &profile) {
     qDel.prepare("DELETE FROM profile_channels WHERE profile_id = :pid");
     qDel.bindValue(":pid", profileId);
     if (!qDel.exec()) {
-        m_lastError = qDel.lastError().text();
-        db.rollback();
-        return false;
+        if (qDel.lastError().text().contains("doesn't exist", Qt::CaseInsensitive)) {
+            db.rollback();
+            ensureDefaultDataIfMissing();
+            db.transaction();
+            qDel.prepare("DELETE FROM profile_channels WHERE profile_id = :pid");
+            qDel.bindValue(":pid", profileId);
+            if (!qDel.exec()) {
+                m_lastError = qDel.lastError().text();
+                db.rollback();
+                return false;
+            }
+        } else {
+            m_lastError = qDel.lastError().text();
+            db.rollback();
+            return false;
+        }
     }
 
     for (const auto &ch : profile.channels) {
@@ -1106,5 +1155,97 @@ bool DbManager::authenticateUser(const QString &username, const QString &passwor
     }
 
     return false;
+}
+
+QVector<UserRecord> DbManager::getUsers() {
+    QVector<UserRecord> list;
+    if (!isConnected()) return list;
+
+    QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+    QSqlQuery q("SELECT id, username, password_hash, full_name, role, is_active FROM users ORDER BY id ASC;", db);
+    while (q.next()) {
+        UserRecord u;
+        u.id = q.value(0).toInt();
+        u.username = q.value(1).toString();
+        u.password = q.value(2).toString();
+        u.fullName = q.value(3).toString();
+        u.role = q.value(4).toString().trimmed().toUpper();
+        u.isActive = q.value(5).toInt() != 0;
+        list.append(u);
+    }
+    return list;
+}
+
+bool DbManager::saveUser(const UserRecord &user) {
+    if (!isConnected()) {
+        if (m_lastError.isEmpty()) {
+            m_lastError = "Veritabanı bağlantısı aktif değil.";
+        }
+        return false;
+    }
+
+    const QString uname = user.username.trimmed();
+    if (uname.isEmpty()) {
+        m_lastError = "Kullanıcı adı boş olamaz.";
+        return false;
+    }
+
+    QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+    QSqlQuery q(db);
+
+    if (user.id <= 0) {
+        q.prepare("INSERT INTO users (username, password_hash, full_name, role, is_active) "
+                  "VALUES (:u, :p, :fn, :r, :act);");
+        q.bindValue(":u", uname);
+        q.bindValue(":p", user.password.isEmpty() ? QString("123") : user.password);
+        q.bindValue(":fn", user.fullName.trimmed().isEmpty() ? uname : user.fullName.trimmed());
+        q.bindValue(":r", user.role.trimmed().toUpper() == "ADMIN" ? QString("ADMIN") : QString("OPERATOR"));
+        q.bindValue(":act", user.isActive ? 1 : 0);
+    } else if (!user.password.isEmpty()) {
+        q.prepare("UPDATE users SET username = :u, password_hash = :p, full_name = :fn, role = :r, is_active = :act WHERE id = :id;");
+        q.bindValue(":u", uname);
+        q.bindValue(":p", user.password);
+        q.bindValue(":fn", user.fullName.trimmed().isEmpty() ? uname : user.fullName.trimmed());
+        q.bindValue(":r", user.role.trimmed().toUpper() == "ADMIN" ? QString("ADMIN") : QString("OPERATOR"));
+        q.bindValue(":act", user.isActive ? 1 : 0);
+        q.bindValue(":id", user.id);
+    } else {
+        q.prepare("UPDATE users SET username = :u, full_name = :fn, role = :r, is_active = :act WHERE id = :id;");
+        q.bindValue(":u", uname);
+        q.bindValue(":fn", user.fullName.trimmed().isEmpty() ? uname : user.fullName.trimmed());
+        q.bindValue(":r", user.role.trimmed().toUpper() == "ADMIN" ? QString("ADMIN") : QString("OPERATOR"));
+        q.bindValue(":act", user.isActive ? 1 : 0);
+        q.bindValue(":id", user.id);
+    }
+
+    if (!q.exec()) {
+        m_lastError = q.lastError().text();
+        return false;
+    }
+    return true;
+}
+
+bool DbManager::deleteUser(int userId) {
+    if (!isConnected() || userId <= 0) return false;
+
+    QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+    QSqlQuery qCheck(db);
+    qCheck.prepare("SELECT username FROM users WHERE id = :id;");
+    qCheck.bindValue(":id", userId);
+    if (qCheck.exec() && qCheck.next()) {
+        if (qCheck.value(0).toString().compare("admin", Qt::CaseInsensitive) == 0) {
+            m_lastError = "Ana 'admin' hesabı silinemez.";
+            return false;
+        }
+    }
+
+    QSqlQuery q(db);
+    q.prepare("DELETE FROM users WHERE id = :id;");
+    q.bindValue(":id", userId);
+    if (!q.exec()) {
+        m_lastError = q.lastError().text();
+        return false;
+    }
+    return true;
 }
 

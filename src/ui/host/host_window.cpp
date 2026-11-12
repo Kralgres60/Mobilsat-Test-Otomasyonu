@@ -335,6 +335,7 @@ void HostWindow::setupUi() {
     addNavItem("  ⚙️  Sistem Ayarları");
     addNavItem("  📜  Sistem Logları");
     addNavItem("  🗄️  Veritabanı");
+    addNavItem("  🔐  Kullanıcı & Yetki");
 
     m_sideNav->setCurrentRow(2);
 
@@ -347,6 +348,9 @@ void HostWindow::setupUi() {
     setupSettingsPage();
     setupLogsPage();
     m_dbViewer = new DbViewerWidget(this);
+    m_userManager = new UserManagerWidget(this);
+    connect(m_userManager, &UserManagerWidget::logMessage, this, &HostWindow::appendLog);
+    connect(m_userManager, &UserManagerWidget::usersUpdated, &m_tcpServer, &TcpServer::broadcastUserRoleUpdates);
 
     m_pageStack->addWidget(m_pageLobby);      // index 0
     m_pageStack->addWidget(m_pageNetworkPcs); // index 1
@@ -356,6 +360,7 @@ void HostWindow::setupUi() {
     m_pageStack->addWidget(m_pageSettings);   // index 5
     m_pageStack->addWidget(m_pageLogs);       // index 6
     m_pageStack->addWidget(m_dbViewer);       // index 7
+    m_pageStack->addWidget(m_userManager);    // index 8
 
     splitter->addWidget(m_sideNav);
     splitter->addWidget(m_pageStack);
@@ -389,6 +394,8 @@ void HostWindow::onNavItemChanged(int row) {
         m_pageStack->setCurrentIndex(pageIdx);
         if (m_pageStack->widget(pageIdx) == m_dbViewer && m_dbViewer) {
             m_dbViewer->refreshAll();
+        } else if (m_pageStack->widget(pageIdx) == m_userManager && m_userManager) {
+            m_userManager->reloadUsers();
         }
     }
 }

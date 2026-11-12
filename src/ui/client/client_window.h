@@ -112,6 +112,8 @@ private:
     void populateChannelTable();
     void resetLiveTelemetryPills();
     void applyUserRoleUi();
+    /** @brief Updates the top production-page MariaDB status badge and Engineer Settings DB label. */
+    void updateDbStatusBadge();
     void setStatusMessage(const QString &msg);
 
     SerialWorker m_dutSerial;
@@ -139,6 +141,7 @@ private:
     // ── Station & Ethernet Status Pills (Page 0) ───────────────────────────
     QLabel *m_lblStationBadge    = nullptr;
     QLabel *m_lblConnectionStatus = nullptr;
+    QLabel *m_lblDbBadge         = nullptr; ///< Live MariaDB connection badge in top status row
     QLabel *m_lblEthPingBadge    = nullptr;
     QLabel *m_lblLockBanner      = nullptr;
     QLabel *m_lblRefModeBadge    = nullptr;

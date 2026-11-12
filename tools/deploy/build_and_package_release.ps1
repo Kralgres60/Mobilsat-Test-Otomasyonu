@@ -39,8 +39,19 @@ Write-Host "    NETA DRX9000 - TEMIZ BUILD VE OUTPUT PAKETLEYICI (32-bit)       
 Write-Host "=====================================================================" -ForegroundColor Cyan
 Write-Host "Hedef Calistirilabilir Dosya: $TargetExe.exe" -ForegroundColor White
 
-# Varsa çalışan NETA süreçlerini sonlandır
-Get-Process -Name "*$TargetExe*" -ErrorAction SilentlyContinue | Stop-Process -Force
+# Varsa çalışan NETA ve OUTPUT altındaki süreçleri (mysqld.exe vb.) sonlandır
+Get-Process -Name "*$TargetExe*" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+$stoppedAny = $false
+Get-Process -ErrorAction SilentlyContinue | Where-Object {
+    $_.Path -and ($_.Path -like "$OutputDir*" -or ($_.Name -eq "mysqld" -and $_.Path -like "$ProjectDir*"))
+} | ForEach-Object {
+    Write-Host "      Acik surec kapatiliyor: $($_.Name) (PID $($_.Id))" -ForegroundColor DarkGray
+    Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+    $stoppedAny = $true
+}
+if ($stoppedAny) {
+    Start-Sleep -Milliseconds 500
+}
 
 # 1. Eski Klasörlerin Temizliği (dist, build, release_build, OUTPUT)
 Write-Host "`n[1/6] Eski build, dist ve OUTPUT klasorleri siliniyor..." -ForegroundColor Yellow

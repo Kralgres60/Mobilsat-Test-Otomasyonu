@@ -7,6 +7,7 @@
 
 #include "tcp_server.h"
 #include "network_messages.h"
+#include "database/db_manager.h"
 #include <QDateTime>
 #include <QDebug>
 
@@ -62,6 +63,25 @@ void TcpServer::setReferenceMode(ReferenceMode mode) {
     for (auto it = m_clients.begin(); it != m_clients.end(); ++it) {
         if (it.key() && it.key()->isOpen()) {
             it.key()->write(payload);
+        }
+    }
+}
+
+void TcpServer::broadcastUserRoleUpdates() {
+    if (!DbManager::instance().isConnected()) return;
+    const auto users = DbManager::instance().getUsers();
+    for (const auto &u : users) {
+        QJsonObject msg;
+        msg["type"] = "ROLE_UPDATE";
+        msg["username"] = u.username;
+        msg["user_role"] = u.role;
+        msg["user_full_name"] = u.fullName;
+        msg["user_active"] = u.isActive;
+        const QByteArray payload = NetMsg::serialize(msg);
+        for (auto it = m_clients.begin(); it != m_clients.end(); ++it) {
+            if (it.key() && it.key()->isOpen()) {
+                it.key()->write(payload);
+            }
         }
     }
 }
@@ -185,6 +205,20 @@ void TcpServer::processClientMessage(QTcpSocket *socket, const QJsonObject &msg)
         ack["assigned_station_id"] = session.stationId;
         ack["ref_mode"] = (m_referenceMode == ReferenceMode::GoldenSample) ? "GOLDEN" : "LIVE";
         ack["server_time"] = QDateTime::currentDateTime().toString(Qt::ISODate);
+
+        const QString reqUser = msg["username"].toString().trimmed();
+        if (!reqUser.isEmpty() && DbManager::instance().isConnected()) {
+            const auto users = DbManager::instance().getUsers();
+            for (const auto &u : users) {
+                if (u.username.compare(reqUser, Qt::CaseInsensitive) == 0) {
+                    ack["user_role"] = u.role;
+                    ack["user_full_name"] = u.fullName;
+                    ack["user_active"] = u.isActive;
+                    break;
+                }
+            }
+        }
+
         socket->write(NetMsg::serialize(ack));
 
         emit stationConnected(session.stationId, session.ipAddress);

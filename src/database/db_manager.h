@@ -120,6 +120,13 @@ public:
      */
     bool authenticateUser(const QString &username, const QString &password, UserRole &outRole, QString &outFullName);
 
+    /** @brief Returns all user accounts from the users table for authorization management. */
+    QVector<UserRecord> getUsers();
+    /** @brief Creates a new user or updates an existing user's role, full name, active flag, and optional password. */
+    bool saveUser(const UserRecord &user);
+    /** @brief Deletes a user account by ID (protects the built-in admin account). */
+    bool deleteUser(int userId);
+
     // Architecture 2: Distributed Database Atomic Mutex Lock
     /**
      * @brief Attempts to acquire atomic distributed lock on the shared Reference DRX.

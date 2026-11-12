@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS `satellite_profiles` (
 CREATE TABLE IF NOT EXISTS `profile_channels` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `profile_id` INT NOT NULL,
-    `channel_no` TINYINT NOT NULL, -- 1 .. 10
+    `channel_no` INT NOT NULL, -- 1 .. 50
     `channel_name` VARCHAR(64) NOT NULL,
     `frequency_mhz` INT NOT NULL,
     `symbol_rate` INT NOT NULL,
@@ -93,7 +93,7 @@ CREATE TABLE IF NOT EXISTS `test_runs` (
 CREATE TABLE IF NOT EXISTS `test_run_channels` (
     `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
     `test_run_id` BIGINT NOT NULL,
-    `channel_no` TINYINT NOT NULL, -- 1 .. 10
+    `channel_no` INT NOT NULL, -- 1 .. 50
     `channel_name` VARCHAR(64) NOT NULL,
     `frequency_mhz` INT NOT NULL,
     `symbol_rate` INT NOT NULL,

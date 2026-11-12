@@ -63,6 +63,9 @@ public:
     /** @brief Returns live status dictionary of connected test stations. */
     QMap<int, StationLiveStatus> connectedStations() const;
 
+    /** @brief Broadcasts updated user role/active authorization records to connected stations. */
+    void broadcastUserRoleUpdates();
+
 signals:
     void stationConnected(int stationId, const QString &ip);
     void stationDisconnected(int stationId);

@@ -30,6 +30,7 @@
 #include "core/xlsxutil.h"
 #include "ui/host/golden_reference_widget.h"
 #include "ui/host/db_viewer_widget.h"
+#include "ui/host/user_manager_widget.h"
 
 /**
  * @class HostWindow
@@ -124,6 +125,7 @@ private:
     QWidget        *m_pageSettings   = nullptr;  ///< Page 5 – Sistem Ayarları
     QWidget        *m_pageLogs       = nullptr;  ///< Page 6 – Sistem Logları
     DbViewerWidget *m_dbViewer       = nullptr;  ///< Page 7 – Veritabanı İçerik Görüntüleyici
+    UserManagerWidget *m_userManager = nullptr;  ///< Page 8 – Kullanıcı & Yetkilendirme Yönetimi
 
     // Top Header Card Widgets (NO serial port widgets on header)
     QLabel *m_lblServerStatus = nullptr;
