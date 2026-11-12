@@ -151,6 +151,7 @@ struct TestRunData {
     int stationId = 1;              ///< Workstation ID (1, 2, or 3)
     int operatorId = 1;             ///< Quality assurance operator ID
     QString testerName;             ///< Mandatory tester name entered per test run (distinct from login username)
+    QString operatorUsername;       ///< Login username of the operator/admin who executed the operation
     QString antennaSn;              ///< Unique serial number scanned from barcode
     int satelliteProfileId = 1;     ///< Target satellite test profile ID
     QString profileName;            ///< Satellite profile name (e.g., "Turksat 42.0E Standard")
@@ -171,6 +172,7 @@ struct TestRunData {
         obj["station_id"] = stationId;
         obj["operator_id"] = operatorId;
         obj["tester_name"] = testerName;
+        obj["operator_username"] = operatorUsername;
         obj["antenna_sn"] = antennaSn;
         obj["satellite_profile_id"] = satelliteProfileId;
         obj["profile_name"] = profileName;

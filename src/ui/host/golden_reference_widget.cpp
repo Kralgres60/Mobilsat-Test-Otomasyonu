@@ -381,6 +381,21 @@ void GoldenReferenceWidget::onCaptureStepTimeout() {
         m_captureActive = false;
         m_btnCapture->setText("📸 Referans Antenden Ölç & Kaydet");
         m_lblStatus->setText("✔ Tüm frekans ölçümleri tamamlandı ve veritabanına kaydedildi!");
+
+        TestRunData hostRun;
+        hostRun.stationId = 0; // 0 = Yönetici (Host)
+        hostRun.operatorId = AppConfig::instance().currentUserId() > 0 ? AppConfig::instance().currentUserId() : 1;
+        hostRun.testerName = AppConfig::instance().currentUserFullName().isEmpty()
+                                 ? AppConfig::instance().currentUsername()
+                                 : AppConfig::instance().currentUserFullName();
+        hostRun.operatorUsername = AppConfig::instance().currentUsername();
+        hostRun.antennaSn = "GOLDEN-REF";
+        hostRun.satelliteProfileId = 0;
+        hostRun.timestamp = QDateTime::currentDateTime();
+        hostRun.overallResult = "PASS";
+        hostRun.notes = QString("Yönetici Golden Referans Ölçümü (%1 frekans)").arg(m_tableFreqs->rowCount());
+        DbManager::instance().insertTestRun(hostRun);
+
         reloadFrequencies();
         QMessageBox::information(this, "Ölçüm Tamamlandı", "Tüm frekanslar için Golden Sample referansları kaydedildi.");
     }

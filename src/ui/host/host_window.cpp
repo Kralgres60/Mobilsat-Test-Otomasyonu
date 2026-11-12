@@ -396,6 +396,8 @@ void HostWindow::onNavItemChanged(int row) {
             m_dbViewer->refreshAll();
         } else if (m_pageStack->widget(pageIdx) == m_userManager && m_userManager) {
             m_userManager->reloadUsers();
+        } else if (m_pageStack->widget(pageIdx) == m_pageHistory && m_historyWidget) {
+            m_historyWidget->refreshHistory();
         }
     }
 }
@@ -630,38 +632,10 @@ void HostWindow::refreshNetworkPcsTable() {
 void HostWindow::setupHistoryPage() {
     m_pageHistory = new QWidget(this);
     QVBoxLayout *vbox = new QVBoxLayout(m_pageHistory);
-    vbox->setContentsMargins(10, 10, 10, 10);
-    vbox->setSpacing(8);
-
-    QHBoxLayout *filterRow = new QHBoxLayout();
-    QLabel *lblSearch = new QLabel("Seri No Ara:", m_pageHistory);
-    m_txtSearchSn = new QLineEdit(m_pageHistory);
-    m_txtSearchSn->setPlaceholderText("Barkod / Seri No...");
-    connect(m_txtSearchSn, &QLineEdit::returnPressed, this, &HostWindow::onRefreshHistoryClicked);
-
-    QPushButton *btnSearch = new QPushButton("🔍 Filtrele / Yenile", m_pageHistory);
-    connect(btnSearch, &QPushButton::clicked, this, &HostWindow::onRefreshHistoryClicked);
-
-    QPushButton *btnExportExcel = new QPushButton("📄 Excel Kalite Raporu Üret", m_pageHistory);
-    btnExportExcel->setStyleSheet("background-color: #059669; color: #FFFFFF; border: none; border-radius: 4px; padding: 6px 14px; font-weight: bold;");
-    connect(btnExportExcel, &QPushButton::clicked, this, &HostWindow::onExportExcelClicked);
-
-    filterRow->addWidget(lblSearch);
-    filterRow->addWidget(m_txtSearchSn, 1);
-    filterRow->addWidget(btnSearch);
-    filterRow->addStretch();
-    filterRow->addWidget(btnExportExcel);
-    vbox->addLayout(filterRow);
-
-    m_tableHistory = new QTableWidget(m_pageHistory);
-    m_tableHistory->setColumnCount(10);
-    m_tableHistory->setHorizontalHeaderLabels({"ID", "Seri No", "Testi Yapan", "İş Emri", "Masa", "Tarih/Saat", "Süre (sn)", "Sonuç", "Ort. Delta", "Max Delta"});
-    m_tableHistory->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    m_tableHistory->verticalHeader()->setVisible(false);
-    m_tableHistory->setAlternatingRowColors(true);
-    m_tableHistory->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_tableHistory->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    vbox->addWidget(m_tableHistory);
+    vbox->setContentsMargins(0, 0, 0, 0);
+    m_historyWidget = new TestHistoryWidget(m_pageHistory);
+    connect(m_historyWidget, &TestHistoryWidget::logMessage, this, &HostWindow::appendLog);
+    vbox->addWidget(m_historyWidget);
 }
 
 void HostWindow::setupOrdersPage() {
@@ -1065,35 +1039,15 @@ void HostWindow::onLockExpired(int stationId) {
 }
 
 void HostWindow::onRefreshHistoryClicked() {
+    if (m_historyWidget) {
+        m_historyWidget->refreshHistory();
+    }
+
     DbManager &db = DbManager::instance();
     if (!db.isConnected()) {
         db.connectToDatabase(AppConfig::instance().dbHost(), AppConfig::instance().dbPort(),
                              AppConfig::instance().dbName(), AppConfig::instance().dbUser(),
                              AppConfig::instance().dbPassword());
-    }
-
-    auto runs = db.getTestRuns(100, m_txtSearchSn->text().trimmed());
-    m_tableHistory->setRowCount(runs.size());
-
-    for (int i = 0; i < runs.size(); ++i) {
-        const auto &r = runs[i];
-        m_tableHistory->setItem(i, 0, new QTableWidgetItem(QString::number(r.id)));
-        m_tableHistory->setItem(i, 1, new QTableWidgetItem(r.antennaSn));
-        m_tableHistory->setItem(i, 2, new QTableWidgetItem(r.testerName.isEmpty() ? "--" : r.testerName));
-        m_tableHistory->setItem(i, 3, new QTableWidgetItem(QString::number(r.workOrderId)));
-        m_tableHistory->setItem(i, 4, new QTableWidgetItem(QString("İstasyon %1").arg(r.stationId)));
-        m_tableHistory->setItem(i, 5, new QTableWidgetItem(r.timestamp.toString("dd.MM.yyyy hh:mm:ss")));
-        m_tableHistory->setItem(i, 6, new QTableWidgetItem(QString::number(r.durationSec)));
-
-        QTableWidgetItem *resItem = new QTableWidgetItem(r.overallResult);
-        if (r.overallResult == "PASS") {
-            resItem->setForeground(QBrush(QColor("#34D399")));
-        } else {
-            resItem->setForeground(QBrush(QColor("#F87171")));
-        }
-        m_tableHistory->setItem(i, 7, resItem);
-        m_tableHistory->setItem(i, 8, new QTableWidgetItem(QString::number(r.avgDeltaDb, 'f', 2) + " dB"));
-        m_tableHistory->setItem(i, 9, new QTableWidgetItem(QString::number(r.maxDeltaDb, 'f', 2) + " dB"));
     }
 
     auto orders = db.getActiveWorkOrders();
@@ -1107,34 +1061,6 @@ void HostWindow::onRefreshHistoryClicked() {
         m_tableOrders->setItem(i, 4, new QTableWidgetItem(QString::number(o.completedQuantity)));
         m_tableOrders->setItem(i, 5, new QTableWidgetItem(QString::number(o.passedQuantity)));
         m_tableOrders->setItem(i, 6, new QTableWidgetItem(o.status));
-    }
-}
-
-void HostWindow::onExportExcelClicked() {
-    QString fileName = QFileDialog::getSaveFileName(this, "Excel Raporunu Kaydet", "NETA_Kalite_Raporu.xlsx", "Excel Dosyaları (*.xlsx)");
-    if (fileName.isEmpty()) return;
-
-    QStringList headers;
-    for (int c = 0; c < m_tableHistory->columnCount(); ++c) {
-        auto hItem = m_tableHistory->horizontalHeaderItem(c);
-        headers << (hItem ? hItem->text() : QString("Sütun %1").arg(c + 1));
-    }
-
-    QVector<QStringList> rows;
-    for (int r = 0; r < m_tableHistory->rowCount(); ++r) {
-        QStringList rowData;
-        for (int c = 0; c < m_tableHistory->columnCount(); ++c) {
-            auto item = m_tableHistory->item(r, c);
-            rowData << (item ? item->text() : "");
-        }
-        rows.append(rowData);
-    }
-
-    QString errStr;
-    if (writeXlsxSheet(fileName, "Kalite Test Raporu", headers, rows, &errStr)) {
-        QMessageBox::information(this, "Başarılı", "Excel kalite raporu başarıyla kaydedildi:\n" + fileName);
-    } else {
-        QMessageBox::critical(this, "Hata", "Excel dosyası oluşturulamadı:\n" + errStr);
     }
 }
 

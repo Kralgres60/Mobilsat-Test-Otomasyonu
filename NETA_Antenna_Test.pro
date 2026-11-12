@@ -49,6 +49,7 @@ SOURCES += \
     src/ui/common/lobby_window.cpp \
     src/ui/common/about_dialog.cpp \
     src/ui/common/profile_manager_widget.cpp \
+    src/ui/common/test_history_widget.cpp \
     src/ui/common/dependency_install_dialog.cpp \
     src/ui/common/qcustomplot.cpp \
     src/ui/client/channel_card_widget.cpp \
@@ -87,6 +88,7 @@ HEADERS += \
     src/ui/common/lobby_window.h \
     src/ui/common/about_dialog.h \
     src/ui/common/profile_manager_widget.h \
+    src/ui/common/test_history_widget.h \
     src/ui/common/dependency_install_dialog.h \
     src/ui/common/qcustomplot.h \
     src/ui/client/channel_card_widget.h \

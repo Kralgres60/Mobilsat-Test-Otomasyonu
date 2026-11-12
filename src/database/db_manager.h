@@ -97,8 +97,12 @@ public:
     bool incrementOrderCount(int workOrderId, bool isPass);
 
     // Test Run History & Reporting
+    /** @brief Inserts a completed test run or host operation record into test_runs. */
     qint64 insertTestRun(const TestRunData &run);
+    /** @brief Queries recent test runs joined with operator username and satellite profile name. */
     QVector<TestRunData> getTestRuns(int limit = 100, const QString &searchSn = QString());
+    /** @brief Checks whether a test run with the same serial number, station, and timestamp already exists. */
+    bool testRunExists(const QString &antennaSn, int stationId, const QDateTime &timestamp);
 
     // System Settings Key-Value Store
     QString getSetting(const QString &key, const QString &defaultValue = QString());

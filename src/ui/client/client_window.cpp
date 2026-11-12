@@ -296,6 +296,7 @@ void ClientWindow::setupUi() {
     addNavItem("  📡  Üretim Testi");
     addNavItem("  📈  Canlı Grafik");
     addNavItem("  🛰️  Uydu Profilleri");
+    addNavItem("  📊  Test Geçmişi & Rapor");
     addNavItem("  ⚙️  Mühendis Ayarları");
     addNavItem("  📜  Sistem Logları");
 
@@ -307,14 +308,17 @@ void ClientWindow::setupUi() {
     setupProductionPage();
     setupGraphPage();
     setupProfilesPage();
+    m_historyWidget = new TestHistoryWidget(this);
+    connect(m_historyWidget, &TestHistoryWidget::logMessage, this, &ClientWindow::appendLog);
     setupEngineerSettingsPage();
     setupLogsPage();
 
     m_pageStack->addWidget(m_pageProduction);   // index 0
     m_pageStack->addWidget(m_pageGraph);        // index 1
     m_pageStack->addWidget(m_pageProfiles);     // index 2
-    m_pageStack->addWidget(m_pageEngineer);     // index 3
-    m_pageStack->addWidget(m_pageLogs);         // index 4
+    m_pageStack->addWidget(m_historyWidget);    // index 3
+    m_pageStack->addWidget(m_pageEngineer);     // index 4
+    m_pageStack->addWidget(m_pageLogs);         // index 5
 
     splitter->addWidget(m_sideNav);
     splitter->addWidget(m_pageStack);
@@ -1407,7 +1411,8 @@ void ClientWindow::onStartTestClicked() {
     m_btnAbortTest->setEnabled(true);
     setStatusMessage(QString("Test başlatıldı (CAT6 Ethernet): Seri No %1").arg(sn));
 
-    if (!m_stateMachine->startTest(sn, m_currentProfile, woId, 1, testerName)) {
+    const int opId = AppConfig::instance().currentUserId() > 0 ? AppConfig::instance().currentUserId() : 1;
+    if (!m_stateMachine->startTest(sn, m_currentProfile, woId, opId, testerName)) {
         m_btnStartTest->setEnabled(true);
         m_btnAbortTest->setEnabled(false);
         m_resultBannerFrame->setStyleSheet("background-color: #112D21; border: 1px solid #1A3D2B; border-radius: 6px; padding: 10px;");
@@ -1663,6 +1668,9 @@ void ClientWindow::onNavItemChanged(int row) {
     int pageIdx = row - 2; // rows 0 and 1 are header & separator
     if (pageIdx >= 0 && pageIdx < m_pageStack->count()) {
         m_pageStack->setCurrentIndex(pageIdx);
+        if (m_pageStack->widget(pageIdx) == m_historyWidget && m_historyWidget) {
+            m_historyWidget->refreshHistory();
+        }
     }
 }
 
@@ -1693,16 +1701,17 @@ void ClientWindow::applyUserRoleUi() {
     // row 2: Üretim Testi (page 0)
     // row 3: Canlı Grafik (page 1)
     // row 4: Uydu Profilleri (page 2 - Station & Engineer access)
-    // row 5: Mühendis Ayarları (page 3 - Engineer only)
-    // row 6: Sistem Logları (page 4 - Engineer only)
+    // row 5: Test Geçmişi & Rapor (page 3 - Station & Engineer access)
+    // row 6: Mühendis Ayarları (page 4 - Engineer only)
+    // row 7: Sistem Logları (page 5 - Engineer only)
     if (m_sideNav && m_pageStack) {
-        if (QListWidgetItem *engItem = m_sideNav->item(5)) {
+        if (QListWidgetItem *engItem = m_sideNav->item(6)) {
             engItem->setHidden(!isEng);
         }
-        if (QListWidgetItem *logItem = m_sideNav->item(6)) {
+        if (QListWidgetItem *logItem = m_sideNav->item(7)) {
             logItem->setHidden(!isEng);
         }
-        if (!isEng && m_pageStack->currentIndex() >= 3) {
+        if (!isEng && m_pageStack->currentIndex() >= 4) {
             m_sideNav->setCurrentRow(2);
             m_pageStack->setCurrentIndex(0);
         }

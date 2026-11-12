@@ -28,6 +28,7 @@
 #include "core/test_state_machine.h"
 #include "ui/common/qcustomplot.h"
 #include "ui/common/profile_manager_widget.h"
+#include "ui/common/test_history_widget.h"
 
 /**
  * @class ClientWindow
@@ -134,8 +135,9 @@ private:
     QWidget *m_pageProduction = nullptr;  ///< Page 0 – Üretim Testi
     QWidget *m_pageGraph      = nullptr;  ///< Page 1 – Canlı Grafik
     QWidget *m_pageProfiles   = nullptr;  ///< Page 2 – Uydu Profilleri & Frekanslar
-    QWidget *m_pageEngineer   = nullptr;  ///< Page 3 – Mühendis Ayarları (Engineer only)
-    QWidget *m_pageLogs       = nullptr;  ///< Page 4 – Sistem Logları (Engineer only)
+    TestHistoryWidget *m_historyWidget = nullptr; ///< Page 3 – Test Geçmişi & Rapor
+    QWidget *m_pageEngineer   = nullptr;  ///< Page 4 – Mühendis Ayarları (Engineer only)
+    QWidget *m_pageLogs       = nullptr;  ///< Page 5 – Sistem Logları (Engineer only)
     ProfileManagerWidget *m_profileManager = nullptr;
 
     // ── Station & Ethernet Status Pills (Page 0) ───────────────────────────

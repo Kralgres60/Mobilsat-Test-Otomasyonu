@@ -170,7 +170,8 @@ bool DbManager::initTablesIfSqlite() {
     q.exec("CREATE TABLE IF NOT EXISTS satellite_profiles (id INTEGER PRIMARY KEY AUTOINCREMENT, profile_name TEXT, satellite_name TEXT, orbital_position TEXT, default_tolerance_db REAL, is_active INTEGER);");
     q.exec("CREATE TABLE IF NOT EXISTS profile_channels (id INTEGER PRIMARY KEY AUTOINCREMENT, profile_id INTEGER, channel_no INTEGER, channel_name TEXT, frequency_mhz INTEGER, symbol_rate INTEGER, polarization TEXT, tolerance_db REAL, golden_cn_db REAL DEFAULT 0.0, golden_pow_dbm REAL DEFAULT 0.0, has_golden_sample INTEGER DEFAULT 0);");
     q.exec("CREATE TABLE IF NOT EXISTS work_orders (id INTEGER PRIMARY KEY AUTOINCREMENT, order_no TEXT, customer_name TEXT, product_code TEXT, satellite_profile_id INTEGER, target_quantity INTEGER, completed_quantity INTEGER, passed_quantity INTEGER, failed_quantity INTEGER, status TEXT, notes TEXT);");
-    q.exec("CREATE TABLE IF NOT EXISTS test_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, work_order_id INTEGER, station_id INTEGER, operator_id INTEGER, tester_name TEXT DEFAULT '', antenna_sn TEXT, satellite_profile_id INTEGER, test_timestamp TEXT, duration_sec INTEGER, overall_result TEXT, fail_reason TEXT, avg_delta_db REAL, max_delta_db REAL, notes TEXT);");
+    q.exec("CREATE TABLE IF NOT EXISTS test_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, work_order_id INTEGER, station_id INTEGER, operator_id INTEGER, tester_name TEXT DEFAULT '', operator_username TEXT DEFAULT '', antenna_sn TEXT, satellite_profile_id INTEGER, test_timestamp TEXT, duration_sec INTEGER, overall_result TEXT, fail_reason TEXT, avg_delta_db REAL, max_delta_db REAL, notes TEXT);");
+    q.exec("ALTER TABLE test_runs ADD COLUMN operator_username TEXT DEFAULT '';");
     q.exec("CREATE TABLE IF NOT EXISTS test_run_channels (id INTEGER PRIMARY KEY AUTOINCREMENT, test_run_id INTEGER, channel_no INTEGER, channel_name TEXT, frequency_mhz INTEGER, symbol_rate INTEGER, polarization TEXT, dut_cn_avg REAL, dut_pow_avg REAL, ref_cn_avg REAL, ref_pow_avg REAL, delta_db REAL, carrier_locked INTEGER, video_locked INTEGER, audio_locked INTEGER, tolerance_db REAL, result TEXT);");
     q.exec("CREATE TABLE IF NOT EXISTS golden_frequencies (id INTEGER PRIMARY KEY AUTOINCREMENT, label TEXT DEFAULT '', frequency_mhz INTEGER NOT NULL, symbol_rate INTEGER NOT NULL, polarization TEXT NOT NULL, golden_cn_db REAL DEFAULT 0.0, golden_pow_dbm REAL DEFAULT 0.0, tolerance_db REAL DEFAULT 1.50, updated_at TEXT DEFAULT CURRENT_TIMESTAMP, UNIQUE(frequency_mhz, symbol_rate, polarization));");
 
@@ -388,10 +389,14 @@ bool DbManager::ensureDefaultDataIfMissing() {
                "ADD COLUMN golden_updated_at TIMESTAMP NULL DEFAULT NULL AFTER has_golden_sample;");
     }
 
-    // 6b. Geriye uyumlu şema göçü: test_runs tablosunda tester_name sütunu yoksa ekle
+    // 6b. Geriye uyumlu şema göçü: test_runs tablosunda tester_name / operator_username sütunları yoksa ekle
     q.exec("SHOW COLUMNS FROM test_runs LIKE 'tester_name';");
     if (!q.next()) {
         q.exec("ALTER TABLE test_runs ADD COLUMN tester_name VARCHAR(100) NOT NULL DEFAULT '' AFTER operator_id;");
+    }
+    q.exec("SHOW COLUMNS FROM test_runs LIKE 'operator_username';");
+    if (!q.next()) {
+        q.exec("ALTER TABLE test_runs ADD COLUMN operator_username VARCHAR(64) NOT NULL DEFAULT '' AFTER tester_name;");
     }
 
     // 6c. Yönetici frekans bazlı Golden Sample havuzu tablosu
@@ -770,18 +775,41 @@ qint64 DbManager::insertTestRun(const TestRunData &run) {
     QSqlDatabase db = QSqlDatabase::database(m_connectionName);
     db.transaction();
 
+    int targetProfileId = run.satelliteProfileId;
+    if (targetProfileId <= 0 && !run.profileName.trimmed().isEmpty()) {
+        QSqlQuery qProf(db);
+        qProf.prepare("SELECT id FROM satellite_profiles WHERE profile_name = :pname LIMIT 1");
+        qProf.bindValue(":pname", run.profileName.trimmed());
+        if (qProf.exec() && qProf.next()) {
+            targetProfileId = qProf.value(0).toInt();
+        }
+    }
+    if (targetProfileId <= 0) {
+        QSqlQuery qMin("SELECT MIN(id) FROM satellite_profiles", db);
+        if (qMin.next() && qMin.value(0).toInt() > 0) {
+            targetProfileId = qMin.value(0).toInt();
+        } else {
+            targetProfileId = 1;
+        }
+    }
+
+    const QString opUser = run.operatorUsername.trimmed().isEmpty()
+                               ? AppConfig::instance().currentUsername()
+                               : run.operatorUsername.trimmed();
+
     QSqlQuery q(db);
-    q.prepare("INSERT INTO test_runs (work_order_id, station_id, operator_id, tester_name, antenna_sn, "
+    q.prepare("INSERT INTO test_runs (work_order_id, station_id, operator_id, tester_name, operator_username, antenna_sn, "
               "satellite_profile_id, test_timestamp, duration_sec, overall_result, fail_reason, "
               "avg_delta_db, max_delta_db, notes) "
-              "VALUES (:wo, :st, :op, :tname, :sn, :sp, :ts, :dur, :res, :fr, :avg, :max, :notes)");
+              "VALUES (:wo, :st, :op, :tname, :opuser, :sn, :sp, :ts, :dur, :res, :fr, :avg, :max, :notes)");
     q.bindValue(":wo", run.workOrderId > 0 ? run.workOrderId : QVariant());
     q.bindValue(":st", run.stationId);
-    q.bindValue(":op", run.operatorId);
+    q.bindValue(":op", run.operatorId > 0 ? run.operatorId : QVariant());
     q.bindValue(":tname", run.testerName);
+    q.bindValue(":opuser", opUser);
     q.bindValue(":sn", run.antennaSn);
-    q.bindValue(":sp", run.satelliteProfileId);
-    q.bindValue(":ts", run.timestamp.toString(Qt::ISODate));
+    q.bindValue(":sp", targetProfileId);
+    q.bindValue(":ts", (run.timestamp.isValid() ? run.timestamp : QDateTime::currentDateTime()).toString(Qt::ISODate));
     q.bindValue(":dur", run.durationSec);
     q.bindValue(":res", run.overallResult);
     q.bindValue(":fr", run.failReason);
@@ -842,15 +870,42 @@ QVector<TestRunData> DbManager::getTestRuns(int limit, const QString &searchSn) 
     if (!isConnected()) return list;
 
     QSqlDatabase db = QSqlDatabase::database(m_connectionName);
-    QString sql = "SELECT id, work_order_id, station_id, operator_id, tester_name, antenna_sn, satellite_profile_id, "
-                  "test_timestamp, duration_sec, overall_result, fail_reason, avg_delta_db, max_delta_db, notes "
-                  "FROM test_runs ";
-    if (!searchSn.isEmpty()) {
-        sql += QString("WHERE antenna_sn LIKE '%%1%' OR tester_name LIKE '%%1%' ").arg(searchSn);
-    }
-    sql += QString("ORDER BY id DESC LIMIT %1").arg(limit);
+    QString sql = "SELECT tr.id, tr.work_order_id, tr.station_id, tr.operator_id, tr.tester_name, "
+                  "COALESCE(NULLIF(tr.operator_username, ''), u.username, '') AS op_username, "
+                  "tr.antenna_sn, tr.satellite_profile_id, COALESCE(sp.profile_name, '') AS prof_name, "
+                  "tr.test_timestamp, tr.duration_sec, tr.overall_result, tr.fail_reason, "
+                  "tr.avg_delta_db, tr.max_delta_db, tr.notes "
+                  "FROM test_runs tr "
+                  "LEFT JOIN users u ON u.id = tr.operator_id "
+                  "LEFT JOIN satellite_profiles sp ON sp.id = tr.satellite_profile_id ";
 
-    QSqlQuery q(sql, db);
+    const QString needle = searchSn.trimmed();
+    if (!needle.isEmpty()) {
+        sql += "WHERE tr.antenna_sn LIKE :s1 OR tr.tester_name LIKE :s2 "
+               "OR tr.operator_username LIKE :s3 OR u.username LIKE :s4 "
+               "OR sp.profile_name LIKE :s5 OR tr.fail_reason LIKE :s6 OR tr.notes LIKE :s7 ";
+    }
+    sql += QString("ORDER BY tr.id DESC LIMIT %1").arg(qMax(1, limit));
+
+    QSqlQuery q(db);
+    q.prepare(sql);
+    if (!needle.isEmpty()) {
+        const QString like = QString("%%1%").arg(needle);
+        q.bindValue(":s1", like);
+        q.bindValue(":s2", like);
+        q.bindValue(":s3", like);
+        q.bindValue(":s4", like);
+        q.bindValue(":s5", like);
+        q.bindValue(":s6", like);
+        q.bindValue(":s7", like);
+    }
+
+    if (!q.exec()) {
+        m_lastError = q.lastError().text();
+        qWarning() << "[DbManager] getTestRuns failed:" << m_lastError;
+        return list;
+    }
+
     while (q.next()) {
         TestRunData r;
         r.id = q.value(0).toLongLong();
@@ -858,18 +913,34 @@ QVector<TestRunData> DbManager::getTestRuns(int limit, const QString &searchSn) 
         r.stationId = q.value(2).toInt();
         r.operatorId = q.value(3).toInt();
         r.testerName = q.value(4).toString();
-        r.antennaSn = q.value(5).toString();
-        r.satelliteProfileId = q.value(6).toInt();
-        r.timestamp = QDateTime::fromString(q.value(7).toString(), Qt::ISODate);
-        r.durationSec = q.value(8).toInt();
-        r.overallResult = q.value(9).toString();
-        r.failReason = q.value(10).toString();
-        r.avgDeltaDb = q.value(11).toDouble();
-        r.maxDeltaDb = q.value(12).toDouble();
-        r.notes = q.value(13).toString();
+        r.operatorUsername = q.value(5).toString();
+        r.antennaSn = q.value(6).toString();
+        r.satelliteProfileId = q.value(7).toInt();
+        r.profileName = q.value(8).toString();
+        r.timestamp = QDateTime::fromString(q.value(9).toString(), Qt::ISODate);
+        if (!r.timestamp.isValid()) {
+            r.timestamp = q.value(9).toDateTime();
+        }
+        r.durationSec = q.value(10).toInt();
+        r.overallResult = q.value(11).toString();
+        r.failReason = q.value(12).toString();
+        r.avgDeltaDb = q.value(13).toDouble();
+        r.maxDeltaDb = q.value(14).toDouble();
+        r.notes = q.value(15).toString();
         list.append(r);
     }
     return list;
+}
+
+bool DbManager::testRunExists(const QString &antennaSn, int stationId, const QDateTime &timestamp) {
+    if (!isConnected()) return false;
+    QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+    QSqlQuery q(db);
+    q.prepare("SELECT id FROM test_runs WHERE antenna_sn = :sn AND station_id = :st AND test_timestamp = :ts LIMIT 1");
+    q.bindValue(":sn", antennaSn);
+    q.bindValue(":st", stationId);
+    q.bindValue(":ts", timestamp.toString(Qt::ISODate));
+    return (q.exec() && q.next());
 }
 
 QString DbManager::getSetting(const QString &key, const QString &defaultValue) {

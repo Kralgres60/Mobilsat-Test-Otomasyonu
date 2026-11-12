@@ -109,6 +109,7 @@ bool TestStateMachine::startTest(const QString &antennaSn,
     m_testRun.workOrderId = workOrderId;
     m_testRun.operatorId = operatorId;
     m_testRun.testerName = testerName.trimmed();
+    m_testRun.operatorUsername = AppConfig::instance().currentUsername();
     m_testRun.satelliteProfileId = profile.id;
     m_testRun.profileName = profile.profileName;
     m_testRun.stationId = AppConfig::instance().stationId();

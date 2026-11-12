@@ -28,6 +28,7 @@
 #include "network/udp_beacon.h"
 #include "core/lock_arbiter.h"
 #include "core/xlsxutil.h"
+#include "ui/common/test_history_widget.h"
 #include "ui/host/golden_reference_widget.h"
 #include "ui/host/db_viewer_widget.h"
 #include "ui/host/user_manager_widget.h"
@@ -64,7 +65,6 @@ private slots:
     void onLockExpired(int stationId);
 
     void onRefreshHistoryClicked();
-    void onExportExcelClicked();
     void onSaveSettingsClicked();
     void onInstallMysqlClicked();
     void onResetDbClicked();
@@ -158,8 +158,7 @@ private:
     QLabel       *m_lblPcSummaryStats = nullptr;
 
     // History Tab Widgets
-    QTableWidget *m_tableHistory = nullptr;
-    QLineEdit *m_txtSearchSn = nullptr;
+    TestHistoryWidget *m_historyWidget = nullptr;
 
     // Orders Tab Widgets
     QTableWidget *m_tableOrders = nullptr;
