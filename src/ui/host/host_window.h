@@ -29,6 +29,7 @@
 #include "core/lock_arbiter.h"
 #include "core/xlsxutil.h"
 #include "ui/host/golden_reference_widget.h"
+#include "ui/host/db_viewer_widget.h"
 
 /**
  * @class HostWindow
@@ -101,6 +102,7 @@ private:
     TcpServer m_tcpServer;
     UdpBeaconBroadcaster m_beaconBroadcaster;
     QTimer m_refEthPingTimer;
+    QTimer m_refTelemetryPollTimer; ///< Periodic idle telemetry poller for Reference/Golden DRX
 
     // ── Sidebar Navigation ──────────────────────────────────────────────────
     /** @brief Left sidebar navigation list (objectName: "sideNav" for QSS targeting). */
@@ -114,6 +116,7 @@ private:
     QWidget        *m_pageOrders     = nullptr;  ///< Page 4 – İş Emirleri
     QWidget        *m_pageSettings   = nullptr;  ///< Page 5 – Sistem Ayarları
     QWidget        *m_pageLogs       = nullptr;  ///< Page 6 – Sistem Logları
+    DbViewerWidget *m_dbViewer       = nullptr;  ///< Page 7 – Veritabanı İçerik Görüntüleyici
 
     // Top Header Card Widgets (NO serial port widgets on header)
     QLabel *m_lblServerStatus = nullptr;
@@ -121,7 +124,7 @@ private:
     QLabel *m_lblRefPingBadge = nullptr;
     QLabel *m_lblRefTelemetry = nullptr;
     QLabel *m_lblOperatorName = nullptr;
-    QLabel *m_lblRefIpBadge = nullptr;
+    QLineEdit *m_txtHeaderRefIp = nullptr; ///< Editable Reference DRX IP in top header bar
     QPushButton *m_btnRefEthPingSync = nullptr;
 
     // Lobby Tab Widgets (dynamic N-station grid)

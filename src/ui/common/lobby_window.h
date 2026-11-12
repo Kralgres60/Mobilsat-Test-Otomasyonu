@@ -68,7 +68,6 @@ private:
     // HOST Card Widgets
     QLineEdit *m_txtServerName = nullptr;
     QSpinBox  *m_spinHostPort  = nullptr;
-    QLineEdit *m_txtRefDrxIp   = nullptr;
 
     // JOIN Card Widgets
     QLineEdit    *m_txtStationAlias = nullptr;

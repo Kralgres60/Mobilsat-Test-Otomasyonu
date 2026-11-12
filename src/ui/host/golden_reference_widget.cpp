@@ -233,11 +233,13 @@ GoldenFrequencyRecord GoldenReferenceWidget::readRow(int row) const {
 
 void GoldenReferenceWidget::reloadFrequencies() {
     if (!m_tableFreqs) return;
+    m_tableFreqs->setUpdatesEnabled(false);
     m_records = DbManager::instance().getGoldenFrequencies();
     m_tableFreqs->setRowCount(m_records.size());
     for (int i = 0; i < m_records.size(); ++i) {
         populateRow(i, m_records[i]);
     }
+    m_tableFreqs->setUpdatesEnabled(true);
 }
 
 void GoldenReferenceWidget::onAddRowClicked() {
@@ -288,6 +290,10 @@ void GoldenReferenceWidget::onReferenceTelemetryReceived(double powDbm, double c
     if (m_captureActive) {
         m_cnSamples.append(cnDb);
         m_powSamples.append(powDbm);
+        if (m_cnSamples.size() >= 2) {
+            m_stepTimer.stop();
+            onCaptureStepTimeout();
+        }
     }
 }
 
@@ -329,16 +335,17 @@ void GoldenReferenceWidget::triggerCaptureForCurrentRow() {
                              .arg(m_captureRow + 1).arg(m_tableFreqs->rowCount())
                              .arg(rec.frequencyMhz).arg(rec.polarization));
 
+    int stepRow = m_captureRow;
     if (m_refWebClient && m_refWebClient->isReachable()) {
         m_refWebClient->sendTune(rec.frequencyMhz, rec.symbolRate, rec.polarization);
-        QTimer::singleShot(900, this, [this]() { if (m_captureActive && m_refWebClient) m_refWebClient->requestStatus(); });
-        QTimer::singleShot(1600, this, [this]() { if (m_captureActive && m_refWebClient) m_refWebClient->requestStatus(); });
+        QTimer::singleShot(250, this, [this, stepRow]() { if (m_captureActive && m_captureRow == stepRow && m_refWebClient) m_refWebClient->requestStatus(); });
+        QTimer::singleShot(550, this, [this, stepRow]() { if (m_captureActive && m_captureRow == stepRow && m_refWebClient) m_refWebClient->requestStatus(); });
     }
     if (m_refSerial && m_refSerial->isConnected()) {
         m_refSerial->sendTune(rec.frequencyMhz, rec.symbolRate, rec.polarization);
-        QTimer::singleShot(1000, this, [this]() { if (m_captureActive && m_refSerial) m_refSerial->requestStatus(); });
+        QTimer::singleShot(300, this, [this, stepRow]() { if (m_captureActive && m_captureRow == stepRow && m_refSerial) m_refSerial->requestStatus(); });
     }
-    m_stepTimer.start(2400);
+    m_stepTimer.start(1300);
 }
 
 void GoldenReferenceWidget::onCaptureStepTimeout() {

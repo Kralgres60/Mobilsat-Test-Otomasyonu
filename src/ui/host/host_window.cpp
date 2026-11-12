@@ -9,6 +9,8 @@
 #include "appinfo.h"
 #include "app_config.h"
 #include "build_config.h"
+#include "core/app_logger.h"
+#include "core/simulator_launcher.h"
 #include "database/db_manager.h"
 #include "core/dependency_installer.h"
 #include "ui/common/style_helper.h"
@@ -112,6 +114,19 @@ HostWindow::HostWindow(QWidget *parent)
     });
     m_refEthPingTimer.start(8000);
 
+    // Periodic 2s idle telemetry polling so Host UI & Simulator stay live with C/N and POW
+    connect(&m_refTelemetryPollTimer, &QTimer::timeout, this, [this]() {
+        if (m_goldenRefWidget && m_goldenRefWidget->isCaptureActive()) {
+            return;
+        }
+        if (m_refWebClient.isReachable() && m_refWebClient.isLoggedIn()) {
+            m_refWebClient.requestStatus();
+        } else if (m_refSerial.isConnected()) {
+            m_refSerial.requestStatus();
+        }
+    });
+    m_refTelemetryPollTimer.start(2000);
+
     // Start TCP Server & UDP Beacon
     m_tcpServer.start(AppConfig::instance().tcpPort());
     m_beaconBroadcaster.setServerName(AppConfig::instance().serverName());
@@ -141,6 +156,7 @@ HostWindow::HostWindow(QWidget *parent)
 HostWindow::~HostWindow() {
     AppConfig::instance().save();
     m_refEthPingTimer.stop();
+    m_refTelemetryPollTimer.stop();
     m_beaconBroadcaster.stop();
     m_tcpServer.stop();
     m_refSerial.closePort();
@@ -210,13 +226,26 @@ void HostWindow::setupUi() {
     m_lblOperatorName = new QLabel(AppConfig::instance().currentUserFullName(), grpHeader);
     m_lblOperatorName->setStyleSheet("color: #34D399; font-weight: bold;");
 
-    m_lblRefIpBadge = new QLabel(QString("🌐 Ref IP: %1").arg(AppConfig::instance().refDrxHost()), grpHeader);
-    m_lblRefIpBadge->setStyleSheet("background-color: #112D21; color: #34D399; border: 1px solid #1A3D2B; border-radius: 4px; padding: 5px 10px; font-weight: bold;");
+    QLabel *lblRefIpTitle = new QLabel("🌐 Ref DRX IP:", grpHeader);
+    lblRefIpTitle->setStyleSheet("color: #34D399; font-weight: bold;");
+
+    m_txtHeaderRefIp = new QLineEdit(AppConfig::instance().refDrxHost(), grpHeader);
+    m_txtHeaderRefIp->setPlaceholderText("192.168.0.167 veya 127.0.0.1:8080");
+    m_txtHeaderRefIp->setFixedWidth(185);
+    m_txtHeaderRefIp->setToolTip("Referans DRX9000 IP adresi (Simülatör için örn: 127.0.0.1:8080)");
+    m_txtHeaderRefIp->setStyleSheet("background-color: #0E2219; color: #34D399; border: 1px solid #1A3D2B; border-radius: 4px; padding: 4px 8px; font-weight: bold;");
+    connect(m_txtHeaderRefIp, &QLineEdit::returnPressed, this, &HostWindow::onRefEthPingSyncClicked);
 
     m_btnRefEthPingSync = new QPushButton("🔌 Ref Ping & Bağlan (ETH)", grpHeader);
     m_btnRefEthPingSync->setCursor(Qt::PointingHandCursor);
     m_btnRefEthPingSync->setStyleSheet("background-color: #059669; color: #FFFFFF; border: none; border-radius: 4px; padding: 6px 12px; font-weight: bold;");
     connect(m_btnRefEthPingSync, &QPushButton::clicked, this, &HostWindow::onRefEthPingSyncClicked);
+
+    auto *btnLaunchSim = new QPushButton("🧪 Simülatörü Aç", grpHeader);
+    btnLaunchSim->setCursor(Qt::PointingHandCursor);
+    btnLaunchSim->setToolTip("NETA DRX9000 TCP Simülatörünü başlat");
+    btnLaunchSim->setStyleSheet("background-color: #1D4ED8; color: #FFFFFF; border: none; border-radius: 4px; padding: 6px 12px; font-weight: bold;");
+    connect(btnLaunchSim, &QPushButton::clicked, this, [this]() { SimulatorLauncher::launch(this); });
 
     topLayout->addWidget(lblLogo);
     topLayout->addWidget(m_lblServerStatus);
@@ -226,8 +255,10 @@ void HostWindow::setupUi() {
     topLayout->addWidget(lblRoleBadge);
     topLayout->addWidget(m_lblOperatorName);
     topLayout->addStretch();
-    topLayout->addWidget(m_lblRefIpBadge);
+    topLayout->addWidget(lblRefIpTitle);
+    topLayout->addWidget(m_txtHeaderRefIp);
     topLayout->addWidget(m_btnRefEthPingSync);
+    topLayout->addWidget(btnLaunchSim);
     mainLayout->addWidget(grpHeader);
 
     // 2. Sidebar + Stacked Workspace
@@ -267,6 +298,7 @@ void HostWindow::setupUi() {
     addNavItem("  📦  İş Emirleri");
     addNavItem("  ⚙️  Sistem Ayarları");
     addNavItem("  📜  Sistem Logları");
+    addNavItem("  🗄️  Veritabanı");
 
     m_sideNav->setCurrentRow(2);
 
@@ -278,6 +310,7 @@ void HostWindow::setupUi() {
     setupOrdersPage();
     setupSettingsPage();
     setupLogsPage();
+    m_dbViewer = new DbViewerWidget(this);
 
     m_pageStack->addWidget(m_pageLobby);      // index 0
     m_pageStack->addWidget(m_pageNetworkPcs); // index 1
@@ -286,6 +319,7 @@ void HostWindow::setupUi() {
     m_pageStack->addWidget(m_pageOrders);     // index 4
     m_pageStack->addWidget(m_pageSettings);   // index 5
     m_pageStack->addWidget(m_pageLogs);       // index 6
+    m_pageStack->addWidget(m_dbViewer);       // index 7
 
     splitter->addWidget(m_sideNav);
     splitter->addWidget(m_pageStack);
@@ -317,6 +351,9 @@ void HostWindow::onNavItemChanged(int row) {
     int pageIdx = row - 2;
     if (pageIdx >= 0 && pageIdx < m_pageStack->count()) {
         m_pageStack->setCurrentIndex(pageIdx);
+        if (m_pageStack->widget(pageIdx) == m_dbViewer && m_dbViewer) {
+            m_dbViewer->refreshAll();
+        }
     }
 }
 
@@ -767,6 +804,18 @@ void HostWindow::setupLogsPage() {
 }
 
 void HostWindow::onRefEthPingSyncClicked() {
+    if (m_txtHeaderRefIp) {
+        const QString enteredIp = m_txtHeaderRefIp->text().trimmed();
+        AppConfig &cfg = AppConfig::instance();
+        if (!enteredIp.isEmpty() && enteredIp != cfg.refDrxHost()) {
+            cfg.setRefDrxHost(enteredIp);
+            cfg.save();
+            m_refWebClient.setHost(cfg.refDrxHost(), cfg.refDrxPort());
+            if (m_txtRefDrxIp) {
+                m_txtRefDrxIp->setText(enteredIp);
+            }
+        }
+    }
     m_lblRefPingBadge->setText("📶 Ref Ping: Aranıyor...");
     m_lblRefPingBadge->setStyleSheet(StyleHelper::getPastelAmberStyle());
     m_refWebClient.testConnectionAndSync();
@@ -811,8 +860,8 @@ void HostWindow::onSaveRefWebSettingsClicked() {
 
     m_refWebClient.setHost(cfg.refDrxHost(), cfg.refDrxPort());
     m_refWebClient.setCredentials(cfg.drxUsername(), cfg.drxPassword());
-    if (m_lblRefIpBadge) {
-        m_lblRefIpBadge->setText(QString("🌐 Ref IP: %1").arg(cfg.refDrxHost()));
+    if (m_txtHeaderRefIp) {
+        m_txtHeaderRefIp->setText(cfg.refDrxHost());
     }
 
     onRefEthPingSyncClicked();
@@ -1036,6 +1085,7 @@ void HostWindow::onCheckDbClicked() {
 }
 
 void HostWindow::appendLog(const QString &msg) {
+    AppLogger::instance().logEvent("HOST", msg);
     if (!m_txtLog) return;
     QString timeStr = QDateTime::currentDateTime().toString("hh:mm:ss");
     m_txtLog->append(QString("[%1] %2").arg(timeStr, msg));

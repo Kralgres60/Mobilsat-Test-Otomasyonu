@@ -143,7 +143,7 @@ private:
     QLabel *m_lblRolePill        = nullptr;
     QLabel *m_lblOperatorName    = nullptr;
     QLabel *m_lblDeviceStatus    = nullptr;
-    QLabel *m_lblEthTargetIp     = nullptr;
+    QLineEdit *m_txtHeaderDutIp    = nullptr; ///< Editable DUT DRX IP in main station header
     QLabel *m_lblDevMeta         = nullptr;
     QPushButton *m_btnEthPingSync = nullptr;
 

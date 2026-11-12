@@ -31,6 +31,7 @@ win32 {
 SOURCES += \
     src/main.cpp \
     src/core/app_config.cpp \
+    src/core/app_logger.cpp \
     src/core/lock_arbiter.cpp \
     src/core/test_state_machine.cpp \
     src/core/dependency_installer.cpp \
@@ -53,6 +54,7 @@ SOURCES += \
     src/ui/client/channel_card_widget.cpp \
     src/ui/client/client_window.cpp \
     src/ui/host/golden_reference_widget.cpp \
+    src/ui/host/db_viewer_widget.cpp \
     src/ui/host/host_window.cpp \
     src/ui/debug/debug_runner_window.cpp \
     src/ui/debug/db_debug_widget.cpp
@@ -62,6 +64,8 @@ HEADERS += \
     src/core/build_config.h \
     src/core/appinfo.h \
     src/core/app_config.h \
+    src/core/app_logger.h \
+    src/core/simulator_launcher.h \
     src/core/data_models.h \
     src/core/lock_arbiter.h \
     src/core/test_state_machine.h \
@@ -87,6 +91,7 @@ HEADERS += \
     src/ui/client/channel_card_widget.h \
     src/ui/client/client_window.h \
     src/ui/host/golden_reference_widget.h \
+    src/ui/host/db_viewer_widget.h \
     src/ui/host/host_window.h \
     src/ui/debug/debug_runner_window.h \
     src/ui/debug/db_debug_widget.h

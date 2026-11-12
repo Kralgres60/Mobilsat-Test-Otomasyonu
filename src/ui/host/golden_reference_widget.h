@@ -42,6 +42,9 @@ public:
     /** @brief Synchronizes the Reference Mode combo selector. */
     void setActiveReferenceMode(ReferenceMode mode);
 
+    /** @brief Returns true while automated Golden Sample frequency capture is running. */
+    bool isCaptureActive() const { return m_captureActive; }
+
 public slots:
     /** @brief Accumulates live Reference DRX telemetry samples during calibration capture. */
     void onReferenceTelemetryReceived(double powDbm, double cnDb);

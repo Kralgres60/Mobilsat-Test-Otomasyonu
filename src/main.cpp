@@ -13,6 +13,7 @@
 #include <QTextCodec>
 #include "core/appinfo.h"
 #include "core/app_config.h"
+#include "core/app_logger.h"
 #include "core/build_config.h"
 #include "core/dependency_installer.h"
 #include "database/db_manager.h"
@@ -37,6 +38,8 @@ int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
     app.setFont(QFont("Segoe UI", 9));
     QTextCodec::setCodecForLocale(QTextCodec::codecForName("UTF-8"));
+    AppLogger::instance().init();
+    AppLogger::instance().logEvent("APP", QString("NETA DRX9000 v%1 baslatildi.").arg(NETA_APP_VERSION));
 
 #if defined(NETA_DEBUG_MODE)
     qInfo() << "==========================================================";

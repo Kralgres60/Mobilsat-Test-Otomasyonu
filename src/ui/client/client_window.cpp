@@ -9,6 +9,8 @@
 #include "appinfo.h"
 #include "app_config.h"
 #include "build_config.h"
+#include "core/app_logger.h"
+#include "core/simulator_launcher.h"
 #include "database/db_manager.h"
 #include "ui/common/style_helper.h"
 #include "ui/common/about_dialog.h"
@@ -202,6 +204,17 @@ void ClientWindow::setupMenuBar() {
     QAction *actAbout = menuAyarlar->addAction("Hakkında");
     actAbout->setShortcut(QKeySequence("Alt+A"));
     connect(actAbout, &QAction::triggered, this, &ClientWindow::onAboutClicked);
+
+    // Top-right quick Simulator launcher button (always accessible across all tabs)
+    auto *btnLaunchSim = new QPushButton("🧪 Simülatörü Aç", this);
+    btnLaunchSim->setCursor(Qt::PointingHandCursor);
+    btnLaunchSim->setToolTip("NETA DRX9000 TCP Simülatörünü başlat");
+    btnLaunchSim->setStyleSheet(
+        "QPushButton { background-color: #1D4ED8; color: #FFFFFF; border: none; border-radius: 4px; "
+        "padding: 4px 12px; margin: 2px 6px; font-weight: bold; }"
+        "QPushButton:hover { background-color: #2563EB; }");
+    connect(btnLaunchSim, &QPushButton::clicked, this, [this]() { SimulatorLauncher::launch(this); });
+    menuBar()->setCornerWidget(btnLaunchSim, Qt::TopRightCorner);
 }
 
 void ClientWindow::setupUi() {
@@ -323,15 +336,23 @@ void ClientWindow::setupProductionPage() {
     stHeaderRow->addWidget(lblLogo);
     stHeaderRow->addStretch();
 
-    m_lblEthTargetIp = new QLabel(QString("🌐 DRX IP: %1").arg(AppConfig::instance().stationDrxHost()), grpStation);
-    m_lblEthTargetIp->setStyleSheet("background-color: #112D21; color: #34D399; border: 1px solid #1A3D2B; border-radius: 4px; padding: 5px 10px; font-weight: bold;");
+    QLabel *lblDutIpTitle = new QLabel("🌐 DRX IP:", grpStation);
+    lblDutIpTitle->setStyleSheet("color: #34D399; font-weight: bold;");
+
+    m_txtHeaderDutIp = new QLineEdit(AppConfig::instance().stationDrxHost(), grpStation);
+    m_txtHeaderDutIp->setPlaceholderText("192.168.0.168 veya 127.0.0.1:8080");
+    m_txtHeaderDutIp->setFixedWidth(185);
+    m_txtHeaderDutIp->setToolTip("Test edilecek DUT DRX9000 IP adresi (Simülatör için örn: 127.0.0.1:8080)");
+    m_txtHeaderDutIp->setStyleSheet("background-color: #0E2219; color: #34D399; border: 1px solid #1A3D2B; border-radius: 4px; padding: 4px 8px; font-weight: bold;");
+    connect(m_txtHeaderDutIp, &QLineEdit::returnPressed, this, &ClientWindow::onEthPingSyncClicked);
 
     m_btnEthPingSync = new QPushButton("🔌 Ping & Bağlan (ETH)", grpStation);
     m_btnEthPingSync->setCursor(Qt::PointingHandCursor);
     m_btnEthPingSync->setStyleSheet("background-color: #059669; color: #FFFFFF; border: none; border-radius: 4px; padding: 6px 12px; font-weight: bold;");
     connect(m_btnEthPingSync, &QPushButton::clicked, this, &ClientWindow::onEthPingSyncClicked);
 
-    stHeaderRow->addWidget(m_lblEthTargetIp);
+    stHeaderRow->addWidget(lblDutIpTitle);
+    stHeaderRow->addWidget(m_txtHeaderDutIp);
     stHeaderRow->addWidget(m_btnEthPingSync);
     stVBox->addLayout(stHeaderRow);
 
@@ -1009,6 +1030,18 @@ void ClientWindow::populateChannelTable() {
 }
 
 void ClientWindow::onEthPingSyncClicked() {
+    if (m_txtHeaderDutIp) {
+        const QString enteredIp = m_txtHeaderDutIp->text().trimmed();
+        AppConfig &cfg = AppConfig::instance();
+        if (!enteredIp.isEmpty() && enteredIp != cfg.stationDrxHost()) {
+            cfg.setStationDrxHost(enteredIp);
+            cfg.save();
+            m_dutWebClient.setHost(cfg.stationDrxHost(), cfg.stationDrxPort());
+            if (m_txtDutDrxIp) {
+                m_txtDutDrxIp->setText(enteredIp);
+            }
+        }
+    }
     m_lblEthPingBadge->setText("📶 ETH Ping: Aranıyor...");
     m_lblEthPingBadge->setStyleSheet(StyleHelper::getPastelAmberStyle());
     setStatusMessage(QString("Ethernet Ping testi ve veri yenileme çalışıyor (%1)...").arg(m_dutWebClient.host()));
@@ -1430,8 +1463,8 @@ void ClientWindow::onSaveWebSettingsClicked() {
     m_refWebClient.setHost(cfg.refDrxHost(), cfg.refDrxPort());
     m_refWebClient.setCredentials(cfg.drxUsername(), cfg.drxPassword());
 
-    if (m_lblEthTargetIp) {
-        m_lblEthTargetIp->setText(QString("🌐 DRX IP: %1").arg(cfg.stationDrxHost()));
+    if (m_txtHeaderDutIp) {
+        m_txtHeaderDutIp->setText(cfg.stationDrxHost());
     }
 
     appendLog(QString("[Mühendis] Web CGI adresleri güncellendi -> DUT: %1 | REF: %2. Ping testi başlatılıyor...")
@@ -1453,6 +1486,7 @@ void ClientWindow::onClearLogClicked() {
 }
 
 void ClientWindow::appendLog(const QString &text) {
+    AppLogger::instance().logEvent("STATION", text);
     if (!m_txtLog) return;
     QString timeStr = QDateTime::currentDateTime().toString("hh:mm:ss");
     m_txtLog->append(QString("[%1] %2").arg(timeStr, text));

@@ -134,12 +134,8 @@ void LobbyWindow::setupUi() {
     m_spinHostPort->setRange(1024, 65535);
     m_spinHostPort->setValue(cfg.tcpPort());
 
-    m_txtRefDrxIp = new QLineEdit(cfg.refDrxHost(), grpHost);
-    m_txtRefDrxIp->setPlaceholderText("Örn: 192.168.0.167");
-
     hostForm->addRow("Sunucu Adı:", m_txtServerName);
     hostForm->addRow("TCP Sunucu Portu:", m_spinHostPort);
-    hostForm->addRow("Referans DRX IP:", m_txtRefDrxIp);
     hostVBox->addLayout(hostForm);
     hostVBox->addStretch();
 
@@ -346,7 +342,6 @@ void LobbyWindow::launchHostMode() {
         cfg.setServerName(m_txtServerName->text().trimmed());
     }
     cfg.setTcpPort(static_cast<quint16>(m_spinHostPort->value()));
-    cfg.setRefDrxHost(m_txtRefDrxIp->text().trimmed());
     cfg.setDbHost("127.0.0.1");
     cfg.save();
 

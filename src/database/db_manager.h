@@ -61,6 +61,12 @@ public:
     /** @brief Returns active Qt SQL driver name (e.g. QMYSQL). */
     QString driverName() const { return m_driverName; }
 
+    /** @brief Alias for driverName(), returns active Qt SQL driver name. */
+    QString activeDriver() const { return m_driverName; }
+
+    /** @brief Returns the Qt SQL connection name used by this DbManager. */
+    QString connectionName() const { return m_connectionName; }
+
     // Automatic Schema & Default Seed Data Provisioning
     bool ensureDefaultDataIfMissing();
     bool executeSqlScript(const QString &resourceOrFilePath);

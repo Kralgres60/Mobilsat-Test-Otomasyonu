@@ -7,6 +7,7 @@
 
 #include "test_state_machine.h"
 #include "app_config.h"
+#include "app_logger.h"
 #include "database/db_manager.h"
 #include <QDateTime>
 #include <QtMath>
@@ -119,6 +120,11 @@ bool TestStateMachine::startTest(const QString &antennaSn,
 
     emit logMessage(QString("Starting Automated Test: Tester=%1, Serial Number=%2, Profile=%3 (%4 Channels)")
                         .arg(m_testRun.testerName, antennaSn, profile.profileName).arg(profile.channels.size()));
+    AppLogger::instance().logProcess(
+        QString("ST-%1").arg(m_testRun.stationId),
+        "TEST_START",
+        QString("Tester=%1 | SN=%2 | Profile=%3 | Channels=%4")
+            .arg(m_testRun.testerName, antennaSn, profile.profileName).arg(profile.channels.size()));
 
     changeState(TestState::WaitingForLock);
 
@@ -416,6 +422,18 @@ void TestStateMachine::finishCurrentChannel() {
     m_testRun.channels.append(res);
     emit channelCompleted(res);
 
+    AppLogger::instance().logProcess(
+        QString("ST-%1").arg(m_testRun.stationId),
+        "CHANNEL_RESULT",
+        QString("Ch=%1 (%2 MHz %3) | DUT=%4 dB | REF=%5 dB | Delta=%6 dB | Status=%7")
+            .arg(res.channelName)
+            .arg(res.frequencyMhz)
+            .arg(res.polarization)
+            .arg(res.dutCn, 0, 'f', 2)
+            .arg(res.refCn, 0, 'f', 2)
+            .arg(res.deltaDb, 0, 'f', 2)
+            .arg(res.status));
+
     emit logMessage(QString("[%1/%2] %3 Evaluated: DUT=%4 dB, REF=%5 dB, Delta=%6 dB -> %7")
                         .arg(m_currentChannelIndex + 1)
                         .arg(m_profile.channels.size())
@@ -478,6 +496,15 @@ void TestStateMachine::completeTest() {
 
     changeState(TestState::Completed);
     emit testFinished(m_testRun);
+
+    AppLogger::instance().logProcess(
+        QString("ST-%1").arg(m_testRun.stationId),
+        "TEST_FINISH",
+        QString("SN=%1 | Tester=%2 | Verdict=%3 | Duration=%4s | AvgDelta=%5 dB | MaxDelta=%6 dB")
+            .arg(m_testRun.antennaSn, m_testRun.testerName, m_testRun.overallResult)
+            .arg(m_testRun.durationSec)
+            .arg(m_testRun.avgDeltaDb, 0, 'f', 2)
+            .arg(m_testRun.maxDeltaDb, 0, 'f', 2));
 
     emit logMessage(QString("=== TEST RUN COMPLETE: VERDICT: %1 (Duration: %2 s, Avg Delta: %3 dB) ===")
                         .arg(m_testRun.overallResult)
