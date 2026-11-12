@@ -18,6 +18,7 @@
 #include <QDateTime>
 #include <QFileInfo>
 #include <QAbstractItemView>
+#include <QSignalBlocker>
 
 SimulatorWindow::SimulatorWindow(QWidget *parent)
     : QMainWindow(parent),
@@ -500,6 +501,7 @@ void SimulatorWindow::syncLiveSampleToServer() {
 }
 
 void SimulatorWindow::rebuildTable() {
+    const QSignalBlocker blocker(m_table);
     m_syncingTable = true;
     m_table->setUpdatesEnabled(false);
     m_table->setRowCount(m_points.size());
@@ -523,7 +525,13 @@ void SimulatorWindow::rebuildTable() {
 }
 
 void SimulatorWindow::updateTableRow(int row) {
-    if (row < 0 || row >= m_points.size()) return;
+    if (row < 0 || row >= m_points.size() || !m_table) return;
+    for (int c = 0; c < 8; ++c) {
+        if (!m_table->item(row, c)) return;
+    }
+
+    const QSignalBlocker blocker(m_table);
+    const bool prevSync = m_syncingTable;
     m_syncingTable = true;
 
     const SimTelemetryPoint &pt = m_points.at(row);
@@ -542,7 +550,7 @@ void SimulatorWindow::updateTableRow(int row) {
         m_table->item(row, c)->setForeground(rowFg);
     }
 
-    m_syncingTable = false;
+    m_syncingTable = prevSync;
 }
 
 void SimulatorWindow::onCurvePointEdited(int index, double, double) {
@@ -554,6 +562,7 @@ void SimulatorWindow::onCurvePointEdited(int index, double, double) {
 
 void SimulatorWindow::onGraphStepSelected(int index) {
     if (index < 0 || index >= m_table->rowCount()) return;
+    const QSignalBlocker blocker(m_table);
     m_syncingTable = true;
     m_table->selectRow(index);
     m_syncingTable = false;
