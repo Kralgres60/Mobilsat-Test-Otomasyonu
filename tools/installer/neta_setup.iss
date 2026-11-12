@@ -51,6 +51,7 @@ Name: "{group}\0. Yönetici Sunucuyu Başlat"; Filename: "{app}\0_Yonetici_Sunuc
 Name: "{group}\1. Ağ Paylaşımını Yapılandır"; Filename: "{app}\1_Yonetici_Klasor_Paylasimini_Ac.bat"
 Name: "{group}\2. Taşınabilir Veritabanını Başlat"; Filename: "{app}\0_Veritabanini_Baslat.bat"
 Name: "{group}\3. Taşınabilir Veritabanını Durdur"; Filename: "{app}\0_Veritabanini_Durdur.bat"
+Name: "{group}\4. DRX9000 TCP Simülatörü"; Filename: "{app}\tools\drx_simulator\NETA_DRX_Simulator.exe"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 

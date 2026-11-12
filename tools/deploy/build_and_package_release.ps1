@@ -125,9 +125,45 @@ Copy-Item "$MinGWBin\libwinpthread-1.dll" "$OutputDir\" -Force
 Copy-Item "$ProjectDir\tools\sqldrivers\libmysql.dll" "$OutputDir\" -Force
 Copy-Item "$ProjectDir\tools\sqldrivers\qsqlmysql.dll" "$OutputDir\sqldrivers\" -Force
 
-# 6. Yönetici ve Kurulum Betiklerini OUTPUT'a Ekle
-Write-Host "[6/6] Yonetici ag paylasim ve Tasinabilir MariaDB ekleniyor..." -ForegroundColor Yellow
+# 6. Yönetici, Kurulum Betikleri, Portable MariaDB ve DRX Simülatörü OUTPUT'a Ekle
+Write-Host "[6/6] Yonetici ag paylasim, Tasinabilir MariaDB ve DRX Simulator ekleniyor..." -ForegroundColor Yellow
 Copy-Item "$ProjectDir\tools\deploy\host_scripts\1_Yonetici_Klasor_Paylasimini_Ac.bat" "$OutputDir\" -Force
+
+# DRX9000 TCP Simülatörü: Build edilmemişse (veya kaynak kodu güncellendiyse) otomatik derle ve tools/ altına ekle
+$SimDir = "$ProjectDir\tools\drx_simulator"
+$SimOutDir = "$SimDir\OUTPUT"
+$SimExe = "$SimOutDir\NETA_DRX_Simulator.exe"
+$SimBuildScript = "$SimDir\build_sim.ps1"
+
+if (Test-Path $SimBuildScript) {
+    $needSimBuild = -not (Test-Path $SimExe)
+    if (-not $needSimBuild) {
+        $simExeTime = (Get-Item $SimExe).LastWriteTime
+        $newerSrc = Get-ChildItem -Path "$SimDir\*" -File -Include *.cpp,*.h,*.pro |
+                    Where-Object { $_.LastWriteTime -gt $simExeTime } |
+                    Select-Object -First 1
+        if ($newerSrc) {
+            $needSimBuild = $true
+        }
+    }
+
+    if ($needSimBuild) {
+        Write-Host "      DRX Simulator build edilmemis veya guncel degil; otomatik derleniyor..." -ForegroundColor Cyan
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $SimBuildScript
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "[HATA] DRX Simulator derlemesi basarisiz oldu!" -ForegroundColor Red
+            exit 1
+        }
+    } else {
+        Write-Host "      Mevcut DRX Simulator OUTPUT paketi guncel; dahil ediliyor." -ForegroundColor DarkGray
+    }
+
+    if (Test-Path $SimOutDir) {
+        $DestSimDir = "$OutputDir\tools\drx_simulator"
+        New-Item -ItemType Directory -Force -Path $DestSimDir | Out-Null
+        Copy-Item "$SimOutDir\*" $DestSimDir -Recurse -Force
+    }
+}
 
 # Taşınabilir MariaDB Motorunu OUTPUT'a kopyala
 if (Test-Path "$ProjectDir\tools\mariadb_portable") {
