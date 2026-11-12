@@ -5,14 +5,14 @@
 
 USE `neta_antenna_test`;
 
--- 1. Varsayılan Kullanıcılar (Şifre: neta123)
+-- 1. Varsayılan Kullanıcılar (Şifre: 123)
 INSERT INTO `users` (`username`, `password_hash`, `full_name`, `role`, `is_active`)
 VALUES 
-    ('admin', 'neta123', 'Sistem Yöneticisi', 'ADMIN', 1),
-    ('operator1', 'op123', 'Masa 1 Operatörü', 'OPERATOR', 1),
-    ('operator2', 'op123', 'Masa 2 Operatörü', 'OPERATOR', 1),
-    ('operator3', 'op123', 'Masa 3 Operatörü', 'OPERATOR', 1)
-ON DUPLICATE KEY UPDATE `full_name` = VALUES(`full_name`);
+    ('admin', '123', 'Sistem Yöneticisi', 'ADMIN', 1),
+    ('operator1', '123', 'Masa 1 Operatörü', 'OPERATOR', 1),
+    ('operator2', '123', 'Masa 2 Operatörü', 'OPERATOR', 1),
+    ('operator3', '123', 'Masa 3 Operatörü', 'OPERATOR', 1)
+ON DUPLICATE KEY UPDATE `password_hash` = VALUES(`password_hash`), `full_name` = VALUES(`full_name`);
 
 -- 2. Sistem Ayarları (Admin tarafından UI'dan değiştirilebilir)
 INSERT INTO `system_settings` (`setting_key`, `setting_value`, `description`)

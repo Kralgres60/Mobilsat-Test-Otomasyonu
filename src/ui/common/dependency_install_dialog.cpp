@@ -146,8 +146,14 @@ void DependencyInstallDialog::startInstallation() {
 
     QString script = DependencyInstaller::findPsInstallerScript();
     if (script.isEmpty()) {
-        appendLog("[HATA] install_mysql_auto.ps1 dosyası bulunamadı!");
-        finishInstallation(false, "Kurulum betiği bulunamadı.");
+        appendLog("[BİLGİ] Dahili Portable MariaDB motoru başlatılıyor...");
+        m_lblSubtitle->setText("Dahili Portable MariaDB veritabanı motoru başlatılıyor, lütfen bekleyiniz...");
+        if (DbManager::instance().startPortableMariaDbIfPresent()) {
+            m_pollTimer.start(150);
+            return;
+        }
+        appendLog("[HATA] Ne install_mysql_auto.ps1 ne de tools/mariadb_portable bulunamadı!");
+        finishInstallation(false, "Taşınabilir MariaDB motoru başlatılamadı.");
         return;
     }
 

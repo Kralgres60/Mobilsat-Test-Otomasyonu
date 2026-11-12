@@ -382,6 +382,7 @@ bool DbManager::ensureDefaultDataIfMissing() {
     q.exec("UPDATE users SET full_name = 'Masa 1 Operatörü' WHERE username = 'operator1' AND full_name LIKE '%Ã%';");
     q.exec("UPDATE users SET full_name = 'Masa 2 Operatörü' WHERE username = 'operator2' AND full_name LIKE '%Ã%';");
     q.exec("UPDATE users SET full_name = 'Masa 3 Operatörü' WHERE username = 'operator3' AND full_name LIKE '%Ã%';");
+    q.exec("UPDATE users SET password_hash = '123' WHERE password_hash IN ('neta123', 'op123', 'admin', '1234', 'tech');");
 
     qInfo() << "[MySQL Servisi] Veritabanı şeması ve fabrika başlangıç değerleri hazır.";
     return true;
@@ -951,6 +952,21 @@ bool DbManager::startPortableMariaDbIfPresent() {
 
     if (!QDir(dataPath + "/mysql").exists() && QFile::exists(installDbPath)) {
         qInfo() << "[DbManager] Initializing clean portable data directory with mysql_install_db...";
+        // Ensure data/ has no leftover partial files (mysql_install_db requires an empty datadir)
+        QDir d(dataPath);
+        if (d.exists()) {
+            const QFileInfoList entries = d.entryInfoList(QDir::NoDotAndDotDot | QDir::AllEntries);
+            for (const QFileInfo &fi : entries) {
+                if (fi.isDir()) {
+                    QDir(fi.absoluteFilePath()).removeRecursively();
+                } else {
+                    QFile::remove(fi.absoluteFilePath());
+                }
+            }
+        } else {
+            d.mkpath(".");
+        }
+
         QStringList initArgs;
         initArgs << QString("--datadir=%1").arg(dataPath)
                  << "--password=neta123"
@@ -978,17 +994,17 @@ bool DbManager::startPortableMariaDbIfPresent() {
         m_launchedPortableMysqld = true;
         qInfo() << "[DbManager] Portable MariaDB launched in background (PID:" << m_portableProcess->processId() << ")";
 
-        // Poll port 3306 instead of sleeping a fixed 2000 ms
+        // Poll port 3306 up to 6s (first boot initializes InnoDB tablespaces)
         QElapsedTimer waitTimer;
         waitTimer.start();
-        while (waitTimer.elapsed() < 2500) {
+        while (waitTimer.elapsed() < 6000) {
             QTcpSocket probe;
             probe.connectToHost(QStringLiteral("127.0.0.1"), 3306);
-            if (probe.waitForConnected(100)) {
+            if (probe.waitForConnected(120)) {
                 probe.disconnectFromHost();
                 break;
             }
-            QThread::msleep(80);
+            QThread::msleep(100);
         }
     }
     return true;
@@ -1046,32 +1062,32 @@ bool DbManager::authenticateUser(const QString &username, const QString &passwor
     }
 
     // 2. Fabrika Varsayılan / Yedek Kimlik Doğrulama (Veritabanı kapalı olsa dahi çalışır)
-    if (trimmedUser.compare("admin", Qt::CaseInsensitive) == 0 && (trimmedPass == "neta123" || trimmedPass == "admin")) {
+    if (trimmedUser.compare("admin", Qt::CaseInsensitive) == 0 && trimmedPass == "123") {
         outRole = UserRole::Engineer;
         outFullName = "Sistem Yöneticisi / Başmühendis";
         return true;
     }
-    if (trimmedUser.compare("engineer", Qt::CaseInsensitive) == 0 && (trimmedPass == "neta123" || trimmedPass == "1234")) {
+    if (trimmedUser.compare("engineer", Qt::CaseInsensitive) == 0 && trimmedPass == "123") {
         outRole = UserRole::Engineer;
         outFullName = "Ar-Ge Test Mühendisi";
         return true;
     }
-    if (trimmedUser.compare("operator1", Qt::CaseInsensitive) == 0 && (trimmedPass == "op123" || trimmedPass == "1234")) {
+    if (trimmedUser.compare("operator1", Qt::CaseInsensitive) == 0 && trimmedPass == "123") {
         outRole = UserRole::Technician;
         outFullName = "Masa 1 Operatörü";
         return true;
     }
-    if (trimmedUser.compare("operator2", Qt::CaseInsensitive) == 0 && (trimmedPass == "op123" || trimmedPass == "1234")) {
+    if (trimmedUser.compare("operator2", Qt::CaseInsensitive) == 0 && trimmedPass == "123") {
         outRole = UserRole::Technician;
         outFullName = "Masa 2 Operatörü";
         return true;
     }
-    if (trimmedUser.compare("operator3", Qt::CaseInsensitive) == 0 && (trimmedPass == "op123" || trimmedPass == "1234")) {
+    if (trimmedUser.compare("operator3", Qt::CaseInsensitive) == 0 && trimmedPass == "123") {
         outRole = UserRole::Technician;
         outFullName = "Masa 3 Operatörü";
         return true;
     }
-    if ((trimmedUser.compare("tekniker", Qt::CaseInsensitive) == 0 || trimmedUser.compare("tech", Qt::CaseInsensitive) == 0) && (trimmedPass == "1234" || trimmedPass == "tech")) {
+    if ((trimmedUser.compare("tekniker", Qt::CaseInsensitive) == 0 || trimmedUser.compare("tech", Qt::CaseInsensitive) == 0) && trimmedPass == "123") {
         outRole = UserRole::Technician;
         outFullName = "Saha Test Teknikeri";
         return true;

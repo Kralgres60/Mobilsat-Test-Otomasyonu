@@ -170,12 +170,12 @@ if (Test-Path "$ProjectDir\tools\mariadb_portable") {
     New-Item -ItemType Directory -Force -Path "$OutputDir\tools\mariadb_portable" | Out-Null
     Copy-Item "$ProjectDir\tools\mariadb_portable\*" "$OutputDir\tools\mariadb_portable\" -Recurse -Force
 
-    # data/ içini temizle: geliştirme verilerini dışarıda bırak; sadece my.ini bırak
-    # Hedef PC'de uygulama ilk açılışta mysql_install_db ile data/ otomatik oluşturulur
+    # data/ içini tamamen temizle (my.ini bir ust klasorde zaten var):
+    # mysql_install_db.exe bos olmayan data/ klasorunde hata verdigi icin bos birakilir
     $dbDataOut = "$OutputDir\tools\mariadb_portable\data"
     if (Test-Path $dbDataOut) {
-        Write-Host "      MariaDB data/ icerigi temizleniyor (sadece my.ini korunuyor)..." -ForegroundColor DarkGray
-        Get-ChildItem $dbDataOut -Exclude "my.ini" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host "      MariaDB data/ icerigi temizleniyor (temiz ilk kurulum icin)..." -ForegroundColor DarkGray
+        Get-ChildItem $dbDataOut -Force | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 

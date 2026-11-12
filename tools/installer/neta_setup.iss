@@ -40,6 +40,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+Name: "simdesktopicon"; Description: "DRX9000 TCP Simülatörü için masaüstü kısayolu oluştur"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
 ; OUTPUT klasöründeki tüm dosyaları ve alt klasörleri kurulum dizinine kopyala
@@ -54,6 +55,7 @@ Name: "{group}\3. Taşınabilir Veritabanını Durdur"; Filename: "{app}\0_Verit
 Name: "{group}\4. DRX9000 TCP Simülatörü"; Filename: "{app}\tools\drx_simulator\NETA_DRX_Simulator.exe"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{autodesktop}\NETA DRX9000 Simülatörü"; Filename: "{app}\tools\drx_simulator\NETA_DRX_Simulator.exe"; Tasks: simdesktopicon
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
