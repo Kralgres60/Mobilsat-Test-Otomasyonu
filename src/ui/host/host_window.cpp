@@ -23,6 +23,8 @@
 #include <QGridLayout>
 #include <QFormLayout>
 #include <QGroupBox>
+#include <QCloseEvent>
+#include <QCoreApplication>
 #include <QScrollArea>
 #include <QHeaderView>
 #include <QMenuBar>
@@ -154,12 +156,28 @@ HostWindow::HostWindow(QWidget *parent)
 }
 
 HostWindow::~HostWindow() {
+    shutdownHostServices();
+}
+
+void HostWindow::shutdownHostServices() {
+    if (m_servicesStopped) return;
+    m_servicesStopped = true;
+
     AppConfig::instance().save();
     m_refEthPingTimer.stop();
     m_refTelemetryPollTimer.stop();
     m_beaconBroadcaster.stop();
     m_tcpServer.stop();
     m_refSerial.closePort();
+    DbManager::instance().stopPortableMariaDbIfRunning();
+}
+
+void HostWindow::closeEvent(QCloseEvent *event) {
+    shutdownHostServices();
+    event->accept();
+    if (!m_returningToLobby) {
+        QCoreApplication::quit();
+    }
 }
 
 void HostWindow::setupMenuBar() {
@@ -234,6 +252,24 @@ void HostWindow::setupUi() {
     m_txtHeaderRefIp->setFixedWidth(185);
     m_txtHeaderRefIp->setToolTip("Referans DRX9000 IP adresi (Simülatör için örn: 127.0.0.1:8080)");
     m_txtHeaderRefIp->setStyleSheet("background-color: #0E2219; color: #34D399; border: 1px solid #1A3D2B; border-radius: 4px; padding: 4px 8px; font-weight: bold;");
+    auto applyHeaderRefIp = [this]() {
+        if (!m_txtHeaderRefIp) return;
+        const QString enteredIp = m_txtHeaderRefIp->text().trimmed();
+        if (enteredIp.isEmpty()) return;
+        AppConfig &cfg = AppConfig::instance();
+        if (enteredIp != cfg.refDrxHost()) {
+            cfg.setRefDrxHost(enteredIp);
+            cfg.save();
+            m_refWebClient.setHost(cfg.refDrxHost(), cfg.refDrxPort());
+            if (m_txtRefDrxIp) {
+                m_txtRefDrxIp->blockSignals(true);
+                m_txtRefDrxIp->setText(enteredIp);
+                m_txtRefDrxIp->blockSignals(false);
+            }
+            setStatusMessage(QString("Referans DRX IP güncellendi: %1").arg(enteredIp));
+        }
+    };
+    connect(m_txtHeaderRefIp, &QLineEdit::editingFinished, this, applyHeaderRefIp);
     connect(m_txtHeaderRefIp, &QLineEdit::returnPressed, this, &HostWindow::onRefEthPingSyncClicked);
 
     m_btnRefEthPingSync = new QPushButton("🔌 Ref Ping & Bağlan (ETH)", grpHeader);
@@ -418,6 +454,7 @@ void HostWindow::ensureStationCard(int stationId, const QString &stationName) {
     lblTitle->setStyleSheet("font-size: 12pt; font-weight: bold; color: #34D399;");
 
     StationCardWidgets widgets;
+    widgets.cardFrame = card;
     widgets.lblTitle = lblTitle;
     widgets.lblState = new QLabel("DURUM: BAĞLANDI (BOŞTA)", card);
     widgets.lblState->setStyleSheet(StyleHelper::getPastelBlueStyle());
@@ -666,6 +703,14 @@ void HostWindow::setupSettingsPage() {
     m_spinTolerance->setSuffix(" dB");
     m_spinTolerance->setValue(AppConfig::instance().defaultToleranceDb());
 
+    m_spinHostTcpPort = new QSpinBox(grpTestSettings);
+    m_spinHostTcpPort->setRange(1024, 65535);
+    m_spinHostTcpPort->setValue(AppConfig::instance().tcpPort());
+
+    m_spinHostUdpPort = new QSpinBox(grpTestSettings);
+    m_spinHostUdpPort->setRange(1024, 65535);
+    m_spinHostUdpPort->setValue(AppConfig::instance().udpBeaconPort());
+
     QPushButton *btnSave = new QPushButton("💾 Ayarları Kaydet", grpTestSettings);
     btnSave->setStyleSheet("background-color: #059669; color: #FFFFFF; border: none; border-radius: 4px; padding: 8px 16px; font-weight: bold;");
     connect(btnSave, &QPushButton::clicked, this, &HostWindow::onSaveSettingsClicked);
@@ -673,6 +718,8 @@ void HostWindow::setupSettingsPage() {
     testForm->addRow("Maksimum Kilit Zaman Aşımı:", m_spinLockTimeout);
     testForm->addRow("Kanal Başına Örnekleme Süresi:", m_spinSampleDuration);
     testForm->addRow("Varsayılan Tolerans Payı:", m_spinTolerance);
+    testForm->addRow("TCP Sunucu Portu:", m_spinHostTcpPort);
+    testForm->addRow("UDP Lobi Yayın Portu:", m_spinHostUdpPort);
     testForm->addRow(btnSave);
     cardsGrid->addWidget(grpTestSettings, 0, 0);
 
@@ -682,15 +729,33 @@ void HostWindow::setupSettingsPage() {
     refForm->setSpacing(10);
 
     m_txtRefDrxIp = new QLineEdit(AppConfig::instance().refDrxHost(), grpRefEth);
+    m_spinRefDrxPort = new QSpinBox(grpRefEth);
+    m_spinRefDrxPort->setRange(1, 65535);
+    m_spinRefDrxPort->setValue(AppConfig::instance().refDrxPort());
     m_txtRefDrxUser = new QLineEdit(AppConfig::instance().drxUsername(), grpRefEth);
     m_txtRefDrxPass = new QLineEdit(AppConfig::instance().drxPassword(), grpRefEth);
     m_txtRefDrxPass->setEchoMode(QLineEdit::Password);
+
+    connect(m_txtRefDrxIp, &QLineEdit::editingFinished, this, [this]() {
+        const QString ip = m_txtRefDrxIp->text().trimmed();
+        if (ip.isEmpty()) return;
+        AppConfig &cfg = AppConfig::instance();
+        cfg.setRefDrxHost(ip);
+        cfg.save();
+        m_refWebClient.setHost(cfg.refDrxHost(), cfg.refDrxPort());
+        if (m_txtHeaderRefIp) {
+            m_txtHeaderRefIp->blockSignals(true);
+            m_txtHeaderRefIp->setText(ip);
+            m_txtHeaderRefIp->blockSignals(false);
+        }
+    });
 
     QPushButton *btnSaveRefEth = new QPushButton("🔗 Kaydet & Ref Ping Testi Yap", grpRefEth);
     btnSaveRefEth->setStyleSheet("background-color: #10B981; color: #071210; border: none; border-radius: 4px; padding: 8px 14px; font-weight: bold;");
     connect(btnSaveRefEth, &QPushButton::clicked, this, &HostWindow::onSaveRefWebSettingsClicked);
 
     refForm->addRow("Referans (Golden) DRX IP:", m_txtRefDrxIp);
+    refForm->addRow("Referans DRX Port:", m_spinRefDrxPort);
     refForm->addRow("Web Kullanıcı Adı:", m_txtRefDrxUser);
     refForm->addRow("Web Şifresi:", m_txtRefDrxPass);
     refForm->addRow(btnSaveRefEth);
@@ -715,8 +780,12 @@ void HostWindow::setupSettingsPage() {
 
     QFormLayout *dbForm = new QFormLayout();
     m_txtDbHost = new QLineEdit(AppConfig::instance().dbHost(), grpDbSettings);
+    m_spinDbPort = new QSpinBox(grpDbSettings);
+    m_spinDbPort->setRange(1, 65535);
+    m_spinDbPort->setValue(AppConfig::instance().dbPort());
     m_txtDbName = new QLineEdit(AppConfig::instance().dbName(), grpDbSettings);
     dbForm->addRow("Sunucu Host IP:", m_txtDbHost);
+    dbForm->addRow("Veritabanı Portu:", m_spinDbPort);
     dbForm->addRow("Veritabanı Adı:", m_txtDbName);
     vboxDb->addLayout(dbForm);
 
@@ -854,6 +923,7 @@ void HostWindow::onRefWebLoginFailed(const QString &reason) {
 void HostWindow::onSaveRefWebSettingsClicked() {
     AppConfig &cfg = AppConfig::instance();
     cfg.setRefDrxHost(m_txtRefDrxIp->text().trimmed());
+    if (m_spinRefDrxPort) cfg.setRefDrxPort(static_cast<quint16>(m_spinRefDrxPort->value()));
     cfg.setDrxUsername(m_txtRefDrxUser->text().trimmed());
     cfg.setDrxPassword(m_txtRefDrxPass->text());
     cfg.save();
@@ -913,15 +983,30 @@ void HostWindow::onStationConnected(int stationId, const QString &ip) {
 
 void HostWindow::onStationDisconnected(int stationId) {
     if (m_stationWidgets.contains(stationId)) {
-        m_stationWidgets[stationId].lblState->setText("DURUM: BAĞLI DEĞİL");
-        m_stationWidgets[stationId].lblState->setStyleSheet(StyleHelper::getPendingBadgeStyle());
+        StationCardWidgets widgets = m_stationWidgets.take(stationId);
+        if (widgets.cardFrame) {
+            if (m_stationsGrid) {
+                m_stationsGrid->removeWidget(widgets.cardFrame);
+            }
+            widgets.cardFrame->deleteLater();
+        }
+        // Re-pack remaining station cards cleanly so no gaps remain in the 3-column grid
+        if (m_stationsGrid) {
+            int idx = 0;
+            for (auto it = m_stationWidgets.begin(); it != m_stationWidgets.end(); ++it) {
+                if (it.value().cardFrame) {
+                    m_stationsGrid->removeWidget(it.value().cardFrame);
+                    m_stationsGrid->addWidget(it.value().cardFrame, idx / 3, idx % 3);
+                    ++idx;
+                }
+            }
+        }
     }
-    if (m_knownStations.contains(stationId)) {
-        m_knownStations[stationId].isConnected = false;
-        m_knownStations[stationId].currentState = "BAĞLANTI KESİLDİ";
-        m_knownStations[stationId].currentChannel = 0;
-        m_knownStations[stationId].currentAntennaSn.clear();
+    if (m_stationWidgets.isEmpty() && m_lblNoStations) {
+        m_lblNoStations->setVisible(true);
     }
+
+    m_knownStations.remove(stationId);
     refreshNetworkPcsTable();
 
     m_beaconBroadcaster.setStationCount(m_tcpServer.connectedStations().size());
@@ -1047,14 +1132,26 @@ void HostWindow::onExportExcelClicked() {
 }
 
 void HostWindow::onSaveSettingsClicked() {
-    AppConfig::instance().setLockTimeoutSec(m_spinLockTimeout->value());
-    AppConfig::instance().setSampleDurationSec(m_spinSampleDuration->value());
-    AppConfig::instance().setDefaultToleranceDb(m_spinTolerance->value());
-    if (m_txtDbHost) AppConfig::instance().setDbHost(m_txtDbHost->text().trimmed());
-    if (m_txtDbName) AppConfig::instance().setDbName(m_txtDbName->text().trimmed());
-    AppConfig::instance().save();
+    AppConfig &cfg = AppConfig::instance();
+    const quint16 oldTcpPort = cfg.tcpPort();
 
-    QMessageBox::information(this, "Kaydedildi", "Sistem parametreleri başarıyla güncellendi.");
+    cfg.setLockTimeoutSec(m_spinLockTimeout->value());
+    cfg.setSampleDurationSec(m_spinSampleDuration->value());
+    cfg.setDefaultToleranceDb(m_spinTolerance->value());
+    if (m_spinHostTcpPort) cfg.setTcpPort(static_cast<quint16>(m_spinHostTcpPort->value()));
+    if (m_spinHostUdpPort) cfg.setUdpBeaconPort(static_cast<quint16>(m_spinHostUdpPort->value()));
+    if (m_txtDbHost) cfg.setDbHost(m_txtDbHost->text().trimmed());
+    if (m_spinDbPort) cfg.setDbPort(m_spinDbPort->value());
+    if (m_txtDbName) cfg.setDbName(m_txtDbName->text().trimmed());
+    cfg.save();
+
+    if (m_spinHostTcpPort && cfg.tcpPort() != oldTcpPort) {
+        m_tcpServer.stop();
+        m_tcpServer.start(cfg.tcpPort());
+        m_lblServerStatus->setText(QString("🟢 TCP Sunucu Aktif (Port %1)").arg(cfg.tcpPort()));
+    }
+
+    QMessageBox::information(this, "Kaydedildi", "Sistem parametreleri ve ağ/port ayarları başarıyla güncellendi.");
 }
 
 void HostWindow::onInstallMysqlClicked() {
@@ -1111,6 +1208,8 @@ void HostWindow::onLogoutClicked() {
 }
 
 void HostWindow::onReturnLobbyClicked() {
+    m_returningToLobby = true;
+    shutdownHostServices();
     LobbyWindow *lobbyWin = new LobbyWindow();
     lobbyWin->show();
     this->close();

@@ -25,6 +25,12 @@ void UdpBeaconBroadcaster::start(int intervalMs) {
 
 void UdpBeaconBroadcaster::stop() {
     m_timer.stop();
+    // Broadcast a graceful goodbye datagram so open lobbies remove this server immediately
+    QJsonObject obj;
+    obj["type"] = "BEACON_BYE";
+    obj["tcp_port"] = m_tcpPort;
+    m_socket.writeDatagram(NetMsg::serialize(obj), QHostAddress::Broadcast, m_beaconPort);
+    m_socket.flush();
 }
 
 void UdpBeaconBroadcaster::sendBeacon() {
@@ -59,14 +65,21 @@ void UdpBeaconListener::onReadyRead() {
         QByteArray data = datagram.data();
         QJsonObject obj = NetMsg::deserialize(data);
 
-        if (obj["type"].toString() == NetMsg::TYPE_BEACON) {
+        const QString msgType = obj["type"].toString();
+        if (msgType == NetMsg::TYPE_BEACON || msgType == "BEACON_BYE") {
             QString hostIp = datagram.senderAddress().toString();
             // Normalize IPv6-mapped IPv4 addresses (e.g., ::ffff:192.168.1.50 -> 192.168.1.50)
             if (hostIp.startsWith("::ffff:")) {
                 hostIp = hostIp.mid(7);
             }
-            QString serverName = obj["server_name"].toString();
             quint16 tcpPort = static_cast<quint16>(obj["tcp_port"].toInt(9100));
+
+            if (msgType == "BEACON_BYE") {
+                emit hostLost(hostIp, tcpPort);
+                continue;
+            }
+
+            QString serverName = obj["server_name"].toString();
             int stationCount = obj["station_count"].toInt(0);
             QString version = obj["version"].toString();
 

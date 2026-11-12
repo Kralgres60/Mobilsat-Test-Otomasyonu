@@ -24,6 +24,7 @@
 #include <QStatusBar>
 #include <QMessageBox>
 #include <QHostInfo>
+#include <QNetworkInterface>
 #include <QPixmap>
 
 LobbyWindow::LobbyWindow(QWidget *parent)
@@ -38,6 +39,8 @@ LobbyWindow::LobbyWindow(QWidget *parent)
 
     connect(&m_beaconListener, &UdpBeaconListener::hostDiscoveredInfo,
             this, &LobbyWindow::onHostDiscoveredInfo);
+    connect(&m_beaconListener, &UdpBeaconListener::hostLost,
+            this, &LobbyWindow::onHostLost);
     m_beaconListener.start();
 
     connect(&m_cleanupTimer, &QTimer::timeout, this, &LobbyWindow::onCleanupStaleServers);
@@ -134,7 +137,22 @@ void LobbyWindow::setupUi() {
     m_spinHostPort->setRange(1024, 65535);
     m_spinHostPort->setValue(cfg.tcpPort());
 
+    QStringList localIps;
+    for (const QHostAddress &addr : QNetworkInterface::allAddresses()) {
+        if (addr.protocol() == QAbstractSocket::IPv4Protocol && !addr.isLoopback()) {
+            const QString ip = addr.toString();
+            if (!ip.startsWith("169.254.")) {
+                localIps << ip;
+            }
+        }
+    }
+    QLineEdit *txtLocalHostIp = new QLineEdit(localIps.isEmpty() ? "127.0.0.1" : localIps.join(" / "), grpHost);
+    txtLocalHostIp->setReadOnly(true);
+    txtLocalHostIp->setToolTip("Bu bilgisayarın ağdaki IP adresi (İstasyonlar bu adrese bağlanır)");
+    txtLocalHostIp->setStyleSheet("background-color: #0E2219; color: #34D399; border: 1px solid #1A3D2B; font-weight: bold;");
+
     hostForm->addRow("Sunucu Adı:", m_txtServerName);
+    hostForm->addRow("Sunucu IP:", txtLocalHostIp);
     hostForm->addRow("TCP Sunucu Portu:", m_spinHostPort);
     hostVBox->addLayout(hostForm);
     hostVBox->addStretch();
@@ -241,6 +259,13 @@ void LobbyWindow::onHostDiscoveredInfo(const QString &hostIp, const QString &ser
     m_servers[key] = srv;
 
     refreshServerTable();
+}
+
+void LobbyWindow::onHostLost(const QString &hostIp, quint16 tcpPort) {
+    const QString key = QString("%1:%2").arg(hostIp).arg(tcpPort);
+    if (m_servers.remove(key) > 0) {
+        refreshServerTable();
+    }
 }
 
 void LobbyWindow::onCleanupStaleServers() {
@@ -369,9 +394,11 @@ void LobbyWindow::launchClientMode(const QString &hostIp, quint16 tcpPort) {
     cfg.setStationId(0); // Sunucu bağlandığında benzersiz dinamik ID atayacak
     cfg.save();
 
-    DbManager::instance().connectToDatabase(cfg.dbHost(), cfg.dbPort(),
-                                            cfg.dbName(), cfg.dbUser(),
-                                            cfg.dbPassword());
+    if (DbManager::instance().connectToDatabase(cfg.dbHost(), cfg.dbPort(),
+                                                cfg.dbName(), cfg.dbUser(),
+                                                cfg.dbPassword())) {
+        DbManager::instance().ensureDefaultDataIfMissing();
+    }
 
     ClientWindow *clientWin = new ClientWindow();
     clientWin->showMaximized();

@@ -344,6 +344,24 @@ void ClientWindow::setupProductionPage() {
     m_txtHeaderDutIp->setFixedWidth(185);
     m_txtHeaderDutIp->setToolTip("Test edilecek DUT DRX9000 IP adresi (Simülatör için örn: 127.0.0.1:8080)");
     m_txtHeaderDutIp->setStyleSheet("background-color: #0E2219; color: #34D399; border: 1px solid #1A3D2B; border-radius: 4px; padding: 4px 8px; font-weight: bold;");
+    auto applyHeaderDutIp = [this]() {
+        if (!m_txtHeaderDutIp) return;
+        const QString enteredIp = m_txtHeaderDutIp->text().trimmed();
+        if (enteredIp.isEmpty()) return;
+        AppConfig &cfg = AppConfig::instance();
+        if (enteredIp != cfg.stationDrxHost()) {
+            cfg.setStationDrxHost(enteredIp);
+            cfg.save();
+            m_dutWebClient.setHost(cfg.stationDrxHost(), cfg.stationDrxPort());
+            if (m_txtDutDrxIp) {
+                m_txtDutDrxIp->blockSignals(true);
+                m_txtDutDrxIp->setText(enteredIp);
+                m_txtDutDrxIp->blockSignals(false);
+            }
+            setStatusMessage(QString("DUT DRX IP güncellendi: %1").arg(enteredIp));
+        }
+    };
+    connect(m_txtHeaderDutIp, &QLineEdit::editingFinished, this, applyHeaderDutIp);
     connect(m_txtHeaderDutIp, &QLineEdit::returnPressed, this, &ClientWindow::onEthPingSyncClicked);
 
     m_btnEthPingSync = new QPushButton("🔌 Ping & Bağlan (ETH)", grpStation);
@@ -731,7 +749,20 @@ void ClientWindow::setupEngineerSettingsPage() {
         cfg.setHostIp(m_txtHostIp->text().trimmed());
         cfg.setTcpPort(static_cast<quint16>(m_spinTcpPort->value()));
         cfg.setUdpBeaconPort(static_cast<quint16>(m_spinUdpPort->value()));
+        if (m_txtDbHost) cfg.setDbHost(m_txtDbHost->text().trimmed());
+        if (m_spinDbPort) cfg.setDbPort(m_spinDbPort->value());
+        if (m_txtDbName) cfg.setDbName(m_txtDbName->text().trimmed());
+        if (m_txtDbUser) cfg.setDbUser(m_txtDbUser->text().trimmed());
+        if (m_txtDbPass) cfg.setDbPassword(m_txtDbPass->text());
         cfg.save();
+
+        m_dutWebClient.setHost(cfg.stationDrxHost(), cfg.stationDrxPort());
+        m_refWebClient.setHost(cfg.refDrxHost(), cfg.refDrxPort());
+        if (m_txtHeaderDutIp) {
+            m_txtHeaderDutIp->blockSignals(true);
+            m_txtHeaderDutIp->setText(cfg.stationDrxHost());
+            m_txtHeaderDutIp->blockSignals(false);
+        }
     };
     connect(m_spinTolerance, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, autoSaveClientSettings);
     connect(m_spinSampleDuration, QOverload<int>::of(&QSpinBox::valueChanged), this, autoSaveClientSettings);
@@ -768,6 +799,56 @@ void ClientWindow::setupEngineerSettingsPage() {
     serForm->addRow(lblSerNote);
     serForm->addRow("COM Port Seçimi:", serCtrlRow);
     cardsGrid->addWidget(grpSerial, 1, 1);
+
+    // Card 5: Central MariaDB Database Settings (so Station PC never falls back to localhost unknowingly)
+    QGroupBox *grpDb = new QGroupBox("🗄️ Merkezi Veritabanı (MariaDB) Bağlantı Ayarları", m_pageEngineer);
+    QGridLayout *dbGrid = new QGridLayout(grpDb);
+    dbGrid->setSpacing(8);
+
+    m_txtDbHost = new QLineEdit(AppConfig::instance().dbHost(), grpDb);
+    m_txtDbHost->setPlaceholderText("Örn: 192.168.1.50 (Yönetici PC IP)");
+    m_spinDbPort = new QSpinBox(grpDb);
+    m_spinDbPort->setRange(1, 65535);
+    m_spinDbPort->setValue(AppConfig::instance().dbPort());
+    m_txtDbName = new QLineEdit(AppConfig::instance().dbName(), grpDb);
+    m_txtDbUser = new QLineEdit(AppConfig::instance().dbUser(), grpDb);
+    m_txtDbPass = new QLineEdit(AppConfig::instance().dbPassword(), grpDb);
+    m_txtDbPass->setEchoMode(QLineEdit::Password);
+
+    m_lblDbConnStatus = new QLabel(
+        DbManager::instance().isConnected()
+            ? QString("🟢 Bağlı (%1:%2 / %3)").arg(AppConfig::instance().dbHost()).arg(AppConfig::instance().dbPort()).arg(DbManager::instance().activeDriver())
+            : QString("🔴 Bağlı Değil (%1:%2)").arg(AppConfig::instance().dbHost()).arg(AppConfig::instance().dbPort()),
+        grpDb);
+    m_lblDbConnStatus->setStyleSheet(DbManager::instance().isConnected()
+                                         ? "color: #34D399; font-weight: bold;"
+                                         : "color: #F87171; font-weight: bold;");
+
+    QPushButton *btnDbConnect = new QPushButton("🔄 Kaydet & Veritabanına Bağlan", grpDb);
+    btnDbConnect->setCursor(Qt::PointingHandCursor);
+    btnDbConnect->setStyleSheet("background-color: #10B981; color: #071210; border: none; border-radius: 4px; padding: 8px 14px; font-weight: bold;");
+    connect(btnDbConnect, &QPushButton::clicked, this, &ClientWindow::onReconnectDbClicked);
+
+    connect(m_txtDbHost, &QLineEdit::editingFinished, this, autoSaveClientSettings);
+    connect(m_spinDbPort, QOverload<int>::of(&QSpinBox::valueChanged), this, autoSaveClientSettings);
+    connect(m_txtDbName, &QLineEdit::editingFinished, this, autoSaveClientSettings);
+    connect(m_txtDbUser, &QLineEdit::editingFinished, this, autoSaveClientSettings);
+    connect(m_txtDbPass, &QLineEdit::editingFinished, this, autoSaveClientSettings);
+
+    dbGrid->addWidget(new QLabel("Veritabanı Sunucu IP (Yönetici PC):", grpDb), 0, 0);
+    dbGrid->addWidget(m_txtDbHost, 0, 1);
+    dbGrid->addWidget(new QLabel("Veritabanı Portu:", grpDb), 0, 2);
+    dbGrid->addWidget(m_spinDbPort, 0, 3);
+    dbGrid->addWidget(new QLabel("Veritabanı Adı:", grpDb), 1, 0);
+    dbGrid->addWidget(m_txtDbName, 1, 1);
+    dbGrid->addWidget(new QLabel("Kullanıcı Adı:", grpDb), 1, 2);
+    dbGrid->addWidget(m_txtDbUser, 1, 3);
+    dbGrid->addWidget(new QLabel("Şifre:", grpDb), 2, 0);
+    dbGrid->addWidget(m_txtDbPass, 2, 1);
+    dbGrid->addWidget(m_lblDbConnStatus, 2, 2);
+    dbGrid->addWidget(btnDbConnect, 2, 3);
+
+    cardsGrid->addWidget(grpDb, 2, 0, 1, 2);
 
     vbox->addLayout(cardsGrid);
     vbox->addStretch();
@@ -1122,10 +1203,54 @@ void ClientWindow::onReconnectHostClicked() {
         cfg.setHostIp(m_txtHostIp->text().trimmed());
         cfg.setTcpPort(static_cast<quint16>(m_spinTcpPort->value()));
         cfg.setUdpBeaconPort(static_cast<quint16>(m_spinUdpPort->value()));
+        if (m_txtDbHost) cfg.setDbHost(m_txtDbHost->text().trimmed());
+        if (m_spinDbPort) cfg.setDbPort(m_spinDbPort->value());
+        if (m_txtDbName) cfg.setDbName(m_txtDbName->text().trimmed());
+        if (m_txtDbUser) cfg.setDbUser(m_txtDbUser->text().trimmed());
+        if (m_txtDbPass) cfg.setDbPassword(m_txtDbPass->text());
         cfg.save();
     }
     m_netClient.connectToHost(AppConfig::instance().hostIp(), AppConfig::instance().tcpPort());
     appendLog(QString("Yönetici Sunucuya bağlanılıyor: %1:%2").arg(AppConfig::instance().hostIp()).arg(AppConfig::instance().tcpPort()));
+}
+
+void ClientWindow::onReconnectDbClicked() {
+    AppConfig &cfg = AppConfig::instance();
+    if (m_txtDbHost) cfg.setDbHost(m_txtDbHost->text().trimmed());
+    if (m_spinDbPort) cfg.setDbPort(m_spinDbPort->value());
+    if (m_txtDbName) cfg.setDbName(m_txtDbName->text().trimmed());
+    if (m_txtDbUser) cfg.setDbUser(m_txtDbUser->text().trimmed());
+    if (m_txtDbPass) cfg.setDbPassword(m_txtDbPass->text());
+    cfg.save();
+
+    bool ok = DbManager::instance().connectToDatabase(
+        cfg.dbHost(), cfg.dbPort(), cfg.dbName(), cfg.dbUser(), cfg.dbPassword());
+
+    if (ok) {
+        DbManager::instance().ensureDefaultDataIfMissing();
+        loadWorkOrdersAndProfiles();
+        if (m_profileManager) m_profileManager->reloadProfiles();
+        if (m_lblDbConnStatus) {
+            m_lblDbConnStatus->setText(QString("🟢 Bağlı (%1:%2 / %3)")
+                                           .arg(cfg.dbHost()).arg(cfg.dbPort())
+                                           .arg(DbManager::instance().activeDriver()));
+            m_lblDbConnStatus->setStyleSheet("color: #34D399; font-weight: bold;");
+        }
+        appendLog(QString("[Veritabanı] Bağlantı başarılı: %1:%2 (%3)").arg(cfg.dbHost()).arg(cfg.dbPort()).arg(cfg.dbName()));
+        QMessageBox::information(this, "Veritabanı Bağlandı",
+                                 QString("Merkezi veritabanına başarıyla bağlanıldı:\n%1:%2 (%3)")
+                                     .arg(cfg.dbHost()).arg(cfg.dbPort()).arg(cfg.dbName()));
+    } else {
+        if (m_lblDbConnStatus) {
+            m_lblDbConnStatus->setText(QString("🔴 Hata (%1:%2)").arg(cfg.dbHost()).arg(cfg.dbPort()));
+            m_lblDbConnStatus->setStyleSheet("color: #F87171; font-weight: bold;");
+        }
+        appendLog(QString("[Veritabanı HATA] %1").arg(DbManager::instance().lastError()));
+        QMessageBox::warning(this, "Veritabanı Bağlantı Hatası",
+                             QString("Veritabanına bağlanılamadı (%1:%2):\n%3")
+                                 .arg(cfg.dbHost()).arg(cfg.dbPort())
+                                 .arg(DbManager::instance().lastError()));
+    }
 }
 
 void ClientWindow::onHostDiscovered(const QString &hostIp, const QString &serverName, quint16 tcpPort) {
@@ -1136,6 +1261,23 @@ void ClientWindow::onHostDiscovered(const QString &hostIp, const QString &server
         AppConfig::instance().setTcpPort(tcpPort);
         AppConfig::instance().save();
         if (m_txtHostIp) m_txtHostIp->setText(hostIp);
+        if (m_txtDbHost) m_txtDbHost->setText(hostIp);
+        if (!DbManager::instance().isConnected()) {
+            if (DbManager::instance().connectToDatabase(
+                    hostIp, AppConfig::instance().dbPort(),
+                    AppConfig::instance().dbName(), AppConfig::instance().dbUser(),
+                    AppConfig::instance().dbPassword())) {
+                DbManager::instance().ensureDefaultDataIfMissing();
+                loadWorkOrdersAndProfiles();
+                if (m_profileManager) m_profileManager->reloadProfiles();
+                if (m_lblDbConnStatus) {
+                    m_lblDbConnStatus->setText(QString("🟢 Bağlı (%1:%2 / %3)")
+                                                   .arg(hostIp).arg(AppConfig::instance().dbPort())
+                                                   .arg(DbManager::instance().activeDriver()));
+                    m_lblDbConnStatus->setStyleSheet("color: #34D399; font-weight: bold;");
+                }
+            }
+        }
         m_netClient.connectToHost(hostIp, tcpPort);
     }
 }

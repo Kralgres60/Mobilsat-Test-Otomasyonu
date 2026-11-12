@@ -40,6 +40,7 @@ private slots:
     void onSwitchUserClicked();
 
     void onHostDiscoveredInfo(const QString &hostIp, const QString &serverName, quint16 tcpPort, int stationCount, const QString &version);
+    void onHostLost(const QString &hostIp, quint16 tcpPort);
     void onCleanupStaleServers();
 
 private:

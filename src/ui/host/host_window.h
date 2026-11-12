@@ -81,7 +81,12 @@ private slots:
 
     void appendLog(const QString &msg);
 
+protected:
+    /** @brief Gracefully stops TCP server, UDP beacon, timers, and portable MariaDB on window close. */
+    void closeEvent(QCloseEvent *event) override;
+
 private:
+    void shutdownHostServices();
     void setupMenuBar();
     void setupUi();
     void setupLobbyPage();
@@ -103,6 +108,8 @@ private:
     UdpBeaconBroadcaster m_beaconBroadcaster;
     QTimer m_refEthPingTimer;
     QTimer m_refTelemetryPollTimer; ///< Periodic idle telemetry poller for Reference/Golden DRX
+    bool m_returningToLobby = false;
+    bool m_servicesStopped = false;
 
     // ── Sidebar Navigation ──────────────────────────────────────────────────
     /** @brief Left sidebar navigation list (objectName: "sideNav" for QSS targeting). */
@@ -134,6 +141,7 @@ private:
     QGridLayout *m_stationsGrid     = nullptr;
 
     struct StationCardWidgets {
+        QFrame *cardFrame  = nullptr;
         QLabel *lblTitle   = nullptr;
         QLabel *lblState   = nullptr;
         QLabel *lblIp      = nullptr;
@@ -159,13 +167,17 @@ private:
     QSpinBox *m_spinSampleDuration = nullptr;
     QDoubleSpinBox *m_spinTolerance = nullptr;
     QLineEdit *m_txtRefDrxIp = nullptr;
+    QSpinBox *m_spinRefDrxPort = nullptr; ///< Reference DRX HTTP/CGI port in Settings
     QLineEdit *m_txtRefDrxUser = nullptr;
     QLineEdit *m_txtRefDrxPass = nullptr;
     QComboBox *m_comboSerialPorts = nullptr;
     QPushButton *m_btnConnectRefSerial = nullptr;
     QLabel *m_lblDbStatus = nullptr;
     QLineEdit *m_txtDbHost = nullptr;
+    QSpinBox *m_spinDbPort = nullptr; ///< MariaDB port in Settings
     QLineEdit *m_txtDbName = nullptr;
+    QSpinBox *m_spinHostTcpPort = nullptr; ///< Host TCP server port in Settings
+    QSpinBox *m_spinHostUdpPort = nullptr; ///< Host UDP beacon port in Settings
 
     // Host Standalone Golden Reference Widget (NO satellite profiles on Host)
     GoldenReferenceWidget *m_goldenRefWidget = nullptr;

@@ -52,6 +52,8 @@ public:
 signals:
     void hostDiscovered(const QString &hostIp, const QString &serverName, quint16 tcpPort);
     void hostDiscoveredInfo(const QString &hostIp, const QString &serverName, quint16 tcpPort, int stationCount, const QString &version);
+    /** @brief Emitted when a Host server broadcasts a graceful BEACON_BYE shutdown datagram. */
+    void hostLost(const QString &hostIp, quint16 tcpPort);
 
 private slots:
     void onReadyRead();

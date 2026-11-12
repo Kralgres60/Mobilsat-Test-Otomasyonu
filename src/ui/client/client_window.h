@@ -82,6 +82,8 @@ private slots:
     void onReturnLobbyClicked();
     void onSaveEngineerSettingsClicked();
     void onSaveWebSettingsClicked();
+    /** @brief Saves Station MariaDB settings and (re)connects to the central database. */
+    void onReconnectDbClicked();
     void onClearGraphClicked();
     void onClearLogClicked();
 
@@ -187,6 +189,12 @@ private:
     QLineEdit      *m_txtHostIp          = nullptr;
     QSpinBox       *m_spinTcpPort        = nullptr;
     QSpinBox       *m_spinUdpPort        = nullptr;
+    QLineEdit      *m_txtDbHost          = nullptr; ///< Central MariaDB server IP
+    QSpinBox       *m_spinDbPort         = nullptr; ///< Central MariaDB server port
+    QLineEdit      *m_txtDbName          = nullptr; ///< Central MariaDB database name
+    QLineEdit      *m_txtDbUser          = nullptr; ///< Central MariaDB username
+    QLineEdit      *m_txtDbPass          = nullptr; ///< Central MariaDB password
+    QLabel         *m_lblDbConnStatus    = nullptr; ///< Live DB connection status badge
     QComboBox      *m_comboSerialPorts   = nullptr;
     QPushButton    *m_btnConnectSerial   = nullptr;
 

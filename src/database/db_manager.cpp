@@ -272,11 +272,14 @@ bool DbManager::ensureDefaultDataIfMissing() {
     QSqlDatabase db = QSqlDatabase::database(m_connectionName);
     QSqlQuery q(db);
 
-    // 1. Tabloların varlığını denetle
+    // 1. Tabloların varlığını denetle (satellite_profiles, profile_channels, golden_frequencies)
     bool needSchema = false;
-    q.exec("SHOW TABLES LIKE 'satellite_profiles';");
-    if (!q.next() || q.value(0).toString().isEmpty()) {
-        needSchema = true;
+    for (const char *tbl : {"satellite_profiles", "profile_channels", "golden_frequencies"}) {
+        q.exec(QString("SHOW TABLES LIKE '%1';").arg(tbl));
+        if (!q.next() || q.value(0).toString().isEmpty()) {
+            needSchema = true;
+            break;
+        }
     }
 
     if (needSchema) {

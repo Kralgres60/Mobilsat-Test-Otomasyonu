@@ -14,6 +14,8 @@ TcpServer::TcpServer(LockArbiter *arbiter, SerialWorker *refSerial, QObject *par
     : QObject(parent), m_arbiter(arbiter), m_refSerial(refSerial) {
     connect(&m_server, &QTcpServer::newConnection, this, &TcpServer::onNewConnection);
     connect(&m_refPollTimer, &QTimer::timeout, this, &TcpServer::onRefPollTick);
+    connect(&m_silenceWatchdogTimer, &QTimer::timeout, this, &TcpServer::onSilenceWatchdogTick);
+    m_silenceWatchdogTimer.start(3000);
 
     if (m_arbiter) {
         connect(m_arbiter, &LockArbiter::lockGranted, this, &TcpServer::onLockGranted);
@@ -75,8 +77,20 @@ bool TcpServer::start(quint16 port) {
 
 void TcpServer::stop() {
     m_refPollTimer.stop();
+    m_silenceWatchdogTimer.stop();
+    QJsonObject byeObj;
+    byeObj["type"] = "SERVER_SHUTDOWN";
+    const QByteArray byePayload = NetMsg::serialize(byeObj);
     for (auto it = m_clients.begin(); it != m_clients.end(); ++it) {
-        it.key()->disconnectFromHost();
+        QTcpSocket *sock = it.key();
+        if (sock) {
+            sock->write(byePayload);
+            sock->flush();
+            sock->disconnectFromHost();
+            if (sock->state() != QAbstractSocket::UnconnectedState) {
+                sock->close();
+            }
+        }
     }
     m_clients.clear();
     m_server.close();
@@ -218,6 +232,23 @@ void TcpServer::processClientMessage(QTcpSocket *socket, const QJsonObject &msg)
         QJsonObject ack;
         ack["type"] = NetMsg::TYPE_LOCK_RELEASED;
         socket->write(NetMsg::serialize(ack));
+    }
+}
+
+void TcpServer::onSilenceWatchdogTick() {
+    const QDateTime now = QDateTime::currentDateTime();
+    QList<QTcpSocket*> staleSockets;
+    for (auto it = m_clients.constBegin(); it != m_clients.constEnd(); ++it) {
+        QTcpSocket *sock = it.key();
+        const ClientSession &session = it.value();
+        if (sock && session.status.lastHeartbeat.isValid() && session.status.lastHeartbeat.secsTo(now) > 10) {
+            staleSockets.append(sock);
+        }
+    }
+    for (QTcpSocket *sock : staleSockets) {
+        emit logMessage(QString("Station %1 timed out (no heartbeat > 10s); disconnecting.")
+                            .arg(m_clients.value(sock).stationId));
+        sock->abort();
     }
 }
 

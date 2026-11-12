@@ -6,6 +6,7 @@
  */
 
 #include "db_viewer_widget.h"
+#include "core/app_config.h"
 #include "database/db_manager.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -182,7 +183,14 @@ void DbViewerWidget::loadSelectedTable() {
     m_table->resizeColumnsToContents();
     m_table->setUpdatesEnabled(true);
 
-    m_lblDbInfo->setText(QString("🟢 Tablo: %1  |  Kayıt: %2  |  Sütun: %3  |  Sürücü: %4")
+    const QString dbHost = db.hostName().isEmpty() ? AppConfig::instance().dbHost() : db.hostName();
+    const int dbPort = db.port() > 0 ? db.port() : AppConfig::instance().dbPort();
+    const QString dbName = db.databaseName().isEmpty() ? AppConfig::instance().dbName() : db.databaseName();
+
+    m_lblDbInfo->setText(QString("🟢 Sunucu: %1:%2 (%3)  |  Tablo: %4  |  Kayıt: %5  |  Sütun: %6  |  Sürücü: %7")
+                             .arg(dbHost)
+                             .arg(dbPort)
+                             .arg(dbName)
                              .arg(tableName)
                              .arg(rowCount)
                              .arg(colCount)

@@ -84,6 +84,8 @@ private slots:
     void onRefPollTick();
     void onRefTelemetry(double powDbm, double cnDb, double ber);
     void onRefStatus(bool sLocked, bool vLocked, bool aLocked);
+    /** @brief Drops stations that have gone silent past the heartbeat timeout. */
+    void onSilenceWatchdogTick();
 
 private:
     void processClientMessage(QTcpSocket *socket, const QJsonObject &msg);
@@ -95,6 +97,7 @@ private:
     SerialWorker *m_refSerial;
     DrxWebClient *m_refWebClient = nullptr;
     QTimer m_refPollTimer;
+    QTimer m_silenceWatchdogTimer; ///< Detects and disconnects silent/unplugged stations
     ReferenceMode m_referenceMode = ReferenceMode::LiveReference;
 
     struct ClientSession {
