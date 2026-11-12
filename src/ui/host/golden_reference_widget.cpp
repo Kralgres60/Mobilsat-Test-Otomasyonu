@@ -384,7 +384,7 @@ void GoldenReferenceWidget::onCaptureStepTimeout() {
 
         TestRunData hostRun;
         hostRun.stationId = 0; // 0 = Yönetici (Host)
-        hostRun.operatorId = AppConfig::instance().currentUserId() > 0 ? AppConfig::instance().currentUserId() : 1;
+        hostRun.operatorId = 0;
         hostRun.testerName = AppConfig::instance().currentUserFullName().isEmpty()
                                  ? AppConfig::instance().currentUsername()
                                  : AppConfig::instance().currentUserFullName();

@@ -6,6 +6,7 @@
  */
 
 #include "db_manager.h"
+#include "core/app_config.h"
 #include <QDebug>
 #include <QVariant>
 #include <QSqlRecord>

@@ -1411,8 +1411,7 @@ void ClientWindow::onStartTestClicked() {
     m_btnAbortTest->setEnabled(true);
     setStatusMessage(QString("Test başlatıldı (CAT6 Ethernet): Seri No %1").arg(sn));
 
-    const int opId = AppConfig::instance().currentUserId() > 0 ? AppConfig::instance().currentUserId() : 1;
-    if (!m_stateMachine->startTest(sn, m_currentProfile, woId, opId, testerName)) {
+    if (!m_stateMachine->startTest(sn, m_currentProfile, woId, 0, testerName)) {
         m_btnStartTest->setEnabled(true);
         m_btnAbortTest->setEnabled(false);
         m_resultBannerFrame->setStyleSheet("background-color: #112D21; border: 1px solid #1A3D2B; border-radius: 6px; padding: 10px;");

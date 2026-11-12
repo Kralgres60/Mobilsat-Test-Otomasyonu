@@ -224,15 +224,15 @@ void TestHistoryWidget::populateTable(const QVector<TestRunData> &runs) {
         m_table->setItem(i, 12, new QTableWidgetItem(detailText));
     }
 
-    DbManager &db = DbManager::instance();
+    const AppConfig &cfg = AppConfig::instance();
     m_lblSummary->setText(
         QString("Toplam Kayıt: %1  |  ✔ PASS: %2  |  ✖ FAIL: %3  |  ⏹ ABORTED: %4  |  Veritabanı: %5:%6")
             .arg(runs.size())
             .arg(passCount)
             .arg(failCount)
             .arg(abortedCount)
-            .arg(db.connectedHost())
-            .arg(db.connectedPort()));
+            .arg(cfg.dbHost())
+            .arg(cfg.dbPort()));
 }
 
 void TestHistoryWidget::onExportExcelClicked() {
@@ -331,8 +331,7 @@ void TestHistoryWidget::onImportExcelClicked() {
     };
 
     auto parseDouble = [](QString s) -> double {
-        s.remove("dB", Qt::CaseInsensitive).replace(',', '.').trimmed();
-        return s.toDouble();
+        return s.remove("dB", Qt::CaseInsensitive).replace(',', '.').trimmed().toDouble();
     };
 
     int importedCount = 0;
