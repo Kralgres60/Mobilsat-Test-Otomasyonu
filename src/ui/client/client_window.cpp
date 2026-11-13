@@ -1598,8 +1598,8 @@ void ClientWindow::onTestFinished(const TestRunData &finalResult) {
         if (finalResult.workOrderId > 0) {
             loadWorkOrdersAndProfiles();
         }
-        if (m_testHistory) {
-            m_testHistory->refreshHistory();
+        if (m_historyWidget) {
+            m_historyWidget->refreshHistory();
         }
     } else {
         appendLog(QString("❌ [HATA] Test sonucu veritabanına kaydedilemedi! Hata: %1")

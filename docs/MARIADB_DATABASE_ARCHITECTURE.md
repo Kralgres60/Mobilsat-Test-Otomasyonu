@@ -169,3 +169,26 @@ WHERE id = 1 AND (locked_by_station = 0 OR heartbeat_at < NOW() - INTERVAL 90 SE
 ```
 
 If `rowCount() > 0`, the lock is granted. On test completion, `locked_by_station` is set back to 0.
+
+---
+
+## 7. Web-Based Database Management Console (Headless / Standalone MariaDB)
+
+When MariaDB runs on a standalone server or in 3-PC architecture without a desktop Host PC, the database can be monitored and managed directly from any web browser on the network.
+
+### 🚀 Starting the Web Console
+Double-click:
+👉 `tools/mariadb_portable/start_web_db.bat`
+
+This script:
+1. Verifies MariaDB is running on port 3306 (starts it automatically if stopped).
+2. Starts the zero-dependency Python web server (`web/neta_db_web.py`) on port 8080.
+3. Automatically launches the browser at `http://localhost:8080`.
+
+### 🌐 Features
+- **Table Data Viewer:** Real-time view of `test_runs`, `test_results`, `satellite_profiles`, `profile_channels`, `work_orders`, `users`, and `system_logs`.
+- **Live Search & Filter:** Instant search across all columns in any table.
+- **CSV Data Export:** One-click CSV export with UTF-8 BOM encoding for Excel.
+- **SQL Query Console:** Run arbitrary custom SQL queries (`SELECT`, `UPDATE`, `INSERT`, `SHOW PROCESSLIST`) with F9 or Ctrl+Enter.
+- **Cross-Device Access:** Can be accessed from any phone, tablet, or PC on the same factory network via `http://<SERVER_IP>:8080`.
+

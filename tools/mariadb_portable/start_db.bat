@@ -28,7 +28,7 @@ timeout /t 2 /nobreak >nul
 echo [2/2] Sunucu erisimi test ediliyor...
 "%~dp0bin\mysqladmin.exe" -h 127.0.0.1 -P 3306 -u root -pneta123 ping >nul 2>&1
 if %errorlevel% equ 0 (
-    echo [BASARILI] MariaDB Portable aktif ve baglantilara hazir! (Port: 3306)
+    echo [BASARILI] MariaDB Portable aktif ve baglantilara hazir! Port: 3306
 ) else (
     echo [UYARI] MariaDB baslatilamadi veya baglanti reddedildi.
 )
