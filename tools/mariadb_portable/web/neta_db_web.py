@@ -5,7 +5,8 @@ NETA DRX9000 - Portable MariaDB Web Management Dashboard
 Author: Semi Eren Gökyıldız
 Copyright: (C) 2026 NETA Elektronik A.Ş.
 
-Zero-dependency web database console powered by Python standard library and MariaDB mysql.exe.
+Zero-dependency web database console with full user authentication, RBAC,
+session management and audit logging matching the Qt desktop application.
 """
 
 import sys
@@ -14,8 +15,11 @@ import json
 import subprocess
 import csv
 import io
+import time
+import uuid
 import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.cookies import SimpleCookie
 
 PORT = 8080
 DB_HOST = "127.0.0.1"
@@ -29,8 +33,34 @@ PORTABLE_DIR = os.path.abspath(os.path.join(BASE_DIR, ".."))
 MYSQL_BIN = os.path.join(PORTABLE_DIR, "bin", "mysql.exe")
 
 if not os.path.exists(MYSQL_BIN):
-    # Fallback to PATH or common locations
     MYSQL_BIN = "mysql"
+
+# In-memory sessions: token -> {"username": str, "role": str, "full_name": str, "expires": float}
+SESSIONS = {}
+
+def cleanup_sessions():
+    now = time.time()
+    expired = [k for k, v in SESSIONS.items() if v.get("expires", 0) < now]
+    for k in expired:
+        del SESSIONS[k]
+
+def get_session_user(handler):
+    cleanup_sessions()
+    cookie_header = handler.headers.get("Cookie", "")
+    if not cookie_header:
+        return None
+    cookies = SimpleCookie()
+    try:
+        cookies.load(cookie_header)
+        if "neta_session" in cookies:
+            token = cookies["neta_session"].value
+            if token in SESSIONS:
+                session = SESSIONS[token]
+                if session.get("expires", 0) > time.time():
+                    return session
+    except Exception:
+        pass
+    return None
 
 def run_sql(query, database=DB_NAME):
     """Executes an SQL query via mysql.exe and returns (columns, rows, error)"""
@@ -59,7 +89,6 @@ def run_sql(query, database=DB_NAME):
         )
         if proc.returncode != 0:
             err = proc.stderr.strip()
-            # Clean password warning from stderr
             err_lines = [l for l in err.splitlines() if "Using a password" not in l]
             return [], [], "\n".join(err_lines) or "Unknown SQL error"
 
@@ -79,15 +108,50 @@ def run_sql(query, database=DB_NAME):
     except Exception as e:
         return [], [], str(e)
 
+def log_audit(username, role, action):
+    """Writes an audit log entry to system_logs table"""
+    msg = f"Web Konsolu: {action} ({username} - {role})".replace("'", "''")
+    run_sql(f"INSERT INTO system_logs (log_level, source, message) VALUES ('INFO', 'WEB_CONSOLE', '{msg}');")
+
+def authenticate_user(username, password):
+    """Verifies credentials against MariaDB users table or factory fallback"""
+    u = username.strip()
+    p = password.strip()
+    if not u:
+        return None
+
+    u_sql = u.replace("'", "''")
+    headers, rows, err = run_sql(
+        f"SELECT role, full_name, password_hash, is_active FROM users WHERE username = '{u_sql}' AND is_active = 1 LIMIT 1;"
+    )
+    if not err and rows and len(rows) > 0:
+        role = rows[0][0].upper()
+        full_name = rows[0][1]
+        pass_hash = rows[0][2]
+        if pass_hash == p or pass_hash == "":
+            return {
+                "username": u,
+                "role": role,
+                "full_name": full_name if full_name else u
+            }
+
+    # Factory Fallbacks (matching DbManager in Qt desktop app)
+    if u.lower() == "admin" and p == "123":
+        return {"username": "admin", "role": "ADMIN", "full_name": "Sistem Yöneticisi / Başmühendis"}
+    if u.lower() == "engineer" and p == "123":
+        return {"username": "engineer", "role": "ADMIN", "full_name": "Ar-Ge Test Mühendisi"}
+    if u.lower() == "operator" and p == "123":
+        return {"username": "operator", "role": "OPERATOR", "full_name": "Hat Operatörü"}
+
+    return None
+
 def ensure_database():
     """Ensures neta_antenna_test database and initial schema exist"""
-    # 1. Create database if not exists
     _, _, err = run_sql("CREATE DATABASE IF NOT EXISTS `neta_antenna_test` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;", database=None)
     if err:
         print(f"[UYARI] Veritabani olusturma kontrolu: {err}")
         return
 
-    # 2. Check if tables exist
     headers, rows, err = run_sql("SHOW TABLES;", database=DB_NAME)
     if err or not rows or len(rows) == 0:
         print("[BILGI] 'neta_antenna_test' tablolari bulunamadi, sema ve tohum verileri otomatik yukleniyor...")
@@ -148,6 +212,8 @@ HTML_PAGE = r"""<!DOCTYPE html>
             --fail-text: #FF6B6B;
             --pass-bg: #0D3E28;
             --pass-text: #34D399;
+            --warning-bg: #3F2E09;
+            --warning-text: #FBBF24;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -157,6 +223,100 @@ HTML_PAGE = r"""<!DOCTYPE html>
             display: flex;
             height: 100vh;
             overflow: hidden;
+        }
+        /* Login Overlay */
+        #loginOverlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(4, 10, 8, 0.95);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            backdrop-filter: blur(8px);
+        }
+        .login-card {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border);
+            width: 380px;
+            padding: 32px 28px;
+            border-radius: 12px;
+            box-shadow: 0 12px 36px rgba(0,0,0,0.6);
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+        .login-header {
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+        .login-badge {
+            background-color: var(--primary);
+            color: var(--bg-dark);
+            font-weight: 900;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 16px;
+            letter-spacing: 1.5px;
+        }
+        .login-title {
+            font-size: 16px;
+            font-weight: bold;
+            color: var(--primary-light);
+        }
+        .login-sub {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .form-group label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-muted);
+        }
+        .form-control {
+            background-color: var(--bg-dark);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            padding: 10px 14px;
+            border-radius: 6px;
+            font-size: 13px;
+        }
+        .form-control:focus { outline: none; border-color: var(--primary-light); }
+        .login-btn {
+            background-color: var(--primary);
+            color: var(--bg-dark);
+            border: none;
+            padding: 11px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.2s;
+            margin-top: 6px;
+        }
+        .login-btn:hover { background-color: var(--primary-light); }
+        .login-error {
+            background-color: var(--fail-bg);
+            color: var(--fail-text);
+            border: 1px solid rgba(255,107,107,0.3);
+            padding: 10px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            display: none;
+        }
+        .login-hint {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-align: center;
+            line-height: 1.4;
         }
         /* Sidebar */
         aside {
@@ -263,7 +423,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
             background-color: var(--bg-dark);
         }
         header {
-            padding: 14px 24px;
+            padding: 12px 24px;
             border-bottom: 1px solid var(--border);
             background-color: var(--bg-card);
             display: flex;
@@ -296,6 +456,25 @@ HTML_PAGE = r"""<!DOCTYPE html>
             align-items: center;
             gap: 12px;
         }
+        .user-pill {
+            background-color: var(--bg-dark);
+            border: 1px solid var(--border);
+            padding: 5px 12px;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+        }
+        .role-badge {
+            background-color: var(--primary);
+            color: var(--bg-dark);
+            font-size: 10px;
+            font-weight: 800;
+            padding: 2px 6px;
+            border-radius: 4px;
+            text-transform: uppercase;
+        }
         .search-input {
             background-color: var(--bg-dark);
             border: 1px solid var(--border);
@@ -303,7 +482,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
             padding: 7px 12px;
             border-radius: 6px;
             font-size: 12px;
-            width: 220px;
+            width: 200px;
         }
         .search-input:focus { outline: none; border-color: var(--primary-light); }
         .btn {
@@ -322,6 +501,8 @@ HTML_PAGE = r"""<!DOCTYPE html>
         .btn-primary:hover { background-color: var(--primary-light); }
         .btn-outline { background: none; border: 1px solid var(--border); color: var(--text-main); }
         .btn-outline:hover { background-color: var(--bg-hover); }
+        .btn-danger { background-color: var(--fail-bg); color: var(--fail-text); border: 1px solid rgba(255,107,107,0.3); }
+        .btn-danger:hover { background-color: #5C1A1A; }
         /* View Content */
         .content-area {
             flex: 1;
@@ -442,6 +623,34 @@ HTML_PAGE = r"""<!DOCTYPE html>
     </style>
 </head>
 <body>
+    <!-- Login Modal -->
+    <div id="loginOverlay">
+        <div class="login-card">
+            <div class="login-header">
+                <span class="login-badge">NETA</span>
+                <div class="login-title">DRX9000 VERİTABANI KONSOLU</div>
+                <div class="login-sub">Güvenli Oturum Açma</div>
+            </div>
+            <div id="loginError" class="login-error"></div>
+            <form onsubmit="handleLogin(event)" style="display:flex; flex-direction:column; gap:14px;">
+                <div class="form-group">
+                    <label>Kullanıcı Adı</label>
+                    <input type="text" id="loginUsername" class="form-control" placeholder="Örn: admin" required autofocus>
+                </div>
+                <div class="form-group">
+                    <label>Şifre</label>
+                    <input type="password" id="loginPassword" class="form-control" placeholder="••••" required>
+                </div>
+                <button type="submit" class="login-btn">🔑 Giriş Yap</button>
+            </form>
+            <div class="login-hint">
+                Masaüstü uygulaması ile ortak kullanıcı veri tabanı (<code>users</code>) kullanılmaktadır.<br/>
+                <span style="color:var(--primary-light);">Varsayılan: admin / 123</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Sidebar -->
     <aside>
         <div class="brand">
             <span class="brand-badge">NETA</span>
@@ -461,6 +670,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
         </div>
     </aside>
 
+    <!-- Main Content -->
     <main>
         <header>
             <div class="view-tabs">
@@ -471,6 +681,11 @@ HTML_PAGE = r"""<!DOCTYPE html>
                 <input type="text" id="filterInput" class="search-input" placeholder="Bu tabloda ara..." onkeyup="filterTable()">
                 <button class="btn btn-outline" onclick="exportCsv()">📥 CSV İndir</button>
                 <button class="btn btn-primary" onclick="refreshCurrentTable()">🔄 Yenile</button>
+                <div class="user-pill" id="userPill">
+                    <span id="userFullName">Yükleniyor</span>
+                    <span class="role-badge" id="userRoleBadge">ROLE</span>
+                </div>
+                <button class="btn btn-danger" onclick="handleLogout()" title="Oturumu Kapat">🚪 Çıkış</button>
             </div>
         </header>
 
@@ -497,6 +712,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
                     <button class="quick-btn" onclick="setSql('SELECT * FROM test_results ORDER BY id DESC LIMIT 100;')">Detaylı RF Sonuçları</button>
                     <button class="quick-btn" onclick="setSql('SELECT * FROM system_logs ORDER BY id DESC LIMIT 50;')">Son Sistem Logları</button>
                     <button class="quick-btn" onclick="setSql('SELECT * FROM satellite_profiles;')">Uydu Profilleri</button>
+                    <button class="quick-btn" onclick="setSql('SELECT * FROM users;')">Kullanıcılar</button>
                     <button class="quick-btn" onclick="setSql('SHOW FULL PROCESSLIST;')">Aktif İstemci Bağlantıları</button>
                 </div>
                 <textarea id="sqlInput" class="sql-editor" placeholder="SQL sorgunuzu buraya yazın (Örn: SELECT * FROM test_runs LIMIT 10;)"></textarea>
@@ -521,12 +737,79 @@ HTML_PAGE = r"""<!DOCTYPE html>
     </main>
 
     <script>
+        let currentUser = null;
         let currentTable = 'test_runs';
         let fullTableData = { headers: [], rows: [] };
+
+        async function checkAuth() {
+            try {
+                const res = await fetch('/api/me');
+                if (res.ok) {
+                    const data = await res.json();
+                    currentUser = data.user;
+                    onLoginSuccess(currentUser);
+                } else {
+                    showLoginOverlay();
+                }
+            } catch (err) {
+                showLoginOverlay();
+            }
+        }
+
+        function showLoginOverlay() {
+            document.getElementById('loginOverlay').style.display = 'flex';
+            document.getElementById('loginUsername').focus();
+        }
+
+        function onLoginSuccess(user) {
+            document.getElementById('loginOverlay').style.display = 'none';
+            document.getElementById('userFullName').textContent = user.full_name || user.username;
+            document.getElementById('userRoleBadge').textContent = user.role;
+            fetchTables();
+            loadTable(currentTable);
+        }
+
+        async function handleLogin(e) {
+            e.preventDefault();
+            const u = document.getElementById('loginUsername').value.trim();
+            const p = document.getElementById('loginPassword').value.trim();
+            const errDiv = document.getElementById('loginError');
+            errDiv.style.display = 'none';
+
+            try {
+                const res = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: u, password: p })
+                });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    currentUser = data.user;
+                    onLoginSuccess(currentUser);
+                } else {
+                    errDiv.textContent = data.error || 'Giriş başarısız!';
+                    errDiv.style.display = 'block';
+                }
+            } catch (err) {
+                errDiv.textContent = 'Bağlantı hatası: ' + err.message;
+                errDiv.style.display = 'block';
+            }
+        }
+
+        async function handleLogout() {
+            if (confirm("Oturumu kapatmak istediğinize emin misiniz?")) {
+                try {
+                    await fetch('/api/logout', { method: 'POST' });
+                } catch (e) {}
+                currentUser = null;
+                showLoginOverlay();
+            }
+        }
 
         async function fetchTables() {
             try {
                 const res = await fetch('/api/tables');
+                if (res.status === 401) { showLoginOverlay(); return; }
                 const data = await res.json();
                 const list = document.getElementById('tableList');
                 list.innerHTML = '';
@@ -551,6 +834,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
             
             try {
                 const res = await fetch(`/api/data?table=${encodeURIComponent(tableName)}`);
+                if (res.status === 401) { showLoginOverlay(); return; }
                 const data = await res.json();
                 if (data.error) {
                     alert("Hata: " + data.error);
@@ -637,6 +921,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ query: q })
                 });
+                if (res.status === 401) { showLoginOverlay(); return; }
                 const data = await res.json();
                 if (data.error) {
                     statusDiv.innerHTML = `<div class="error-box">❌ ${data.error}</div>`;
@@ -684,9 +969,8 @@ HTML_PAGE = r"""<!DOCTYPE html>
             window.location.href = `/api/export?table=${encodeURIComponent(currentTable)}`;
         }
 
-        // Initialize
-        fetchTables();
-        loadTable(currentTable);
+        // Check authentication on startup
+        checkAuth();
     </script>
 </body>
 </html>
@@ -698,6 +982,7 @@ class NetaWebHandler(BaseHTTPRequestHandler):
         path = parsed.path
         qs = urllib.parse.parse_qs(parsed.query)
 
+        # 1. Main Page
         if path == "/" or path == "/index.html":
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -705,7 +990,22 @@ class NetaWebHandler(BaseHTTPRequestHandler):
             self.wfile.write(HTML_PAGE.encode("utf-8"))
             return
 
-        elif path == "/api/tables":
+        # 2. Check Auth Status (/api/me)
+        elif path == "/api/me":
+            user = get_session_user(self)
+            if user:
+                self.send_json({"authenticated": True, "user": user})
+            else:
+                self.send_json({"authenticated": False, "error": "Unauthorized"}, 401)
+            return
+
+        # 3. Protected API Endpoints
+        user = get_session_user(self)
+        if not user:
+            self.send_json({"error": "Oturum açmanız gerekiyor."}, 401)
+            return
+
+        if path == "/api/tables":
             headers, rows, err = run_sql("SHOW TABLE STATUS;")
             if err:
                 self.send_json({"error": err}, 500)
@@ -719,7 +1019,6 @@ class NetaWebHandler(BaseHTTPRequestHandler):
 
         elif path == "/api/data":
             tbl = qs.get("table", ["test_runs"])[0]
-            # Sanitize table name to prevent injection
             safe_tbl = "".join(c for c in tbl if c.isalnum() or c == '_')
             headers, rows, err = run_sql(f"SELECT * FROM `{safe_tbl}` ORDER BY 1 DESC LIMIT 300;")
             if err:
@@ -744,8 +1043,7 @@ class NetaWebHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
             out = io.StringIO()
-            # UTF-8 BOM for Excel compatibility
-            out.write('\ufeff')
+            out.write('\ufeff')  # UTF-8 BOM
             writer = csv.writer(out)
             writer.writerow(headers)
             writer.writerows(rows)
@@ -759,7 +1057,65 @@ class NetaWebHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
-        if parsed.path == "/api/query":
+        path = parsed.path
+
+        # 1. Login Endpoint
+        if path == "/api/login":
+            length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(length).decode("utf-8")
+            try:
+                data = json.loads(body)
+                u = data.get("username", "").strip()
+                p = data.get("password", "").strip()
+
+                user = authenticate_user(u, p)
+                if not user:
+                    self.send_json({"error": "Geçersiz kullanıcı adı veya şifre!"}, 401)
+                    return
+
+                token = uuid.uuid4().hex
+                SESSIONS[token] = {**user, "expires": time.time() + 86400}
+                log_audit(user["username"], user["role"], "Oturum açıldı")
+
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Set-Cookie", f"neta_session={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": True, "user": user}, ensure_ascii=False).encode("utf-8"))
+            except Exception as e:
+                self.send_json({"error": str(e)}, 400)
+            return
+
+        # 2. Logout Endpoint
+        elif path == "/api/logout":
+            user = get_session_user(self)
+            if user:
+                log_audit(user["username"], user["role"], "Oturum kapatıldı")
+            cookie_header = self.headers.get("Cookie", "")
+            cookies = SimpleCookie()
+            try:
+                cookies.load(cookie_header)
+                if "neta_session" in cookies:
+                    token = cookies["neta_session"].value
+                    if token in SESSIONS:
+                        del SESSIONS[token]
+            except Exception:
+                pass
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Set-Cookie", "neta_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT")
+            self.end_headers()
+            self.wfile.write(json.dumps({"success": True}).encode("utf-8"))
+            return
+
+        # 3. Protected Query Endpoint
+        elif path == "/api/query":
+            user = get_session_user(self)
+            if not user:
+                self.send_json({"error": "Oturum açmanız gerekiyor."}, 401)
+                return
+
             length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(length).decode("utf-8")
             try:
@@ -768,6 +1124,15 @@ class NetaWebHandler(BaseHTTPRequestHandler):
                 if not query:
                     self.send_json({"error": "Empty query"}, 400)
                     return
+
+                # RBAC Safety: Operators cannot run destructive queries
+                if user["role"] != "ADMIN":
+                    destructive_keywords = ["DROP", "DELETE", "TRUNCATE", "ALTER", "UPDATE"]
+                    q_upper = query.upper()
+                    if any(kw in q_upper for kw in destructive_keywords):
+                        self.send_json({"error": "Bu işlem için YÖNETİCİ (ADMIN) yetkisi gereklidir!"}, 403)
+                        return
+
                 headers, rows, err = run_sql(query)
                 if err:
                     self.send_json({"error": err}, 200)
@@ -793,6 +1158,7 @@ def main():
     print(f"MariaDB Sunucusu : {DB_HOST}:{DB_PORT} ({DB_NAME})")
     print(f"Web Arayuzu      : http://localhost:{PORT}")
     print(f"Baglanti Motoru  : {MYSQL_BIN}")
+    print("Kimlik Dogrulama : AKTIF (users tablosu ile entegre)")
     print("=" * 65)
 
     ensure_database()

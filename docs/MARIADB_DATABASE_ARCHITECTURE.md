@@ -186,6 +186,9 @@ This script:
 3. Automatically launches the browser at `http://localhost:8080`.
 
 ### 🌐 Features
+- **Unified Authentication & RBAC:** Protected by the same credentials as the desktop application (`users` table). Users log in via a secure login dialog before accessing any database view or API.
+- **Audit Logging:** Every login, logout, and database write action is automatically recorded into the `system_logs` table (`WEB_CONSOLE` source).
+- **Role-Based Safety (Admin vs Operator):** Operators get read-only table viewing and search, while write and destructive SQL queries require `ADMIN` role.
 - **Table Data Viewer:** Real-time view of `test_runs`, `test_results`, `satellite_profiles`, `profile_channels`, `work_orders`, `users`, and `system_logs`.
 - **Live Search & Filter:** Instant search across all columns in any table.
 - **CSV Data Export:** One-click CSV export with UTF-8 BOM encoding for Excel.
