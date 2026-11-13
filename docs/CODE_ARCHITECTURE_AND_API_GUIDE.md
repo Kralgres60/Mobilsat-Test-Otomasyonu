@@ -169,7 +169,12 @@ Tüm sistemde paylaşılan ana veri yapılarını ve JSON serileştirme fonksiyo
   - `work_orders`: Üretim iş emirleri ve miktar takibi (`getActiveWorkOrders()`, `incrementOrderCount()`).
   - `golden_frequencies`: Bağımsız Host referans frekans değerleri (`getGoldenFrequencies()`, `saveGoldenFrequency()`).
   - `users`: Kullanıcı hesapları ve RBAC yetkilendirme (`authenticateUser()`, `getUsers()`, `saveUser()`).
+  - `cluster_nodes`: Ağdaki yönetici host sunucuları, test istasyonları ve web servislerinin canlılık ve filo takibi.
   - `system_settings`: Dinamik anahtar-değer parametre havuzu (`getSetting()`, `setSetting()`).
+- **Kurumsal Web Yönetim ve Veri Konsolu (Web SPA):**
+  - Bağımsız sunucular veya uzaktan yönetim için `tools/mariadb_portable/web/neta_db_web.py` üzerinden 8080 portunda çalışan modern web platformu.
+  - 8 operasyonel modül: Genel Panel (Dashboard & KPI), Sunucular & Donanım (Cluster Nodes), Kullanıcı Yönetimi, Test Geçmişi (10 kanal detay modalı), İş Emirleri, Uydu Profilleri, Veritabanı & SQL Konsolu (F9), Denetim İzi (Audit Logs).
+  - Masaüstü uygulaması ile `users` tablosu üzerinden %100 ortak kimlik doğrulama ve denetim izi kaydı.
 
 ---
 

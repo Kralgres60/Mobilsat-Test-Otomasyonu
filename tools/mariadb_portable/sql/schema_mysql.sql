@@ -148,3 +148,17 @@ CREATE TABLE IF NOT EXISTS `golden_frequencies` (
     UNIQUE KEY `uk_golden_freq` (`frequency_mhz`, `symbol_rate`, `polarization`)
 ) ENGINE=InnoDB;
 
+-- 10. Ağ Sunucuları ve İstasyon Filosu (Cluster Nodes & Host Servers)
+CREATE TABLE IF NOT EXISTS `cluster_nodes` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `node_type` ENUM('HOST_SERVER', 'STATION_CLIENT', 'WEB_SERVICE') NOT NULL DEFAULT 'HOST_SERVER',
+    `node_name` VARCHAR(100) NOT NULL,
+    `ip_address` VARCHAR(45) NOT NULL,
+    `port` INT NOT NULL DEFAULT 45454,
+    `status` ENUM('ONLINE', 'BUSY', 'OFFLINE') NOT NULL DEFAULT 'ONLINE',
+    `active_test_sn` VARCHAR(64) DEFAULT NULL,
+    `details` VARCHAR(255) DEFAULT NULL,
+    `last_seen` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY `uk_node_ip_port` (`node_type`, `ip_address`, `port`)
+) ENGINE=InnoDB;
+

@@ -50,3 +50,13 @@ ON DUPLICATE KEY UPDATE `channel_name` = VALUES(`channel_name`);
 INSERT INTO `work_orders` (`id`, `order_no`, `customer_name`, `product_code`, `satellite_profile_id`, `target_quantity`, `status`, `notes`)
 VALUES (1, 'NETA-2026-001', 'Genel Üretim', 'DRX9000-ANT-V1', 1, 100, 'IN_PROGRESS', 'Fabrika seri üretim parti 1')
 ON DUPLICATE KEY UPDATE `customer_name` = VALUES(`customer_name`);
+
+-- 6. Örnek Ağ Düğümleri ve Sunucular (Cluster Nodes)
+INSERT INTO `cluster_nodes` (`node_type`, `node_name`, `ip_address`, `port`, `status`, `details`)
+VALUES 
+    ('HOST_SERVER', 'NETA-HOST-ANA-HAT', '192.168.1.100', 45454, 'ONLINE', 'Ana Yönetici Sunucu - 4 PC Test Modu'),
+    ('HOST_SERVER', 'NETA-HOST-ARGE-02', '192.168.1.101', 45454, 'ONLINE', 'Ar-Ge Laboratuvarı ve Kalite Sunucusu'),
+    ('STATION_CLIENT', 'ISTASYON-MASA-1', '192.168.1.111', 0, 'ONLINE', 'Test İstasyonu 1 (DUT RF Masa)'),
+    ('STATION_CLIENT', 'ISTASYON-MASA-2', '192.168.1.112', 0, 'ONLINE', 'Test İstasyonu 2 (DUT RF Masa)'),
+    ('STATION_CLIENT', 'ISTASYON-MASA-3', '192.168.1.113', 0, 'ONLINE', 'Test İstasyonu 3 (DUT RF Masa)')
+ON DUPLICATE KEY UPDATE `status` = VALUES(`status`), `details` = VALUES(`details`);

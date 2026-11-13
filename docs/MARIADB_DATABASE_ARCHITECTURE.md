@@ -122,6 +122,28 @@ erDiagram
         timestamp lock_acquired_at
         timestamp heartbeat_at
     }
+    golden_frequencies {
+        int id PK
+        varchar label
+        int frequency_mhz
+        int symbol_rate
+        enum polarization "V | H"
+        decimal golden_cn_db
+        decimal golden_pow_dbm
+        decimal tolerance_db
+        timestamp updated_at
+    }
+    cluster_nodes {
+        int id PK
+        enum node_type "HOST_SERVER | STATION_CLIENT | WEB_SERVICE"
+        varchar node_name
+        varchar ip_address
+        int port
+        enum status "ONLINE | BUSY | OFFLINE"
+        varchar active_test_sn
+        varchar details
+        timestamp last_seen
+    }
 ```
 
 ---
@@ -172,9 +194,9 @@ If `rowCount() > 0`, the lock is granted. On test completion, `locked_by_station
 
 ---
 
-## 7. Web-Based Database Management Console (Headless / Standalone MariaDB)
+## 7. Web-Based Enterprise Fleet & Database Management Platform
 
-When MariaDB runs on a standalone server or in 3-PC architecture without a desktop Host PC, the database can be monitored and managed directly from any web browser on the network.
+When MariaDB runs on a standalone server or in 3-PC architecture without a desktop Host PC, or when engineering teams need remote factory visibility, the system provides a full Enterprise Single-Page Application (SPA) directly from any web browser on the network.
 
 ### 🚀 Starting the Web Console
 Double-click:
@@ -182,16 +204,46 @@ Double-click:
 
 This script:
 1. Verifies MariaDB is running on port 3306 (starts it automatically if stopped).
-2. Starts the zero-dependency Python web server (`web/neta_db_web.py`) on port 8080.
-3. Automatically launches the browser at `http://localhost:8080`.
+2. Auto-provisions `neta_antenna_test` schema and seed data if missing.
+3. Starts the zero-dependency Python web server (`web/neta_db_web.py`) on port 8080.
+4. Automatically launches the browser at `http://localhost:8080`.
 
-### 🌐 Features
-- **Unified Authentication & RBAC:** Protected by the same credentials as the desktop application (`users` table). Users log in via a secure login dialog before accessing any database view or API.
-- **Audit Logging:** Every login, logout, and database write action is automatically recorded into the `system_logs` table (`WEB_CONSOLE` source).
-- **Role-Based Safety (Admin vs Operator):** Operators get read-only table viewing and search, while write and destructive SQL queries require `ADMIN` role.
-- **Table Data Viewer:** Real-time view of `test_runs`, `test_results`, `satellite_profiles`, `profile_channels`, `work_orders`, `users`, and `system_logs`.
-- **Live Search & Filter:** Instant search across all columns in any table.
-- **CSV Data Export:** One-click CSV export with UTF-8 BOM encoding for Excel.
-- **SQL Query Console:** Run arbitrary custom SQL queries (`SELECT`, `UPDATE`, `INSERT`, `SHOW PROCESSLIST`) with F9 or Ctrl+Enter.
-- **Cross-Device Access:** Can be accessed from any phone, tablet, or PC on the same factory network via `http://<SERVER_IP>:8080`.
+### 🌐 Enterprise Sidebar Modules
+The platform features a modern dark-theme responsive sidebar with 8 dedicated operational modules:
+
+1. **📊 Genel Panel (Dashboard):**
+   - Real-time KPI summary (Total Tests, Pass Rate %, Today's Tests, Registered Host Servers, Active Stations).
+   - Live Mutex Lock status banner (showing whether Station 1/2/3 is testing or Reference is free).
+   - Recent test runs table with one-click drill-down inspection.
+
+2. **🖥️ Sunucular & Donanım (Cluster Fleet Management):**
+   - Monitors multi-host servers, test stations, and web nodes (`cluster_nodes`).
+   - Dynamic real-time health indicator (`ONLINE` if heartbeat < 60s, `OFFLINE` if inactive).
+   - Direct node details (IP, port, active antenna SN, role, last heartbeat).
+
+3. **👥 Kullanıcı Yönetimi (User Management & RBAC):**
+   - Shared authentication credentials with Qt desktop application (`users` table).
+   - Full CRUD & Authorization: Add new user, update password, toggle active/inactive status, delete accounts (built-in admin protected).
+   - **Role Switching:** One-click role toggle between `ADMIN` and `OPERATOR` with root administrator protection.
+
+4. **📋 Test Geçmişi (Test Run History & Inspection):**
+   - Filterable search across serial numbers, station IDs, dates, and test results.
+   - Comprehensive test detail modal inspecting all 10 transponder channels with DUT vs REF measurements ($\Delta$ margin).
+
+5. **📦 İş Emirleri (Production Work Orders):**
+   - Factory batch production tracking (`work_orders`).
+   - Visual progress bars, target vs completed counters, pass/fail distribution, and status management.
+
+6. **🛰️ Uydu Profilleri & Frekans Matrisi (Satellite Profiles & Frequency Channels):**
+   - **Profile Management:** Create new satellite profiles (name, satellite name, orbital position e.g. 42.0E, default RF tolerance), view and delete custom profiles.
+   - **Interactive Channel & Frequency Matrix:** Select any profile, view channels, and add new transponder frequencies (Channel No, Name, Frequency in MHz, Symbol Rate in kS/s, Polarization V/H, tolerance in dB).
+   - **Channel Deletion:** Remove deprecated or obsolete frequencies per profile.
+
+7. **🗄️ Veritabanı & SQL Konsolu (Database & SQL Query Console):**
+   - Raw table browser with instant column sorting, live pagination, and CSV export.
+   - Interactive SQL Query Console supporting multi-line query execution via `F9` or `Ctrl+Enter`.
+
+8. **📜 Denetim İzi (Audit Logs & Security Trail):**
+   - Complete traceability of logins, logouts, work order updates, user creations, and test runs.
+   - Traceable by operator username, originating station IP/ID, and timestamp.
 

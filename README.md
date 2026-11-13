@@ -90,6 +90,7 @@ flowchart TD
 - **Donanımsal Kilit Hakemi (Distributed Mutex Arbiter):** Ortak kullanılan referans alıcısı için FIFO tabanlı donanım kilidi yönetimi. Çakışmaları ve hatalı ölçümleri %100 engeller, zaman aşımı koruması içerir.
 - **10 Kanal Otomatik RF Analizi:** 10 transponder frekansını sırayla tarar; taşıyıcı kilidi (Carrier Lock), video/ses kilitleri denetlenir ve referans antenle $\Delta$ fark hesabı yapılır.
 - **Otomatik MariaDB/MySQL Entegrasyonu:** Sunucu ilk açılışta veritabanı servisini ve portlarını kontrol eder, eksikse tek tıkla sessiz kurulumunu yapar ve fabrika test şemasını başlatır.
+- **Kurumsal Web Yönetim ve Filo Platformu (Port: 8080):** Bağımsız MariaDB sunucularında veya uzak fabrika ağında (`http://localhost:8080`) çalışan 8 modüllü modern SPA konsolu. Çoklu Host sunucu ve İstasyon filo takibi (`cluster_nodes`), masaüstü uygulamasıyla ortak kullanıcı & RBAC yönetimi, 10 kanal ölçüm detayları inceleme, canlı mutex kilit monitörü ve F9 etkileşimli SQL konsolu içerir.
 - **Resmi Excel (XLSX) Kalite Raporlama:** Host ekranından tek tıkla iş emirleri, test geçmişi ve tolerans analizleri profesyonel Excel formatında dışa aktarılır.
 
 ---
