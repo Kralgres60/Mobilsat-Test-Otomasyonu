@@ -19,8 +19,7 @@
 #include <QTimer>
 #include <QVector>
 #include "core/data_models.h"
-#include "hardware/drx_web_client.h"
-#include "hardware/serial_worker.h"
+#include "hardware/data_transfer.h"
 
 /**
  * @class ProfileManagerWidget

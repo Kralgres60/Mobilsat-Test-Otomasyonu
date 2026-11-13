@@ -11,8 +11,8 @@ Proje iki katmanlı ağ haberleşmesi kullanır:
 
 1. **Cihaz Katmanı (HTTP / Web CGI + ICMP Ping):**
    - İstasyon PC'leri test edilen antene bağlı **DUT DRX9000** cihazıyla (ve Yönetici Host veya Alg-2'de **Referans Golden DRX9000** cihazıyla) doğrudan **CAT6 Ethernet** üzerinden haberleşir.
-   - Uygulama sınıfı: `DrxWebClient` (`src/hardware/drx_web_client.h`, `src/hardware/drx_web_client.cpp`).
-   - RS232 seri port (`SerialWorker`) yalnızca Mühendis Ayarları sekmesinde opsiyonel laboratuvar yedeği olarak bulunur; ana üretim akışında kullanılmaz.
+   - Uygulama sınıfı: `Ethernet` (`public DataTransfer`) (`src/hardware/data_transfer.h`, `src/hardware/data_transfer.cpp`).
+   - RS232 seri port (`RS232 : public DataTransfer`) yalnızca Mühendis Ayarları sekmesinde opsiyonel laboratuvar yedeği olarak bulunur; ana üretim akışında kullanılmaz.
 2. **Koordinasyon Katmanı (LAN TCP :9100 + UDP Beacon :9101):**
    - **Algoritma 1 (`NETA_ALGORITMA_1_FOUR_PC`):** 1 Yönetici (Host) + 3 Test İstasyonu arasında UDP keşif (`UdpBeaconBroadcaster` / `UdpBeaconListener`), TCP komut/kilit hakemi (`TcpServer` / `TcpClient`) ve gerçek zamanlı referans telemetri akışı yürütür.
    - **Algoritma 2 (`NETA_ALGORITMA_2_THREE_PC`):** Yönetici PC olmadan istasyonlar referans DRX ile doğrudan Web CGI üzerinden konuşur; kilit koordinasyonu MariaDB `reference_lock` tablosuyla sağlanır.
@@ -212,7 +212,7 @@ Algoritma 1 (`NETA_ALGORITMA_1_FOUR_PC`) modunda Yönetici Sunucu (`HostWindow` 
 
 ## 5. İlgili Kaynak Dosyalar
 
-- `src/hardware/drx_web_client.h` / `src/hardware/drx_web_client.cpp`
+- `src/hardware/data_transfer.h` / `src/hardware/data_transfer.cpp` (`DataTransfer`, `Ethernet`, `RS232`)
 - `src/network/network_messages.h`
 - `src/network/tcp_server.h` / `src/network/tcp_server.cpp`
 - `src/network/tcp_client.h` / `src/network/tcp_client.cpp`

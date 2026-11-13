@@ -18,7 +18,6 @@
 #include "core/dependency_installer.h"
 #include "database/db_manager.h"
 #include "ui/common/style_helper.h"
-#include "ui/common/mode_select_dialog.h"
 #include "ui/common/login_dialog.h"
 #include "ui/common/lobby_window.h"
 #include "ui/client/client_window.h"
@@ -27,7 +26,7 @@
 #include "ui/debug/debug_runner_window.h"
 #endif
 #if defined(NETA_DEBUG_DB_MODE)
-#include "ui/debug/db_debug_widget.h"
+#include "ui/debug/debug_runner_window.h"
 #include <QMainWindow>
 #endif
 

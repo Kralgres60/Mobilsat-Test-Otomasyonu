@@ -1,6 +1,6 @@
 /**
  * @file test_history_widget.cpp
- * @brief Implementation of TestHistoryWidget with filtering and Excel (.xlsx) export/import.
+ * @brief Ortak Test Geçmişi & Veritabanı Tablo Tarayıcısı uygulaması.
  * @author Semi Eren Gökyıldız
  * @copyright Copyright (C) 2026 NETA Elektronik A.Ş.
  */
@@ -13,13 +13,16 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
-#include <QFileDialog>
 #include <QMessageBox>
+#include <QFileDialog>
 #include <QDateTime>
-#include <QBrush>
 #include <QColor>
 #include <QAbstractItemView>
 #include <QRegularExpression>
+#include <QSqlDatabase>
+#include <QSqlQuery>
+#include <QSqlRecord>
+#include <QSqlError>
 
 TestHistoryWidget::TestHistoryWidget(QWidget *parent)
     : QWidget(parent) {
@@ -27,22 +30,45 @@ TestHistoryWidget::TestHistoryWidget(QWidget *parent)
 }
 
 void TestHistoryWidget::setupUi() {
-    QVBoxLayout *vbox = new QVBoxLayout(this);
-    vbox->setContentsMargins(10, 10, 10, 10);
-    vbox->setSpacing(8);
+    auto *root = new QVBoxLayout(this);
+    root->setContentsMargins(8, 8, 8, 8);
+    root->setSpacing(6);
 
-    // ── Header & Filter Bar ──────────────────────────────────────────────────
+    m_tabs = new QTabWidget(this);
+
+    auto *tabHistory = new QWidget(m_tabs);
+    setupHistoryTab(tabHistory);
+    m_tabs->addTab(tabHistory, "📋 Test Koşumları & Geçmiş");
+
+    auto *tabDb = new QWidget(m_tabs);
+    setupDbViewerTab(tabDb);
+    m_tabs->addTab(tabDb, "🗄️ Veritabanı Tabloları (SQL)");
+
+    root->addWidget(m_tabs);
+
+    connect(m_tabs, &QTabWidget::currentChanged, this, [this](int idx) {
+        if (idx == 0) refreshHistory();
+        else if (idx == 1) refreshDbTables();
+    });
+}
+
+void TestHistoryWidget::setupHistoryTab(QWidget *tab) {
+    auto *vbox = new QVBoxLayout(tab);
+    vbox->setContentsMargins(6, 6, 6, 6);
+    vbox->setSpacing(6);
+
     QHBoxLayout *filterRow = new QHBoxLayout();
     filterRow->setSpacing(6);
 
-    QLabel *lblSearch = new QLabel("Ara:", this);
-    m_txtSearch = new QLineEdit(this);
+    filterRow->addWidget(new QLabel("Ara:", tab));
+    m_txtSearch = new QLineEdit(tab);
     m_txtSearch->setPlaceholderText("Seri No, İsim, Kullanıcı, Profil veya Detay...");
     connect(m_txtSearch, &QLineEdit::returnPressed, this, &TestHistoryWidget::refreshHistory);
     connect(m_txtSearch, &QLineEdit::textChanged, this, &TestHistoryWidget::applyFilters);
+    filterRow->addWidget(m_txtSearch, 2);
 
-    QLabel *lblStation = new QLabel("Kaynak:", this);
-    m_comboStation = new QComboBox(this);
+    filterRow->addWidget(new QLabel("Kaynak:", tab));
+    m_comboStation = new QComboBox(tab);
     m_comboStation->addItem("Tümü", -1);
     m_comboStation->addItem("Yönetici (Host)", 0);
     m_comboStation->addItem("İstasyon 1", 1);
@@ -50,49 +76,39 @@ void TestHistoryWidget::setupUi() {
     m_comboStation->addItem("İstasyon 3", 3);
     connect(m_comboStation, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &TestHistoryWidget::applyFilters);
+    filterRow->addWidget(m_comboStation);
 
-    QLabel *lblResult = new QLabel("Sonuç:", this);
-    m_comboResult = new QComboBox(this);
+    filterRow->addWidget(new QLabel("Sonuç:", tab));
+    m_comboResult = new QComboBox(tab);
     m_comboResult->addItem("Tümü", "");
     m_comboResult->addItem("PASS", "PASS");
     m_comboResult->addItem("FAIL", "FAIL");
     m_comboResult->addItem("ABORTED", "ABORTED");
     connect(m_comboResult, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &TestHistoryWidget::applyFilters);
-
-    m_btnRefresh = new QPushButton("🔄 Yenile", this);
-    connect(m_btnRefresh, &QPushButton::clicked, this, &TestHistoryWidget::refreshHistory);
-
-    m_btnExportXlsx = new QPushButton("📤 Excel'e Aktar (.xlsx)", this);
-    m_btnExportXlsx->setStyleSheet(
-        "background-color: #059669; color: #FFFFFF; border: none; "
-        "border-radius: 4px; padding: 6px 12px; font-weight: bold;");
-    connect(m_btnExportXlsx, &QPushButton::clicked, this, &TestHistoryWidget::onExportExcelClicked);
-
-    m_btnImportXlsx = new QPushButton("📥 Excel'den Al (.xlsx)", this);
-    m_btnImportXlsx->setStyleSheet(
-        "background-color: #0284C7; color: #FFFFFF; border: none; "
-        "border-radius: 4px; padding: 6px 12px; font-weight: bold;");
-    connect(m_btnImportXlsx, &QPushButton::clicked, this, &TestHistoryWidget::onImportExcelClicked);
-
-    filterRow->addWidget(lblSearch);
-    filterRow->addWidget(m_txtSearch, 2);
-    filterRow->addWidget(lblStation);
-    filterRow->addWidget(m_comboStation);
-    filterRow->addWidget(lblResult);
     filterRow->addWidget(m_comboResult);
+
+    m_btnRefresh = new QPushButton("🔄 Yenile", tab);
+    connect(m_btnRefresh, &QPushButton::clicked, this, &TestHistoryWidget::refreshHistory);
     filterRow->addWidget(m_btnRefresh);
+
+    m_btnExportXlsx = new QPushButton("📤 Excel'e Aktar (.xlsx)", tab);
+    m_btnExportXlsx->setStyleSheet("background-color: #059669; color: white; border: none; border-radius: 4px; padding: 6px 12px; font-weight: bold;");
+    connect(m_btnExportXlsx, &QPushButton::clicked, this, &TestHistoryWidget::onExportExcelClicked);
     filterRow->addWidget(m_btnExportXlsx);
+
+    m_btnImportXlsx = new QPushButton("📥 Excel'den Al (.xlsx)", tab);
+    m_btnImportXlsx->setStyleSheet("background-color: #0284C7; color: white; border: none; border-radius: 4px; padding: 6px 12px; font-weight: bold;");
+    connect(m_btnImportXlsx, &QPushButton::clicked, this, &TestHistoryWidget::onImportExcelClicked);
     filterRow->addWidget(m_btnImportXlsx);
+
     vbox->addLayout(filterRow);
 
-    // ── Summary Strip ────────────────────────────────────────────────────────
-    m_lblSummary = new QLabel("Kayıtlar yükleniyor...", this);
+    m_lblSummary = new QLabel("Kayıtlar yükleniyor...", tab);
     m_lblSummary->setStyleSheet("color: #A7C4B5; font-size: 9.5pt; padding: 2px 4px;");
     vbox->addWidget(m_lblSummary);
 
-    // ── Operations & Test History Table ──────────────────────────────────────
-    m_table = new QTableWidget(this);
+    m_table = new QTableWidget(tab);
     m_table->setColumnCount(13);
     m_table->setHorizontalHeaderLabels({
         "ID", "Tarih / Saat", "İstasyon / Kaynak", "Testi Yapan", "Kullanıcı Adı",
@@ -101,77 +117,102 @@ void TestHistoryWidget::setupUi() {
     });
     m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     m_table->horizontalHeader()->setStretchLastSection(true);
-    m_table->verticalHeader()->setVisible(false);
-    m_table->setAlternatingRowColors(true);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_table->setSelectionMode(QAbstractItemView::SingleSelection);
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_table->setSortingEnabled(false);
-
-    // Sensible default widths
-    m_table->setColumnWidth(0, 52);
-    m_table->setColumnWidth(1, 138);
-    m_table->setColumnWidth(2, 125);
-    m_table->setColumnWidth(3, 120);
-    m_table->setColumnWidth(4, 105);
-    m_table->setColumnWidth(5, 175);
-    m_table->setColumnWidth(6, 130);
-    m_table->setColumnWidth(7, 65);
-    m_table->setColumnWidth(8, 70);
-    m_table->setColumnWidth(9, 85);
-    m_table->setColumnWidth(10, 82);
-    m_table->setColumnWidth(11, 82);
-
+    m_table->setAlternatingRowColors(true);
+    m_table->verticalHeader()->setDefaultSectionSize(26);
     vbox->addWidget(m_table, 1);
+}
+
+void TestHistoryWidget::setupDbViewerTab(QWidget *tab) {
+    auto *vbox = new QVBoxLayout(tab);
+    vbox->setContentsMargins(6, 6, 6, 6);
+    vbox->setSpacing(6);
+
+    QHBoxLayout *bar = new QHBoxLayout();
+    bar->setSpacing(8);
+
+    bar->addWidget(new QLabel("Tablo:", tab));
+    m_comboTables = new QComboBox(tab);
+    m_comboTables->setMinimumWidth(200);
+    connect(m_comboTables, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &TestHistoryWidget::loadSelectedDbTable);
+    bar->addWidget(m_comboTables);
+
+    bar->addWidget(new QLabel("Limit:", tab));
+    m_comboLimit = new QComboBox(tab);
+    m_comboLimit->addItem("200 Satır", 200);
+    m_comboLimit->addItem("500 Satır", 500);
+    m_comboLimit->addItem("1000 Satır", 1000);
+    connect(m_comboLimit, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &TestHistoryWidget::loadSelectedDbTable);
+    bar->addWidget(m_comboLimit);
+
+    m_txtDbFilter = new QLineEdit(tab);
+    m_txtDbFilter->setPlaceholderText("Tablo içinde ara / filtrele...");
+    m_txtDbFilter->setClearButtonEnabled(true);
+    connect(m_txtDbFilter, &QLineEdit::textChanged, this, &TestHistoryWidget::applyDbFilter);
+    bar->addWidget(m_txtDbFilter, 1);
+
+    m_btnDbRefresh = new QPushButton("🔄 Tabloları Yenile", tab);
+    m_btnDbRefresh->setCursor(Qt::PointingHandCursor);
+    m_btnDbRefresh->setStyleSheet("background-color: #059669; color: white; border: none; border-radius: 4px; padding: 6px 14px; font-weight: bold;");
+    connect(m_btnDbRefresh, &QPushButton::clicked, this, &TestHistoryWidget::refreshDbTables);
+    bar->addWidget(m_btnDbRefresh);
+
+    vbox->addLayout(bar);
+
+    m_lblDbInfo = new QLabel("Veritabanı durumu bekleniyor...", tab);
+    m_lblDbInfo->setStyleSheet("color: #34D399; font-weight: bold; padding: 2px 4px;");
+    vbox->addWidget(m_lblDbInfo);
+
+    m_tableDb = new QTableWidget(tab);
+    m_tableDb->setAlternatingRowColors(true);
+    m_tableDb->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_tableDb->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_tableDb->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_tableDb->verticalHeader()->setVisible(false);
+    m_tableDb->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    m_tableDb->horizontalHeader()->setStretchLastSection(true);
+    vbox->addWidget(m_tableDb, 1);
 }
 
 void TestHistoryWidget::refreshHistory() {
     DbManager &db = DbManager::instance();
     if (!db.isConnected()) {
-        db.connectToDatabase(AppConfig::instance().dbHost(), AppConfig::instance().dbPort(),
-                             AppConfig::instance().dbName(), AppConfig::instance().dbUser(),
-                             AppConfig::instance().dbPassword());
-    }
-
-    if (!db.isConnected()) {
         m_cachedRuns.clear();
         m_table->setRowCount(0);
-        m_lblSummary->setText("⚠️ Veritabanı bağlantısı kurulamadı: " + db.lastError());
+        m_lblSummary->setText("⚠️ Veritabanı bağlantısı yok (Çevrimdışı)");
         return;
     }
 
-    m_cachedRuns = db.getTestRuns(500, QString());
+    m_cachedRuns = db.getTestRuns(500);
     applyFilters();
 }
 
 void TestHistoryWidget::applyFilters() {
-    const QString needle = m_txtSearch ? m_txtSearch->text().trimmed().toLower() : QString();
-    const int stationFilter = m_comboStation ? m_comboStation->currentData().toInt() : -1;
-    const QString resultFilter = m_comboResult ? m_comboResult->currentData().toString() : QString();
+    const QString query = m_txtSearch->text().trimmed();
+    const int stationFilter = m_comboStation->currentData().toInt();
+    const QString resultFilter = m_comboResult->currentData().toString();
 
     QVector<TestRunData> filtered;
     filtered.reserve(m_cachedRuns.size());
 
     for (const auto &r : m_cachedRuns) {
-        if (stationFilter >= 0 && r.stationId != stationFilter) {
-            continue;
+        if (stationFilter != -1 && r.stationId != stationFilter) continue;
+        if (!resultFilter.isEmpty() && !r.overallResult.trimmed().toUpper().contains(resultFilter)) continue;
+
+        if (!query.isEmpty()) {
+            bool match = r.antennaSn.contains(query, Qt::CaseInsensitive)
+                      || r.testerName.contains(query, Qt::CaseInsensitive)
+                      || r.operatorUsername.contains(query, Qt::CaseInsensitive)
+                      || r.profileName.contains(query, Qt::CaseInsensitive)
+                      || r.failReason.contains(query, Qt::CaseInsensitive)
+                      || QString::number(r.workOrderId).contains(query);
+            if (!match) continue;
         }
-        if (!resultFilter.isEmpty() && r.overallResult.compare(resultFilter, Qt::CaseInsensitive) != 0) {
-            continue;
-        }
-        if (!needle.isEmpty()) {
-            const QString stationText = (r.stationId == 0)
-                                            ? QStringLiteral("yönetici host")
-                                            : QString("istasyon %1").arg(r.stationId);
-            const bool matches =
-                r.antennaSn.toLower().contains(needle) ||
-                r.testerName.toLower().contains(needle) ||
-                r.operatorUsername.toLower().contains(needle) ||
-                r.profileName.toLower().contains(needle) ||
-                r.failReason.toLower().contains(needle) ||
-                r.notes.toLower().contains(needle) ||
-                stationText.contains(needle);
-            if (!matches) continue;
-        }
+
         filtered.append(r);
     }
 
@@ -179,60 +220,57 @@ void TestHistoryWidget::applyFilters() {
 }
 
 void TestHistoryWidget::populateTable(const QVector<TestRunData> &runs) {
+    m_table->setSortingEnabled(false);
     m_table->setRowCount(runs.size());
 
     int passCount = 0;
     int failCount = 0;
-    int abortedCount = 0;
+    int abortCount = 0;
 
     for (int i = 0; i < runs.size(); ++i) {
-        const auto &r = runs[i];
-        if (r.overallResult == "PASS") passCount++;
-        else if (r.overallResult == "ABORTED") abortedCount++;
-        else failCount++;
+        const auto &r = runs.at(i);
 
-        const QString sourceLabel = (r.stationId == 0)
-                                        ? QStringLiteral("Yönetici (Host)")
-                                        : QString("İstasyon %1").arg(r.stationId);
-        const QString detailText = !r.failReason.trimmed().isEmpty()
-                                       ? r.failReason
-                                       : r.notes;
+        QString stationLabel;
+        if (r.stationId == 0) stationLabel = "Yönetici (Host)";
+        else stationLabel = QString("İstasyon %1").arg(r.stationId);
 
-        m_table->setItem(i, 0, new QTableWidgetItem(QString::number(r.id)));
-        m_table->setItem(i, 1, new QTableWidgetItem(r.timestamp.isValid()
-                                                        ? r.timestamp.toString("dd.MM.yyyy HH:mm:ss")
-                                                        : "--"));
-        m_table->setItem(i, 2, new QTableWidgetItem(sourceLabel));
-        m_table->setItem(i, 3, new QTableWidgetItem(r.testerName.isEmpty() ? "--" : r.testerName));
-        m_table->setItem(i, 4, new QTableWidgetItem(r.operatorUsername.isEmpty() ? "--" : r.operatorUsername));
-        m_table->setItem(i, 5, new QTableWidgetItem(r.profileName.isEmpty() ? "--" : r.profileName));
-        m_table->setItem(i, 6, new QTableWidgetItem(r.antennaSn));
-        m_table->setItem(i, 7, new QTableWidgetItem(r.workOrderId > 0 ? QString::number(r.workOrderId) : "-"));
-        m_table->setItem(i, 8, new QTableWidgetItem(QString::number(r.durationSec)));
+        QString resUpper = r.overallResult.trimmed().toUpper();
+        if (resUpper == "PASS") passCount++;
+        else if (resUpper == "FAIL") failCount++;
+        else abortCount++;
 
-        QTableWidgetItem *resItem = new QTableWidgetItem(r.overallResult);
-        if (r.overallResult == "PASS") {
-            resItem->setForeground(QBrush(QColor("#34D399")));
-        } else if (r.overallResult == "ABORTED") {
-            resItem->setForeground(QBrush(QColor("#FBBF24")));
-        } else {
-            resItem->setForeground(QBrush(QColor("#F87171")));
-        }
-        m_table->setItem(i, 9, resItem);
-        m_table->setItem(i, 10, new QTableWidgetItem(QString::number(r.avgDeltaDb, 'f', 2)));
-        m_table->setItem(i, 11, new QTableWidgetItem(QString::number(r.maxDeltaDb, 'f', 2)));
-        m_table->setItem(i, 12, new QTableWidgetItem(detailText));
+        QColor resColor;
+        if (resUpper == "PASS") resColor = QColor("#059669");
+        else if (resUpper == "FAIL") resColor = QColor("#DC2626");
+        else resColor = QColor("#D97706");
+
+        auto setCell = [this, i](int col, const QString &text, const QColor *fg = nullptr) {
+            auto *item = new QTableWidgetItem(text);
+            item->setTextAlignment(Qt::AlignCenter);
+            if (fg) item->setForeground(*fg);
+            m_table->setItem(i, col, item);
+        };
+
+        setCell(0, QString::number(r.id));
+        setCell(1, r.timestamp.isValid() ? r.timestamp.toString("yyyy-MM-dd HH:mm:ss") : "-");
+        setCell(2, stationLabel);
+        setCell(3, r.testerName.isEmpty() ? "-" : r.testerName);
+        setCell(4, r.operatorUsername.isEmpty() ? "-" : r.operatorUsername);
+        setCell(5, r.profileName.isEmpty() ? "-" : r.profileName);
+        setCell(6, r.antennaSn);
+        setCell(7, r.workOrderId > 0 ? QString::number(r.workOrderId) : "-");
+        setCell(8, QString::number(r.durationSec));
+        setCell(9, r.overallResult, &resColor);
+        setCell(10, QString::number(r.avgDeltaDb, 'f', 2));
+        setCell(11, QString::number(r.maxDeltaDb, 'f', 2));
+
+        auto *itemNote = new QTableWidgetItem(r.failReason.isEmpty() ? "-" : r.failReason);
+        m_table->setItem(i, 12, itemNote);
     }
 
-    const AppConfig &cfg = AppConfig::instance();
-    m_lblSummary->setText(
-        QString("Toplam Kayıt: %1  |  ✔ PASS: %2  |  ✖ FAIL: %3  |  ⏹ ABORTED: %4  |  Veritabanı: %5:%6")
-            .arg(runs.size())
-            .arg(passCount)
-            .arg(failCount)
-            .arg(abortedCount)
-            .arg(cfg.dbHost())
-            .arg(cfg.dbPort()));
+    m_table->setSortingEnabled(true);
+    m_lblSummary->setText(QString("Toplam: %1 kayıt listelendi  |  ✅ PASS: %2   ❌ FAIL: %3   ⚠️ Diğer: %4")
+                              .arg(runs.size()).arg(passCount).arg(failCount).arg(abortCount));
 }
 
 void TestHistoryWidget::onExportExcelClicked() {
@@ -241,19 +279,17 @@ void TestHistoryWidget::onExportExcelClicked() {
         return;
     }
 
-    const QString defaultName = QString("NETA_Test_Gecmisi_%1.xlsx")
-                                    .arg(QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss"));
+    QString defaultName = QString("NETA_Test_Raporu_%1.xlsx")
+                              .arg(QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss"));
     QString fileName = QFileDialog::getSaveFileName(
-        this, "Excel Raporunu Kaydet", defaultName, "Excel Dosyaları (*.xlsx)");
+        this, "Excel Olarak Kaydet", defaultName, "Excel Dosyası (*.xlsx)");
+
     if (fileName.isEmpty()) return;
-    if (!fileName.endsWith(".xlsx", Qt::CaseInsensitive)) {
-        fileName += ".xlsx";
-    }
+    if (!fileName.endsWith(".xlsx", Qt::CaseInsensitive)) fileName += ".xlsx";
 
     QStringList headers;
-    for (int c = 0; c < m_table->columnCount(); ++c) {
-        auto *hItem = m_table->horizontalHeaderItem(c);
-        headers << (hItem ? hItem->text() : QString("Sütun %1").arg(c + 1));
+    for (int col = 0; col < m_table->columnCount(); ++col) {
+        headers << m_table->horizontalHeaderItem(col)->text();
     }
 
     QVector<QStringList> rows;
@@ -261,8 +297,8 @@ void TestHistoryWidget::onExportExcelClicked() {
     for (int r = 0; r < m_table->rowCount(); ++r) {
         QStringList rowData;
         for (int c = 0; c < m_table->columnCount(); ++c) {
-            auto *item = m_table->item(r, c);
-            rowData << (item ? item->text() : QString());
+            auto *it = m_table->item(r, c);
+            rowData << (it ? it->text() : "");
         }
         rows.append(rowData);
     }
@@ -280,137 +316,182 @@ void TestHistoryWidget::onExportExcelClicked() {
 
 void TestHistoryWidget::onImportExcelClicked() {
     QString fileName = QFileDialog::getOpenFileName(
-        this, "Excel'den Test Geçmişi Al", QString(), "Excel Dosyaları (*.xlsx)");
+        this, "Excel Dosyası Seç", "", "Excel Dosyası (*.xlsx)");
     if (fileName.isEmpty()) return;
 
     QStringList headers;
     QVector<QStringList> rows;
-    QString errStr;
-    if (!readXlsxSheet(fileName, headers, rows, &errStr)) {
-        QMessageBox::critical(this, "Okuma Hatası", "Excel dosyası okunamadı:\n" + errStr);
+    QString err;
+
+    if (!readXlsxSheet(fileName, headers, rows, &err)) {
+        QMessageBox::critical(this, "Okuma Hatası", "Excel dosyası okunamadı:\n" + err);
         return;
     }
 
     if (rows.isEmpty()) {
-        QMessageBox::warning(this, "Boş Dosya", "Excel dosyasında içe aktarılacak veri satırı bulunamadı.");
+        QMessageBox::warning(this, "Uyarı", "Excel dosyası geçerli veri satırı içermiyor.");
         return;
     }
+
+    int snCol = -1, resCol = -1, testerCol = -1, profCol = -1;
+    for (int c = 0; c < headers.size(); ++c) {
+        const QString h = headers[c].toLower();
+        if (h.contains("seri") || h.contains("sn")) snCol = c;
+        else if (h.contains("sonuç") || h.contains("result")) resCol = c;
+        else if (h.contains("yapan") || h.contains("tester")) testerCol = c;
+        else if (h.contains("profil") || h.contains("test")) profCol = c;
+    }
+
+    if (snCol == -1) snCol = qMin(6, headers.size() - 1);
+    if (resCol == -1) resCol = qMin(9, headers.size() - 1);
 
     DbManager &db = DbManager::instance();
-    if (!db.isConnected()) {
-        QMessageBox::critical(this, "Veritabanı Hatası", "İçe aktarma için aktif veritabanı bağlantısı gerekli.");
-        return;
-    }
-
-    // Header index lookup (case-insensitive, supports exported format + common aliases)
-    auto findCol = [&](const QStringList &aliases, int fallbackIdx) -> int {
-        for (int i = 0; i < headers.size(); ++i) {
-            const QString h = headers[i].trimmed().toLower();
-            for (const QString &alias : aliases) {
-                if (h.contains(alias)) return i;
-            }
-        }
-        return (fallbackIdx < headers.size()) ? fallbackIdx : -1;
-    };
-
-    const int colTimestamp = findCol({"tarih", "date", "time"}, 1);
-    const int colStation   = findCol({"istasyon", "kaynak", "masa", "station"}, 2);
-    const int colTester    = findCol({"testi yapan", "tester", "kişi"}, 3);
-    const int colUsername  = findCol({"kullanıcı", "username", "user"}, 4);
-    const int colProfile   = findCol({"profil", "test / profil", "profile"}, 5);
-    const int colSn        = findCol({"seri no", "serial", "anten"}, 6);
-    const int colWorkOrder = findCol({"iş emri", "order", "wo"}, 7);
-    const int colDuration  = findCol({"süre", "duration"}, 8);
-    const int colResult    = findCol({"sonuç", "result"}, 9);
-    const int colAvgDelta  = findCol({"ort.", "avg"}, 10);
-    const int colMaxDelta  = findCol({"max"}, 11);
-    const int colNotes     = findCol({"detay", "not", "neden", "fail", "note"}, 12);
-
-    auto cellAt = [](const QStringList &row, int idx) -> QString {
-        return (idx >= 0 && idx < row.size()) ? row[idx].trimmed() : QString();
-    };
-
-    auto parseDouble = [](QString s) -> double {
-        return s.remove("dB", Qt::CaseInsensitive).replace(',', '.').trimmed().toDouble();
-    };
-
     int importedCount = 0;
-    int skippedCount = 0;
 
-    for (const QStringList &row : rows) {
-        const QString sn = cellAt(row, colSn);
-        if (sn.isEmpty()) {
-            skippedCount++;
-            continue;
-        }
+    for (const auto &row : rows) {
+        if (row.size() <= snCol) continue;
+        const QString sn = row[snCol].trimmed();
+        if (sn.isEmpty()) continue;
 
-        TestRunData run;
-        run.antennaSn = sn;
+        TestRunData tr;
+        tr.antennaSn = sn;
+        tr.timestamp = QDateTime::currentDateTime();
+        tr.overallResult = (resCol >= 0 && row.size() > resCol) ? row[resCol].trimmed() : "PASS";
+        tr.testerName = (testerCol >= 0 && row.size() > testerCol) ? row[testerCol].trimmed() : "Excel Import";
+        tr.profileName = (profCol >= 0 && row.size() > profCol) ? row[profCol].trimmed() : "Imported";
+        tr.failReason = "Excel dosyasından içe aktarıldı.";
 
-        // Parse timestamp
-        const QString tsStr = cellAt(row, colTimestamp);
-        QDateTime dt = QDateTime::fromString(tsStr, "dd.MM.yyyy HH:mm:ss");
-        if (!dt.isValid()) dt = QDateTime::fromString(tsStr, Qt::ISODate);
-        if (!dt.isValid()) dt = QDateTime::fromString(tsStr, "yyyy-MM-dd HH:mm:ss");
-        if (!dt.isValid()) dt = QDateTime::currentDateTime();
-        run.timestamp = dt;
-
-        // Parse station ID
-        const QString stStr = cellAt(row, colStation);
-        if (stStr.contains("yönetici", Qt::CaseInsensitive) || stStr.contains("host", Qt::CaseInsensitive)) {
-            run.stationId = 0;
-        } else {
-            QRegularExpression re("(\\d+)");
-            auto m = re.match(stStr);
-            run.stationId = m.hasMatch() ? m.captured(1).toInt() : 1;
-        }
-
-        run.testerName = cellAt(row, colTester);
-        if (run.testerName == "--") run.testerName.clear();
-
-        run.operatorUsername = cellAt(row, colUsername);
-        if (run.operatorUsername == "--") run.operatorUsername.clear();
-
-        run.profileName = cellAt(row, colProfile);
-        if (run.profileName == "--") run.profileName.clear();
-
-        const QString woStr = cellAt(row, colWorkOrder);
-        run.workOrderId = (woStr == "-" || woStr.isEmpty()) ? 0 : woStr.toInt();
-
-        run.durationSec = cellAt(row, colDuration).toInt();
-
-        QString res = cellAt(row, colResult).toUpper();
-        if (res != "PASS" && res != "FAIL" && res != "ABORTED") {
-            res = "PASS";
-        }
-        run.overallResult = res;
-
-        run.avgDeltaDb = parseDouble(cellAt(row, colAvgDelta));
-        run.maxDeltaDb = parseDouble(cellAt(row, colMaxDelta));
-
-        const QString detail = cellAt(row, colNotes);
-        if (res == "FAIL" || res == "ABORTED") {
-            run.failReason = detail;
-        } else {
-            run.notes = detail;
-        }
-
-        if (db.testRunExists(run.antennaSn, run.stationId, run.timestamp)) {
-            skippedCount++;
-            continue;
-        }
-
-        if (db.insertTestRun(run) > 0) {
+        if (db.insertTestRun(tr) > 0) {
             importedCount++;
-        } else {
-            skippedCount++;
         }
     }
 
     refreshHistory();
-    emit logMessage(QString("[Excel] İçe aktarma tamamlandı: %1 eklendi, %2 atlandı.").arg(importedCount).arg(skippedCount));
-    QMessageBox::information(
-        this, "İçe Aktarma Tamamlandı",
-        QString("Excel dosyasından %1 kayıt başarıyla veritabanına aktarıldı.\nAtlanan (mükerrer/boş) satır: %2")
-            .arg(importedCount).arg(skippedCount));
+    QMessageBox::information(this, "İçe Aktarma Tamamlandı",
+                             QString("Excel dosyasından %1 kayıt başarıyla veritabanına aktarıldı.").arg(importedCount));
+}
+
+// =============================================================================
+// VERİTABANI TABLO TARAYICISI (TAB 2)
+// =============================================================================
+void TestHistoryWidget::refreshDbTables() {
+    DbManager &mgr = DbManager::instance();
+    if (!mgr.isConnected()) {
+        m_knownTables.clear();
+        m_comboTables->blockSignals(true);
+        m_comboTables->clear();
+        m_comboTables->blockSignals(false);
+        m_tableDb->setRowCount(0);
+        m_tableDb->setColumnCount(0);
+        m_lblDbInfo->setText("🔴 Veritabanı bağlı değil!");
+        m_lblDbInfo->setStyleSheet("color: #F87171; font-weight: bold;");
+        return;
+    }
+
+    const QString prevSelection = m_comboTables->currentText();
+    QSqlDatabase db = QSqlDatabase::database(mgr.connectionName());
+    QSqlQuery q(db);
+
+    QStringList tables;
+    if (mgr.activeDriver() == "QSQLITE") {
+        if (q.exec("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name;")) {
+            while (q.next()) tables << q.value(0).toString();
+        }
+    } else {
+        if (q.exec("SHOW TABLES;")) {
+            while (q.next()) tables << q.value(0).toString();
+        }
+    }
+
+    m_knownTables = tables;
+    m_comboTables->blockSignals(true);
+    m_comboTables->clear();
+    m_comboTables->addItems(tables);
+    int idx = tables.indexOf(prevSelection);
+    if (idx >= 0) m_comboTables->setCurrentIndex(idx);
+    m_comboTables->blockSignals(false);
+
+    loadSelectedDbTable();
+}
+
+void TestHistoryWidget::loadSelectedDbTable() {
+    DbManager &mgr = DbManager::instance();
+    if (!mgr.isConnected()) return;
+
+    const QString tableName = m_comboTables->currentText().trimmed();
+    if (tableName.isEmpty() || !m_knownTables.contains(tableName)) {
+        m_tableDb->setRowCount(0);
+        return;
+    }
+
+    const int limit = m_comboLimit->currentData().toInt();
+    QSqlDatabase db = QSqlDatabase::database(mgr.connectionName());
+    QSqlQuery q(db);
+
+    const QString sql = (mgr.activeDriver() == "QSQLITE")
+                            ? QString("SELECT * FROM \"%1\" LIMIT %2;").arg(tableName).arg(limit)
+                            : QString("SELECT * FROM `%1` LIMIT %2;").arg(tableName).arg(limit);
+
+    if (!q.exec(sql)) {
+        m_lblDbInfo->setText(QString("🔴 Sorgu hatası (%1): %2").arg(tableName, q.lastError().text()));
+        m_lblDbInfo->setStyleSheet("color: #F87171; font-weight: bold;");
+        return;
+    }
+
+    const QSqlRecord rec = q.record();
+    const int colCount = rec.count();
+
+    m_tableDb->setUpdatesEnabled(false);
+    m_tableDb->clear();
+    m_tableDb->setColumnCount(colCount);
+
+    QStringList headerLabels;
+    headerLabels.reserve(colCount);
+    for (int c = 0; c < colCount; ++c) {
+        headerLabels << rec.fieldName(c);
+    }
+    m_tableDb->setHorizontalHeaderLabels(headerLabels);
+
+    int rowIdx = 0;
+    while (q.next()) {
+        m_tableDb->insertRow(rowIdx);
+        for (int c = 0; c < colCount; ++c) {
+            const QVariant v = q.value(c);
+            QString displayStr = v.isNull() ? "NULL" : v.toString();
+            auto *item = new QTableWidgetItem(displayStr);
+            if (v.isNull()) item->setForeground(QColor("#9CA3AF"));
+            m_tableDb->setItem(rowIdx, c, item);
+        }
+        rowIdx++;
+    }
+
+    m_tableDb->setUpdatesEnabled(true);
+    m_lblDbInfo->setText(QString("🟢 Tablo: %1  |  Listelenen: %2 satır (Limit: %3)  |  Sürücü: %4")
+                             .arg(tableName).arg(rowIdx).arg(limit).arg(mgr.activeDriver()));
+    m_lblDbInfo->setStyleSheet("color: #34D399; font-weight: bold;");
+
+    applyDbFilter(m_txtDbFilter->text());
+}
+
+void TestHistoryWidget::applyDbFilter(const QString &text) {
+    const QString filter = text.trimmed();
+    const int rowCount = m_tableDb->rowCount();
+    const int colCount = m_tableDb->columnCount();
+
+    if (filter.isEmpty()) {
+        for (int r = 0; r < rowCount; ++r) m_tableDb->setRowHidden(r, false);
+        return;
+    }
+
+    for (int r = 0; r < rowCount; ++r) {
+        bool match = false;
+        for (int c = 0; c < colCount; ++c) {
+            auto *it = m_tableDb->item(r, c);
+            if (it && it->text().contains(filter, Qt::CaseInsensitive)) {
+                match = true;
+                break;
+            }
+        }
+        m_tableDb->setRowHidden(r, !match);
+    }
 }

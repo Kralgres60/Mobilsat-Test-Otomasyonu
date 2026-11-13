@@ -6,10 +6,14 @@
  */
 
 #include "app_config.h"
+#include "app_logger.h"
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QHostInfo>
+#include <QProcess>
+#include <QMessageBox>
 #include <memory>
 
 AppConfig& AppConfig::instance() {
@@ -149,4 +153,49 @@ void AppConfig::save() {
     settings.setValue("Session/LastReferenceMode", static_cast<int>(m_lastReferenceMode));
 
     settings.sync();
+}
+
+bool AppConfig::launchSimulator(QWidget *parent) {
+    const QString appDir = QCoreApplication::applicationDirPath();
+    const QStringList candidates = {
+        appDir + "/tools/drx_simulator/NETA_DRX_Simulator.exe",
+        appDir + "/NETA_DRX_Simulator.exe",
+        QDir::currentPath() + "/tools/drx_simulator/OUTPUT/NETA_DRX_Simulator.exe",
+        appDir + "/../../tools/drx_simulator/OUTPUT/NETA_DRX_Simulator.exe",
+        appDir + "/../../../tools/drx_simulator/OUTPUT/NETA_DRX_Simulator.exe",
+        QStringLiteral("D:/A_SCIENCES/PROJECTS/NETA/DRX-Antenna-Test/tools/drx_simulator/OUTPUT/NETA_DRX_Simulator.exe")
+    };
+
+    QString foundExe;
+    for (const QString &p : candidates) {
+        QFileInfo fi(p);
+        if (fi.exists() && fi.isFile()) {
+            foundExe = fi.absoluteFilePath();
+            break;
+        }
+    }
+
+    if (foundExe.isEmpty()) {
+        AppLogger::instance().logEvent("SIMULATOR", "NETA_DRX_Simulator.exe bulunamadi.", true);
+        if (parent) {
+            QMessageBox::warning(
+                parent,
+                QStringLiteral("Simülatör Bulunamadı"),
+                QStringLiteral("NETA_DRX_Simulator.exe bulunamadı.\n\n"
+                               "Lütfen tools/drx_simulator/build_sim.bat veya build.bat ile simülatörü derleyiniz."));
+        }
+        return false;
+    }
+
+    const QString workDir = QFileInfo(foundExe).absolutePath();
+    const bool ok = QProcess::startDetached(foundExe, QStringList(), workDir);
+    if (ok) {
+        AppLogger::instance().logEvent("SIMULATOR", QString("Simülatör başlatıldı: %1").arg(foundExe));
+    } else {
+        AppLogger::instance().logEvent("SIMULATOR", QString("Simülatör başlatılamadı: %1").arg(foundExe), true);
+        if (parent) {
+            QMessageBox::critical(parent, QStringLiteral("Hata"), QStringLiteral("Simülatör başlatılamadı:\n") + foundExe);
+        }
+    }
+    return ok;
 }

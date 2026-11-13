@@ -130,6 +130,9 @@ public:
     QString drxPassword() const { return m_drxPassword; }
     void setDrxPassword(const QString &p) { m_drxPassword = p; }
 
+    /** @brief Locates and launches NETA_DRX_Simulator.exe companion application. */
+    static bool launchSimulator(class QWidget *parent = nullptr);
+
 private:
     AppConfig();
     ~AppConfig() = default;

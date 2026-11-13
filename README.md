@@ -120,15 +120,15 @@ DRX-Antenna-Test/
 │
 ├── src/                             # C++17 Kaynak Kodları
 │   ├── main.cpp                     # Giriş noktası ve CLI parametre işleyici
-│   ├── core/                        # AppConfig, appinfo.h, LockArbiter, StateMachine, XlsxUtil
+│   ├── core/                        # AppConfig, appinfo.h, LockArbiter, StateMachine, XlsxUtil, DependencyInstaller
 │   ├── database/                    # DbManager (MariaDB bağlantısı ve modeller)
-│   ├── hardware/                    # SerialWorker, ProtocolHandler (DRX RS232 ve Web CGI sürücüsü)
+│   ├── hardware/                    # DataTransfer (Base), Ethernet (Web CGI) ve RS232 (Seri Port) sürücüleri
 │   ├── network/                     # TcpServer, TcpClient, UdpBeacon
 │   └── ui/                          # Grafik Arayüz Katmanı
-│       ├── common/                  # ModeSelectDialog, AboutDialog, DependencyDialog, QCustomPlot
+│       ├── common/                  # LobbyWindow, LoginDialog, TestHistoryWidget (SQL Tarayıcı ile), ProfileManager, StyleHelper
 │       ├── client/                  # ClientWindow, ChannelCardWidget
-│       ├── host/                    # HostWindow (Sunucu paneli)
-│       └── debug/                   # DebugRunnerWindow (Geliştirici test konsolu)
+│       ├── host/                    # HostWindow, GoldenReferenceWidget, UserManagerWidget
+│       └── debug/                   # DebugRunnerWindow (F12 Geliştirici & Test Konsolu)
 │
 └── tools/                           # Dağıtım ve kurulum araçları
     ├── deploy/                      # Windeployqt ve otomatik paketleme scriptleri

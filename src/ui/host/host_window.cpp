@@ -10,7 +10,6 @@
 #include "app_config.h"
 #include "build_config.h"
 #include "core/app_logger.h"
-#include "core/simulator_launcher.h"
 #include "database/db_manager.h"
 #include "core/dependency_installer.h"
 #include "ui/common/style_helper.h"
@@ -18,6 +17,7 @@
 #include "ui/common/login_dialog.h"
 #include "ui/common/lobby_window.h"
 #include "ui/client/client_window.h"
+#include "ui/debug/debug_runner_window.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGridLayout>
@@ -199,6 +199,15 @@ void HostWindow::setupMenuBar() {
     actEthSync->setShortcut(QKeySequence("Ctrl+P"));
     connect(actEthSync, &QAction::triggered, this, &HostWindow::onRefEthPingSyncClicked);
 
+    QMenu *menuAraclar = menuBar()->addMenu("Araçlar");
+    QAction *actDebug = menuAraclar->addAction("🛠️ Geliştirici & Hata Ayıklama Konsolu");
+    actDebug->setShortcut(QKeySequence("F12"));
+    connect(actDebug, &QAction::triggered, this, [this]() {
+        auto *debugWin = new DebugRunnerWindow(this);
+        debugWin->setAttribute(Qt::WA_DeleteOnClose);
+        debugWin->show();
+    });
+
     QMenu *menuAyarlar = menuBar()->addMenu("Ayarlar");
     QAction *actAbout = menuAyarlar->addAction("Hakkında");
     actAbout->setShortcut(QKeySequence("Alt+A"));
@@ -281,7 +290,7 @@ void HostWindow::setupUi() {
     btnLaunchSim->setCursor(Qt::PointingHandCursor);
     btnLaunchSim->setToolTip("NETA DRX9000 TCP Simülatörünü başlat");
     btnLaunchSim->setStyleSheet("background-color: #1D4ED8; color: #FFFFFF; border: none; border-radius: 4px; padding: 6px 12px; font-weight: bold;");
-    connect(btnLaunchSim, &QPushButton::clicked, this, [this]() { SimulatorLauncher::launch(this); });
+    connect(btnLaunchSim, &QPushButton::clicked, this, [this]() { AppConfig::launchSimulator(this); });
 
     topLayout->addWidget(lblLogo);
     topLayout->addWidget(m_lblServerStatus);
@@ -330,11 +339,10 @@ void HostWindow::setupUi() {
     addNavItem("  🎮  Canlı Test Lobisi");
     addNavItem("  🖥️  Ağdaki PC'ler");
     addNavItem("  🌟  Referans & Golden Ölçüm");
-    addNavItem("  📊  Test Geçmişi & Rapor");
+    addNavItem("  📊  Test Geçmişi & Veritabanı");
     addNavItem("  📦  İş Emirleri");
     addNavItem("  ⚙️  Sistem Ayarları");
     addNavItem("  📜  Sistem Logları");
-    addNavItem("  🗄️  Veritabanı");
     addNavItem("  🔐  Kullanıcı & Yetki");
 
     m_sideNav->setCurrentRow(2);
@@ -347,7 +355,6 @@ void HostWindow::setupUi() {
     setupOrdersPage();
     setupSettingsPage();
     setupLogsPage();
-    m_dbViewer = new DbViewerWidget(this);
     m_userManager = new UserManagerWidget(this);
     connect(m_userManager, &UserManagerWidget::logMessage, this, &HostWindow::appendLog);
     connect(m_userManager, &UserManagerWidget::usersUpdated, &m_tcpServer, &TcpServer::broadcastUserRoleUpdates);
@@ -359,8 +366,7 @@ void HostWindow::setupUi() {
     m_pageStack->addWidget(m_pageOrders);     // index 4
     m_pageStack->addWidget(m_pageSettings);   // index 5
     m_pageStack->addWidget(m_pageLogs);       // index 6
-    m_pageStack->addWidget(m_dbViewer);       // index 7
-    m_pageStack->addWidget(m_userManager);    // index 8
+    m_pageStack->addWidget(m_userManager);    // index 7
 
     splitter->addWidget(m_sideNav);
     splitter->addWidget(m_pageStack);
@@ -392,9 +398,7 @@ void HostWindow::onNavItemChanged(int row) {
     int pageIdx = row - 2;
     if (pageIdx >= 0 && pageIdx < m_pageStack->count()) {
         m_pageStack->setCurrentIndex(pageIdx);
-        if (m_pageStack->widget(pageIdx) == m_dbViewer && m_dbViewer) {
-            m_dbViewer->refreshAll();
-        } else if (m_pageStack->widget(pageIdx) == m_userManager && m_userManager) {
+        if (m_pageStack->widget(pageIdx) == m_userManager && m_userManager) {
             m_userManager->reloadUsers();
         } else if (m_pageStack->widget(pageIdx) == m_pageHistory && m_historyWidget) {
             m_historyWidget->refreshHistory();

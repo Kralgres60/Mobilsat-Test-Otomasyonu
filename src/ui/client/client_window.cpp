@@ -10,13 +10,13 @@
 #include "app_config.h"
 #include "build_config.h"
 #include "core/app_logger.h"
-#include "core/simulator_launcher.h"
 #include "database/db_manager.h"
 #include "ui/common/style_helper.h"
 #include "ui/common/about_dialog.h"
 #include "ui/common/login_dialog.h"
 #include "ui/common/lobby_window.h"
 #include "ui/host/host_window.h"
+#include "ui/debug/debug_runner_window.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGridLayout>
@@ -66,7 +66,7 @@ ClientWindow::ClientWindow(QWidget *parent)
     connect(&m_dutWebClient, &DrxWebClient::pingFinished, this, &ClientWindow::onEthPingFinished);
     connect(&m_dutWebClient, &DrxWebClient::loginSucceeded, this, &ClientWindow::onWebLoginSucceeded);
     connect(&m_dutWebClient, &DrxWebClient::loginFailed, this, &ClientWindow::onWebLoginFailed);
-    connect(&m_dutWebClient, &DrxWebClient::deviceInfoReceived, this, &ClientWindow::onWebDeviceInfoReceived);
+    connect(&m_dutWebClient, &DrxWebClient::deviceInfoReceivedFull, this, &ClientWindow::onWebDeviceInfoReceived);
     connect(&m_dutWebClient, &DrxWebClient::statusReceived, this,
             [this](bool sig, bool vid, bool /*aud*/, const QString &ch) {
         if (!ch.isEmpty() && m_lblLiveChannel) {
@@ -94,7 +94,7 @@ ClientWindow::ClientWindow(QWidget *parent)
         appendLog((isErr ? "[REF ETH HATA] " : "[REF ETH] ") + msg);
     });
 
-    m_stateMachine->setWebClients(&m_dutWebClient, &m_refWebClient);
+    m_stateMachine->setDataTransfers(&m_dutWebClient, &m_refWebClient);
 
     setupMenuBar();
     setupUi();
@@ -234,6 +234,15 @@ void ClientWindow::setupMenuBar() {
     QAction *actHostReconnect = menuBaglanti->addAction("Yönetici Sunucusuna (Host) Bağlan");
     connect(actHostReconnect, &QAction::triggered, this, &ClientWindow::onReconnectHostClicked);
 
+    QMenu *menuAraclar = menuBar()->addMenu("Araçlar");
+    QAction *actDebug = menuAraclar->addAction("🛠️ Geliştirici & Hata Ayıklama Konsolu");
+    actDebug->setShortcut(QKeySequence("F12"));
+    connect(actDebug, &QAction::triggered, this, [this]() {
+        auto *debugWin = new DebugRunnerWindow(this);
+        debugWin->setAttribute(Qt::WA_DeleteOnClose);
+        debugWin->show();
+    });
+
     QMenu *menuAyarlar = menuBar()->addMenu("Ayarlar");
     QAction *actAbout = menuAyarlar->addAction("Hakkında");
     actAbout->setShortcut(QKeySequence("Alt+A"));
@@ -247,7 +256,7 @@ void ClientWindow::setupMenuBar() {
         "QPushButton { background-color: #1D4ED8; color: #FFFFFF; border: none; border-radius: 4px; "
         "padding: 4px 12px; margin: 2px 6px; font-weight: bold; }"
         "QPushButton:hover { background-color: #2563EB; }");
-    connect(btnLaunchSim, &QPushButton::clicked, this, [this]() { SimulatorLauncher::launch(this); });
+    connect(btnLaunchSim, &QPushButton::clicked, this, [this]() { AppConfig::launchSimulator(this); });
     menuBar()->setCornerWidget(btnLaunchSim, Qt::TopRightCorner);
 }
 

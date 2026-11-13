@@ -13,8 +13,7 @@
 #include <QElapsedTimer>
 #include "data_models.h"
 #include "build_config.h"
-#include "hardware/serial_worker.h"
-#include "hardware/drx_web_client.h"
+#include "hardware/data_transfer.h"
 #include "network/tcp_client.h"
 
 /**
@@ -49,7 +48,14 @@ public:
     explicit TestStateMachine(SerialWorker *dutSerial, TcpClient *netClient, QObject *parent = nullptr);
 
     /**
-     * @brief Injects Web CGI clients for DUT and Reference DRX9000 hardware.
+     * @brief Injects DataTransfer interfaces for DUT and Reference DRX9000 hardware.
+     * @param dutTransfer Primary transfer interface for DUT antenna (Ethernet or RS232)
+     * @param refTransfer Transfer interface for Reference antenna (if in live reference mode)
+     */
+    void setDataTransfers(DataTransfer *dutTransfer, DataTransfer *refTransfer = nullptr);
+
+    /**
+     * @brief Injects Web CGI clients for DUT and Reference DRX9000 hardware (backwards compatibility).
      * @param dutWeb Web client connected to DUT antenna
      * @param refWeb Web client connected to Reference Golden Sample
      */
@@ -143,6 +149,8 @@ private:
     TcpClient *m_netClient;
     DrxWebClient *m_dutWebClient = nullptr;
     DrxWebClient *m_refWebClient = nullptr;
+    DataTransfer *m_dutTransfer = nullptr;
+    DataTransfer *m_refTransfer = nullptr;
 
     TestState m_state = TestState::Idle;
     SatelliteProfileInfo m_profile;

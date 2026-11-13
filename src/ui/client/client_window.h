@@ -21,14 +21,13 @@
 #include <QDoubleSpinBox>
 #include <QSpinBox>
 #include <QTimer>
-#include "hardware/serial_worker.h"
-#include "hardware/drx_web_client.h"
 #include "network/tcp_client.h"
 #include "network/udp_beacon.h"
 #include "core/test_state_machine.h"
 #include "ui/common/qcustomplot.h"
 #include "ui/common/profile_manager_widget.h"
 #include "ui/common/test_history_widget.h"
+#include "hardware/data_transfer.h"
 
 /**
  * @class ClientWindow
@@ -117,9 +116,9 @@ private:
     void updateDbStatusBadge();
     void setStatusMessage(const QString &msg);
 
-    SerialWorker m_dutSerial;
-    DrxWebClient m_dutWebClient;
-    DrxWebClient m_refWebClient;
+    RS232    m_dutSerial;
+    Ethernet m_dutWebClient;
+    Ethernet m_refWebClient;
     TcpClient m_netClient;
     UdpBeaconListener m_beaconListener;
     TestStateMachine *m_stateMachine = nullptr;

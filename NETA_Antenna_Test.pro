@@ -37,14 +37,11 @@ SOURCES += \
     src/core/dependency_installer.cpp \
     src/core/xlsxutil.cpp \
     src/database/db_manager.cpp \
-    src/hardware/protocolhandler.cpp \
-    src/hardware/serial_worker.cpp \
-    src/hardware/drx_web_client.cpp \
+    src/hardware/data_transfer.cpp \
     src/network/udp_beacon.cpp \
     src/network/tcp_server.cpp \
     src/network/tcp_client.cpp \
     src/ui/common/style_helper.cpp \
-    src/ui/common/mode_select_dialog.cpp \
     src/ui/common/login_dialog.cpp \
     src/ui/common/lobby_window.cpp \
     src/ui/common/about_dialog.cpp \
@@ -55,11 +52,9 @@ SOURCES += \
     src/ui/client/channel_card_widget.cpp \
     src/ui/client/client_window.cpp \
     src/ui/host/golden_reference_widget.cpp \
-    src/ui/host/db_viewer_widget.cpp \
     src/ui/host/user_manager_widget.cpp \
     src/ui/host/host_window.cpp \
-    src/ui/debug/debug_runner_window.cpp \
-    src/ui/debug/db_debug_widget.cpp
+    src/ui/debug/debug_runner_window.cpp
 
 # Başlık Dosyaları (Headers)
 HEADERS += \
@@ -67,23 +62,18 @@ HEADERS += \
     src/core/appinfo.h \
     src/core/app_config.h \
     src/core/app_logger.h \
-    src/core/simulator_launcher.h \
     src/core/data_models.h \
     src/core/lock_arbiter.h \
     src/core/test_state_machine.h \
     src/core/dependency_installer.h \
     src/core/xlsxutil.h \
     src/database/db_manager.h \
-    src/hardware/protocol_commands.h \
-    src/hardware/protocolhandler.h \
-    src/hardware/serial_worker.h \
-    src/hardware/drx_web_client.h \
+    src/hardware/data_transfer.h \
     src/network/network_messages.h \
     src/network/udp_beacon.h \
     src/network/tcp_server.h \
     src/network/tcp_client.h \
     src/ui/common/style_helper.h \
-    src/ui/common/mode_select_dialog.h \
     src/ui/common/login_dialog.h \
     src/ui/common/lobby_window.h \
     src/ui/common/about_dialog.h \
@@ -94,8 +84,6 @@ HEADERS += \
     src/ui/client/channel_card_widget.h \
     src/ui/client/client_window.h \
     src/ui/host/golden_reference_widget.h \
-    src/ui/host/db_viewer_widget.h \
     src/ui/host/user_manager_widget.h \
     src/ui/host/host_window.h \
-    src/ui/debug/debug_runner_window.h \
-    src/ui/debug/db_debug_widget.h
+    src/ui/debug/debug_runner_window.h

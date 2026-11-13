@@ -22,15 +22,13 @@
 #include <QTimer>
 #include <QMap>
 #include <QGridLayout>
-#include "hardware/serial_worker.h"
-#include "hardware/drx_web_client.h"
+#include "hardware/data_transfer.h"
 #include "network/tcp_server.h"
 #include "network/udp_beacon.h"
 #include "core/lock_arbiter.h"
 #include "core/xlsxutil.h"
 #include "ui/common/test_history_widget.h"
 #include "ui/host/golden_reference_widget.h"
-#include "ui/host/db_viewer_widget.h"
 #include "ui/host/user_manager_widget.h"
 
 /**
@@ -103,8 +101,8 @@ private:
     void setStatusMessage(const QString &msg);
 
     LockArbiter m_arbiter;
-    SerialWorker m_refSerial;
-    DrxWebClient m_refWebClient;
+    RS232 m_refSerial;
+    Ethernet m_refWebClient;
     TcpServer m_tcpServer;
     UdpBeaconBroadcaster m_beaconBroadcaster;
     QTimer m_refEthPingTimer;
@@ -124,8 +122,7 @@ private:
     QWidget        *m_pageOrders     = nullptr;  ///< Page 4 – İş Emirleri
     QWidget        *m_pageSettings   = nullptr;  ///< Page 5 – Sistem Ayarları
     QWidget        *m_pageLogs       = nullptr;  ///< Page 6 – Sistem Logları
-    DbViewerWidget *m_dbViewer       = nullptr;  ///< Page 7 – Veritabanı İçerik Görüntüleyici
-    UserManagerWidget *m_userManager = nullptr;  ///< Page 8 – Kullanıcı & Yetkilendirme Yönetimi
+    UserManagerWidget *m_userManager = nullptr;  ///< Page 7 – Kullanıcı & Yetkilendirme Yönetimi
 
     // Top Header Card Widgets (NO serial port widgets on header)
     QLabel *m_lblServerStatus = nullptr;

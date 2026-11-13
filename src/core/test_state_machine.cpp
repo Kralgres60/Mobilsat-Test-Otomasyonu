@@ -39,28 +39,38 @@ TestStateMachine::TestStateMachine(SerialWorker *dutSerial, TcpClient *netClient
     }
 }
 
+void TestStateMachine::setDataTransfers(DataTransfer *dutTransfer, DataTransfer *refTransfer) {
+    m_dutTransfer = dutTransfer;
+    m_refTransfer = refTransfer;
+
+    if (m_dutTransfer) {
+        connect(m_dutTransfer, &DataTransfer::statusReceived, this,
+                [this](bool sig, bool vid, bool aud) {
+                    onDutStatus(sig, vid, aud);
+                });
+        connect(m_dutTransfer, &DataTransfer::telemetryReceived, this,
+                [this](double pwr, double cn, double ber) {
+                    onDutTelemetry(pwr, cn, ber);
+                });
+    }
+
+    if (m_refTransfer) {
+        connect(m_refTransfer, &DataTransfer::statusReceived, this,
+                [this](bool sig, bool vid, bool /*aud*/) {
+                    m_refCarrierLocked = sig;
+                    m_refVideoLocked = vid;
+                });
+        connect(m_refTransfer, &DataTransfer::telemetryReceived, this,
+                [this](double pwr, double cn, double /*ber*/) {
+                    onRefData(cn, pwr, m_refCarrierLocked, m_refVideoLocked);
+                });
+    }
+}
+
 void TestStateMachine::setWebClients(DrxWebClient *dutWeb, DrxWebClient *refWeb) {
     m_dutWebClient = dutWeb;
     m_refWebClient = refWeb;
-
-    if (m_dutWebClient) {
-        connect(m_dutWebClient, &DrxWebClient::statusReceived, this, [this](bool sig, bool vid, bool aud, const QString&) {
-            onDutStatus(sig, vid, aud);
-        });
-        connect(m_dutWebClient, &DrxWebClient::telemetryReceived, this, [this](double pwr, double cn, double ber, double) {
-            onDutTelemetry(pwr, cn, ber);
-        });
-    }
-
-    if (m_refWebClient) {
-        connect(m_refWebClient, &DrxWebClient::statusReceived, this, [this](bool sig, bool vid, bool /*aud*/, const QString&) {
-            m_refCarrierLocked = sig;
-            m_refVideoLocked = vid;
-        });
-        connect(m_refWebClient, &DrxWebClient::telemetryReceived, this, [this](double pwr, double cn, double, double) {
-            onRefData(cn, pwr, m_refCarrierLocked, m_refVideoLocked);
-        });
-    }
+    setDataTransfers(dutWeb, refWeb);
 }
 
 QString TestStateMachine::currentStateString() const {
@@ -241,12 +251,16 @@ void TestStateMachine::runCurrentChannel() {
     m_refCnSamples.clear();
     m_refPowSamples.clear();
 
-    // 1. Send tune command to DUT DRX9000 (Primary: Ethernet Web CGI, Fallback: RS232 if open)
-    if (m_dutWebClient) {
-        m_dutWebClient->sendTune(ch.frequencyMhz, ch.symbolRate, ch.polarization);
-    }
-    if (m_dutSerial && m_dutSerial->isConnected()) {
-        m_dutSerial->sendTune(ch.frequencyMhz, ch.symbolRate, ch.polarization);
+    // 1. Send tune command to DUT DRX9000 (DataTransfer abstraction first, fallback to direct pointers)
+    if (m_dutTransfer) {
+        m_dutTransfer->sendTune(ch.frequencyMhz, ch.symbolRate, ch.polarization);
+    } else {
+        if (m_dutWebClient) {
+            m_dutWebClient->sendTune(ch.frequencyMhz, ch.symbolRate, ch.polarization);
+        }
+        if (m_dutSerial && m_dutSerial->isConnected()) {
+            m_dutSerial->sendTune(ch.frequencyMhz, ch.symbolRate, ch.polarization);
+        }
     }
 
     // 2. Reference comparison handling:
@@ -280,7 +294,9 @@ void TestStateMachine::runCurrentChannel() {
 #if defined(NETA_ALGORITMA_2_THREE_PC)
         // Algorithm 2: Update MariaDB lock heartbeat and tune shared Reference DRX9000 via Web CGI
         DbManager::instance().updateDbLockHeartbeat(AppConfig::instance().stationId(), ch.channelNo);
-        if (m_refWebClient) {
+        if (m_refTransfer) {
+            m_refTransfer->sendTune(ch.frequencyMhz, ch.symbolRate, ch.polarization);
+        } else if (m_refWebClient) {
             m_refWebClient->sendTune(ch.frequencyMhz, ch.symbolRate, ch.polarization);
         }
 #else
@@ -352,17 +368,25 @@ void TestStateMachine::onRefData(double refCn, double refPow, bool carrierLocked
 }
 
 void TestStateMachine::onSampleTimerTick() {
-    if (m_dutWebClient) {
-        m_dutWebClient->requestStatus();
+    if (m_dutTransfer) {
+        m_dutTransfer->requestStatus();
+    } else {
+        if (m_dutWebClient) {
+            m_dutWebClient->requestStatus();
+        }
+        if (m_dutSerial && m_dutSerial->isConnected()) {
+            m_dutSerial->requestStatus();
+        }
     }
 #if defined(NETA_ALGORITMA_2_THREE_PC)
-    if (m_referenceMode == ReferenceMode::LiveReference && m_refWebClient) {
-        m_refWebClient->requestStatus();
+    if (m_referenceMode == ReferenceMode::LiveReference) {
+        if (m_refTransfer) {
+            m_refTransfer->requestStatus();
+        } else if (m_refWebClient) {
+            m_refWebClient->requestStatus();
+        }
     }
 #endif
-    if (m_dutSerial && m_dutSerial->isConnected()) {
-        m_dutSerial->requestStatus();
-    }
 }
 
 void TestStateMachine::onSampleFinished() {
@@ -409,7 +433,7 @@ void TestStateMachine::finishCurrentChannel() {
 
     res.deltaDb = res.dutCn - res.refCn;
 
-    // Evaluation Logic
+    // Tolerance Pass/Fail check
     if (!res.carrierLocked) {
         res.status = "FAIL";    // Carrier signal unlock failure
     } else if (qAbs(res.deltaDb) > res.toleranceDb) {
