@@ -126,13 +126,27 @@ bool DbManager::connectToDatabase(const QString &host, int port, const QString &
         }
 
         if (!db.isOpen()) {
-            if (m_lastError.contains("Driver not loaded", Qt::CaseInsensitive)) {
-                m_lastError = QString("Veritabanı sürücüsü yüklenemedi (%1). libmysql.dll veya 32-bit vcruntime140.dll eksik olabilir. [%2]")
-                                  .arg(m_driverName, m_lastError);
+            qWarning() << "[Database Service] MySQL/MariaDB acilamadi (" << m_lastError
+                       << "). Kesintisiz veri guvenligi icin yerel SQLite veritabanina geciliyor...";
+            db.close();
+            QSqlDatabase::removeDatabase(m_connectionName);
+            db = QSqlDatabase::addDatabase("QSQLITE", m_connectionName);
+            QString fallbackDbPath = m_appDirPath + "/neta_local_fallback.db";
+            db.setDatabaseName(fallbackDbPath);
+            m_driverName = "QSQLITE";
+            if (db.open()) {
+                qInfo() << "[Database Service] Yerel SQLite fallback veritabani basariyla acildi:" << fallbackDbPath;
+                initTablesIfSqlite();
+                m_lastError.clear();
+                ensureDefaultDataIfMissing();
+                emit connectionStatusChanged(true, "Bağlı (SQLite Yedek Modu)");
+                return true;
+            } else {
+                m_lastError = db.lastError().text();
+                qWarning() << "[Database Service] SQLite fallback de basarisiz:" << m_lastError;
+                emit connectionStatusChanged(false, m_lastError);
+                return false;
             }
-            qWarning() << "[Database Service] Unable to open database:" << m_lastError;
-            emit connectionStatusChanged(false, m_lastError);
-            return false;
         }
     }
 
@@ -145,6 +159,7 @@ bool DbManager::connectToDatabase(const QString &host, int port, const QString &
     if (m_driverName == "QSQLITE") {
         initTablesIfSqlite();
     }
+    ensureDefaultDataIfMissing();
     emit connectionStatusChanged(true, "Connected (" + m_driverName + ")");
     return true;
 }
@@ -175,6 +190,7 @@ bool DbManager::initTablesIfSqlite() {
     q.exec("ALTER TABLE test_runs ADD COLUMN operator_username TEXT DEFAULT '';");
     q.exec("CREATE TABLE IF NOT EXISTS test_run_channels (id INTEGER PRIMARY KEY AUTOINCREMENT, test_run_id INTEGER, channel_no INTEGER, channel_name TEXT, frequency_mhz INTEGER, symbol_rate INTEGER, polarization TEXT, dut_cn_avg REAL, dut_pow_avg REAL, ref_cn_avg REAL, ref_pow_avg REAL, delta_db REAL, carrier_locked INTEGER, video_locked INTEGER, audio_locked INTEGER, tolerance_db REAL, result TEXT);");
     q.exec("CREATE TABLE IF NOT EXISTS golden_frequencies (id INTEGER PRIMARY KEY AUTOINCREMENT, label TEXT DEFAULT '', frequency_mhz INTEGER NOT NULL, symbol_rate INTEGER NOT NULL, polarization TEXT NOT NULL, golden_cn_db REAL DEFAULT 0.0, golden_pow_dbm REAL DEFAULT 0.0, tolerance_db REAL DEFAULT 1.50, updated_at TEXT DEFAULT CURRENT_TIMESTAMP, UNIQUE(frequency_mhz, symbol_rate, polarization));");
+    q.exec("CREATE TABLE IF NOT EXISTS audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, log_timestamp TEXT DEFAULT CURRENT_TIMESTAMP, action_type TEXT NOT NULL, details TEXT, operator_username TEXT DEFAULT '', station_id INTEGER DEFAULT 0);");
 
     // Varsayılan profil var mı kontrol et
     q.exec("SELECT COUNT(*) FROM satellite_profiles;");
@@ -412,6 +428,18 @@ bool DbManager::ensureDefaultDataIfMissing() {
            "tolerance_db DECIMAL(4, 2) NOT NULL DEFAULT 1.50, "
            "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, "
            "UNIQUE KEY uk_golden_freq (frequency_mhz, symbol_rate, polarization)) ENGINE=InnoDB;");
+
+    // 6d. Sistem & Olay Denetim Kayıtları (Audit Logs) tablosu
+    q.exec("CREATE TABLE IF NOT EXISTS audit_logs ("
+           "id BIGINT AUTO_INCREMENT PRIMARY KEY, "
+           "log_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+           "action_type VARCHAR(64) NOT NULL, "
+           "details TEXT, "
+           "operator_username VARCHAR(64) DEFAULT '', "
+           "station_id INT DEFAULT 0, "
+           "INDEX idx_audit_time (log_timestamp), "
+           "INDEX idx_audit_station (station_id)"
+           ") ENGINE=InnoDB;");
 
     // Referans Modu varsayılanı yoksa ekle
     q.exec("INSERT INTO system_settings (setting_key, setting_value, description) "
@@ -756,8 +784,105 @@ QVector<WorkOrderInfo> DbManager::getActiveWorkOrders() {
     return list;
 }
 
-bool DbManager::incrementOrderCount(int workOrderId, bool isPass) {
+QVector<WorkOrderInfo> DbManager::getAllWorkOrders() {
+    QVector<WorkOrderInfo> list;
+    if (!isConnected()) return list;
+
+    QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+    QSqlQuery q("SELECT id, order_no, customer_name, product_code, satellite_profile_id, target_quantity, "
+                "completed_quantity, passed_quantity, failed_quantity, status, notes "
+                "FROM work_orders ORDER BY id DESC", db);
+
+    while (q.next()) {
+        WorkOrderInfo o;
+        o.id = q.value(0).toInt();
+        o.orderNo = q.value(1).toString();
+        o.customerName = q.value(2).toString();
+        o.productCode = q.value(3).toString();
+        o.satelliteProfileId = q.value(4).toInt();
+        o.targetQuantity = q.value(5).toInt();
+        o.completedQuantity = q.value(6).toInt();
+        o.passedQuantity = q.value(7).toInt();
+        o.failedQuantity = q.value(8).toInt();
+        o.status = q.value(9).toString();
+        o.notes = q.value(10).toString();
+        list.append(o);
+    }
+    return list;
+}
+
+bool DbManager::saveWorkOrder(const WorkOrderInfo &order) {
     if (!isConnected()) return false;
+    QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+    QSqlQuery q(db);
+
+    if (order.id > 0) {
+        q.prepare("UPDATE work_orders SET order_no = :ord, customer_name = :cust, product_code = :prod, "
+                  "satellite_profile_id = :prof, target_quantity = :tqty, status = :st, notes = :notes "
+                  "WHERE id = :id");
+        q.bindValue(":id", order.id);
+    } else {
+        q.prepare("INSERT INTO work_orders (order_no, customer_name, product_code, satellite_profile_id, "
+                  "target_quantity, completed_quantity, passed_quantity, failed_quantity, status, notes) "
+                  "VALUES (:ord, :cust, :prod, :prof, :tqty, :cqty, :pqty, :fqty, :st, :notes)");
+        q.bindValue(":cqty", order.completedQuantity);
+        q.bindValue(":pqty", order.passedQuantity);
+        q.bindValue(":fqty", order.failedQuantity);
+    }
+
+    q.bindValue(":ord", order.orderNo.trimmed());
+    q.bindValue(":cust", order.customerName.trimmed());
+    q.bindValue(":prod", order.productCode.trimmed());
+    q.bindValue(":prof", order.satelliteProfileId > 0 ? order.satelliteProfileId : 1);
+    q.bindValue(":tqty", order.targetQuantity);
+    q.bindValue(":st", order.status.isEmpty() ? "IN_PROGRESS" : order.status);
+    q.bindValue(":notes", order.notes);
+
+    bool ok = q.exec();
+    if (!ok) {
+        m_lastError = q.lastError().text();
+        qWarning() << "[DbManager] saveWorkOrder error:" << m_lastError;
+    } else {
+        logAudit(order.id > 0 ? "ORDER_UPDATED" : "ORDER_CREATED",
+                 QString("İş Emri: %1 | Müşteri: %2 | Hedef: %3").arg(order.orderNo, order.customerName).arg(order.targetQuantity),
+                 AppConfig::instance().currentUsername(), 0);
+    }
+    return ok;
+}
+
+bool DbManager::deleteWorkOrder(int orderId) {
+    if (!isConnected() || orderId <= 0) return false;
+    QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+    QSqlQuery q(db);
+    q.prepare("DELETE FROM work_orders WHERE id = :id");
+    q.bindValue(":id", orderId);
+    bool ok = q.exec();
+    if (!ok) {
+        m_lastError = q.lastError().text();
+    } else {
+        logAudit("ORDER_DELETED", QString("İş Emri ID: %1 silindi").arg(orderId), AppConfig::instance().currentUsername(), 0);
+    }
+    return ok;
+}
+
+bool DbManager::setWorkOrderStatus(int orderId, const QString &status) {
+    if (!isConnected() || orderId <= 0) return false;
+    QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+    QSqlQuery q(db);
+    q.prepare("UPDATE work_orders SET status = :st WHERE id = :id");
+    q.bindValue(":st", status);
+    q.bindValue(":id", orderId);
+    bool ok = q.exec();
+    if (!ok) {
+        m_lastError = q.lastError().text();
+    } else {
+        logAudit("ORDER_STATUS_CHANGED", QString("İş Emri ID: %1 -> %2").arg(orderId).arg(status), AppConfig::instance().currentUsername(), 0);
+    }
+    return ok;
+}
+
+bool DbManager::incrementOrderCount(int workOrderId, bool isPass) {
+    if (!isConnected() || workOrderId <= 0) return false;
     QSqlDatabase db = QSqlDatabase::database(m_connectionName);
     QSqlQuery q(db);
     if (isPass) {
@@ -771,8 +896,75 @@ bool DbManager::incrementOrderCount(int workOrderId, bool isPass) {
     return q.exec();
 }
 
+bool DbManager::logAudit(const QString &action, const QString &details, const QString &user, int stationId) {
+    if (!isConnected()) return false;
+    QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+    QSqlQuery q(db);
+    q.prepare("INSERT INTO audit_logs (log_timestamp, action_type, details, operator_username, station_id) "
+              "VALUES (:ts, :act, :det, :usr, :st)");
+    q.bindValue(":ts", QDateTime::currentDateTime().toString(Qt::ISODate));
+    q.bindValue(":act", action);
+    q.bindValue(":det", details);
+    q.bindValue(":usr", user.isEmpty() ? AppConfig::instance().currentUsername() : user);
+    q.bindValue(":st", stationId);
+    return q.exec();
+}
+
+QVector<AuditLogRecord> DbManager::getAuditLogs(int limit, const QString &search) {
+    QVector<AuditLogRecord> list;
+    if (!isConnected()) return list;
+    QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+    QString sql = "SELECT id, log_timestamp, action_type, details, operator_username, station_id "
+                  "FROM audit_logs ";
+    const QString needle = search.trimmed();
+    if (!needle.isEmpty()) {
+        sql += "WHERE action_type LIKE :s1 OR details LIKE :s2 OR operator_username LIKE :s3 ";
+    }
+    sql += QString("ORDER BY id DESC LIMIT %1").arg(qMax(10, limit));
+
+    QSqlQuery q(db);
+    q.prepare(sql);
+    if (!needle.isEmpty()) {
+        const QString pattern = "%" + needle + "%";
+        q.bindValue(":s1", pattern);
+        q.bindValue(":s2", pattern);
+        q.bindValue(":s3", pattern);
+    }
+
+    if (q.exec()) {
+        while (q.next()) {
+            AuditLogRecord r;
+            r.id = q.value(0).toLongLong();
+            r.timestamp = q.value(1).toDateTime();
+            if (!r.timestamp.isValid()) {
+                r.timestamp = QDateTime::fromString(q.value(1).toString(), Qt::ISODate);
+            }
+            r.actionType = q.value(2).toString();
+            r.details = q.value(3).toString();
+            r.operatorUsername = q.value(4).toString();
+            r.stationId = q.value(5).toInt();
+            list.append(r);
+        }
+    }
+    return list;
+}
+
+bool DbManager::clearAuditLogs() {
+    if (!isConnected()) return false;
+    QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+    QSqlQuery q(db);
+    return q.exec("DELETE FROM audit_logs");
+}
+
 qint64 DbManager::insertTestRun(const TestRunData &run) {
-    if (!isConnected()) return -1;
+    if (!isConnected()) {
+        const AppConfig &cfg = AppConfig::instance();
+        connectToDatabase(cfg.dbHost(), cfg.dbPort(), cfg.dbName(), cfg.dbUser(), cfg.dbPassword());
+    }
+    if (!isConnected()) {
+        m_lastError = "Veritabanı bağlantısı kurulamadığı için test kaydı eklenemedi.";
+        return -1;
+    }
     QSqlDatabase db = QSqlDatabase::database(m_connectionName);
     db.transaction();
 
@@ -785,12 +977,32 @@ qint64 DbManager::insertTestRun(const TestRunData &run) {
             targetProfileId = qProf.value(0).toInt();
         }
     }
+    if (targetProfileId > 0) {
+        QSqlQuery qCheck(db);
+        qCheck.prepare("SELECT id FROM satellite_profiles WHERE id = :pid LIMIT 1");
+        qCheck.bindValue(":pid", targetProfileId);
+        if (!qCheck.exec() || !qCheck.next()) {
+            targetProfileId = 0;
+        }
+    }
     if (targetProfileId <= 0) {
         QSqlQuery qMin("SELECT MIN(id) FROM satellite_profiles", db);
         if (qMin.next() && qMin.value(0).toInt() > 0) {
             targetProfileId = qMin.value(0).toInt();
         } else {
+            ensureDefaultDataIfMissing();
             targetProfileId = 1;
+        }
+    }
+
+    // Yabancı anahtar (Foreign Key) emniyeti: work_orders tablosunda mevcut değilse NULL ata
+    QVariant woVal;
+    if (run.workOrderId > 0) {
+        QSqlQuery qWoCheck(db);
+        qWoCheck.prepare("SELECT id FROM work_orders WHERE id = :wid LIMIT 1");
+        qWoCheck.bindValue(":wid", run.workOrderId);
+        if (qWoCheck.exec() && qWoCheck.next()) {
+            woVal = run.workOrderId;
         }
     }
 
@@ -803,7 +1015,7 @@ qint64 DbManager::insertTestRun(const TestRunData &run) {
               "satellite_profile_id, test_timestamp, duration_sec, overall_result, fail_reason, "
               "avg_delta_db, max_delta_db, notes) "
               "VALUES (:wo, :st, :op, :tname, :opuser, :sn, :sp, :ts, :dur, :res, :fr, :avg, :max, :notes)");
-    q.bindValue(":wo", run.workOrderId > 0 ? run.workOrderId : QVariant());
+    q.bindValue(":wo", woVal);
     q.bindValue(":st", run.stationId);
     q.bindValue(":op", run.operatorId > 0 ? run.operatorId : QVariant());
     q.bindValue(":tname", run.testerName);
@@ -862,6 +1074,13 @@ qint64 DbManager::insertTestRun(const TestRunData &run) {
     if (run.workOrderId > 0) {
         incrementOrderCount(run.workOrderId, run.overallResult == "PASS");
     }
+
+    logAudit("TEST_FINISHED",
+             QString("Seri No: %1 | Sonuç: %2 | Ortalama Fark: %3 dB | Süre: %4 sn")
+                 .arg(run.antennaSn, run.overallResult)
+                 .arg(run.avgDeltaDb, 0, 'f', 2)
+                 .arg(run.durationSec),
+             opUser, run.stationId);
 
     return runId;
 }

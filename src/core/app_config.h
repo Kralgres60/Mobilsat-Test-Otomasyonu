@@ -116,14 +116,16 @@ public:
 
     // DRX Web Server / CGI Parameters
     QString refDrxHost() const { return m_refDrxHost; }
-    void setRefDrxHost(const QString &host) { m_refDrxHost = host; }
+    void setRefDrxHost(const QString &host);
     int refDrxPort() const { return m_refDrxPort; }
-    void setRefDrxPort(int port) { m_refDrxPort = port; }
+    void setRefDrxPort(int port) { m_refDrxPort = (port > 0) ? port : 80; }
+    QString refDrxEndpoint() const;
 
     QString stationDrxHost() const { return m_stationDrxHost; }
-    void setStationDrxHost(const QString &host) { m_stationDrxHost = host; }
+    void setStationDrxHost(const QString &host);
     int stationDrxPort() const { return m_stationDrxPort; }
-    void setStationDrxPort(int port) { m_stationDrxPort = port; }
+    void setStationDrxPort(int port) { m_stationDrxPort = (port > 0) ? port : 80; }
+    QString stationDrxEndpoint() const;
 
     QString drxUsername() const { return m_drxUsername; }
     void setDrxUsername(const QString &u) { m_drxUsername = u; }

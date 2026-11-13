@@ -14,6 +14,55 @@
 #include <QDebug>
 
 // =============================================================================
+// YARDIMCI NUMERİK VE KİLİT AYRIŞTIRICILARI (DRX DOM & JSON)
+// =============================================================================
+static double parseDrxNumeric(QString str) {
+    str = str.trimmed();
+    if (str.isEmpty() || str == "?" || str.compare("nan", Qt::CaseInsensitive) == 0) {
+        return 0.0;
+    }
+    static QRegularExpression signSpaceRegex(R"(([-+])\s+)");
+    str.replace(signSpaceRegex, R"(\1)");
+    str.replace(',', '.');
+    static QRegularExpression numRegex(R"([-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?)");
+    QRegularExpressionMatch m = numRegex.match(str);
+    if (m.hasMatch()) {
+        bool ok = false;
+        double val = m.captured(0).toDouble(&ok);
+        if (ok) return val;
+    }
+    return 0.0;
+}
+
+static bool isDrxLockPositive(QString str) {
+    str = str.trimmed().toLower();
+    if (str.isEmpty() || str == "cross" || str == "?" || str == "0" || str == "false" || str == "no" || str == "unlocked") {
+        return false;
+    }
+    return (str == "tick" || str.contains("tick") || str == "ok" || str == "true" || str == "1" || str.contains("lock") || str == "yes");
+}
+
+static QJsonArray extractElements(const QJsonObject &root) {
+    QJsonArray allElements;
+    if (root.contains("sections")) {
+        const QJsonArray sections = root.value("sections").toArray();
+        for (const auto &secVal : sections) {
+            const QJsonArray subElems = secVal.toObject().value("elements").toArray();
+            for (const auto &e : subElems) {
+                allElements.append(e);
+            }
+        }
+    }
+    if (root.contains("elements")) {
+        const QJsonArray rootElems = root.value("elements").toArray();
+        for (const auto &e : rootElems) {
+            allElements.append(e);
+        }
+    }
+    return allElements;
+}
+
+// =============================================================================
 // 1. ETHERNET SÜRÜCÜSÜ (WEB CGI + ICMP PING)
 // =============================================================================
 Ethernet::Ethernet(QObject *parent)
@@ -23,7 +72,7 @@ Ethernet::Ethernet(QObject *parent)
 }
 
 Ethernet::Ethernet(const QString &hostIp, int port, QObject *parent)
-    : DataTransfer(parent), m_hostIp(hostIp), m_port(port) {
+    : DataTransfer(parent), m_hostIp(hostIp.trimmed()), m_port(port) {
     connect(&m_netManager, &QNetworkAccessManager::finished,
             this, &Ethernet::onReplyFinished);
 }
@@ -33,22 +82,36 @@ Ethernet::~Ethernet() {
 }
 
 void Ethernet::setHost(const QString &hostIp, int port) {
-    if (m_hostIp != hostIp || m_port != port) {
-        m_hostIp = hostIp.trimmed();
-        m_port = (port > 0) ? port : 80;
+    QString cleanHost = hostIp.trimmed();
+    if (cleanHost.startsWith("http://", Qt::CaseInsensitive)) cleanHost = cleanHost.mid(7);
+    else if (cleanHost.startsWith("https://", Qt::CaseInsensitive)) cleanHost = cleanHost.mid(8);
+
+    int newPort = (port > 0) ? port : 80;
+    QString newIp = cleanHost;
+    if (cleanHost.contains(':')) {
+        QStringList parts = cleanHost.split(':');
+        newIp = parts[0].trimmed();
+        bool ok = false;
+        int p = parts[1].trimmed().toInt(&ok);
+        if (ok && p > 0) newPort = p;
+    }
+
+    if (newIp != m_hostIp || newPort != m_port) {
+        m_hostIp = newIp;
+        m_port = newPort;
+        m_isReachable = false;
+        m_lastLatencyMs = -1;
         resetSession();
     }
 }
 
 void Ethernet::setCredentials(const QString &username, const QString &password) {
-    m_username = username;
+    m_username = username.trimmed();
     m_password = password;
 }
 
 void Ethernet::resetSession() {
     m_sessionKey = 0;
-    m_isReachable = false;
-    m_lastLatencyMs = -1;
     m_pendingActionAfterLogin.clear();
     m_pendingDataAfterLogin.clear();
 }
@@ -72,19 +135,39 @@ bool Ethernet::isDeviceReady() const {
 }
 
 void Ethernet::pingHost(int timeoutMs) {
-    if (m_hostIp.isEmpty() || m_pingInProgress) return;
+    if (m_hostIp.isEmpty()) {
+        m_isReachable = false;
+        m_lastLatencyMs = -1;
+        emit pingFinished(false, -1, m_hostIp);
+        return;
+    }
+    if (m_pingInProgress) return;
+
+    // Yerel simülatör (127.0.0.1 / localhost) için ping daima anında başarılıdır
+    if (m_hostIp == "127.0.0.1" || m_hostIp.compare("localhost", Qt::CaseInsensitive) == 0) {
+        m_isReachable = true;
+        m_lastLatencyMs = 1;
+        emit pingFinished(true, 1, m_hostIp);
+        if (m_syncAfterPing) {
+            m_syncAfterPing = false;
+            login();
+        }
+        return;
+    }
+
     m_pingInProgress = true;
+    QString targetIp = m_hostIp;
 
     QString program;
     QStringList args;
 
 #if defined(Q_OS_WIN)
     program = "ping";
-    args << "-n" << "1" << "-w" << QString::number(timeoutMs) << m_hostIp;
+    args << "-n" << "1" << "-w" << QString::number(timeoutMs) << targetIp;
 #else
     program = "ping";
     int timeoutSec = qMax(1, timeoutMs / 1000);
-    args << "-c" << "1" << "-W" << QString::number(timeoutSec) << m_hostIp;
+    args << "-c" << "1" << "-W" << QString::number(timeoutSec) << targetIp;
 #endif
 
     QProcess *proc = new QProcess(this);
@@ -92,9 +175,12 @@ void Ethernet::pingHost(int timeoutMs) {
     timer->start();
 
     connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-            this, [this, proc, timer](int exitCode, QProcess::ExitStatus status) {
+            this, [this, proc, timer, targetIp](int exitCode, QProcess::ExitStatus status) {
         int elapsed = static_cast<int>(timer->elapsed());
-        bool reachable = (status == QProcess::NormalExit && exitCode == 0);
+        QString output = QString::fromLocal8Bit(proc->readAllStandardOutput());
+        bool hasTtl = output.contains("TTL=", Qt::CaseInsensitive);
+        bool reachable = (status == QProcess::NormalExit && exitCode == 0 && (hasTtl || output.contains("ttl=")));
+
         m_isReachable = reachable;
         m_lastLatencyMs = reachable ? elapsed : -1;
         m_pingInProgress = false;
@@ -102,10 +188,10 @@ void Ethernet::pingHost(int timeoutMs) {
         delete timer;
         proc->deleteLater();
 
-        emit pingFinished(reachable, m_lastLatencyMs, m_hostIp);
+        emit pingFinished(reachable, m_lastLatencyMs, targetIp);
         if (!reachable) {
             emit deviceDisconnected();
-            emit logMessage(QString("[Ping] DRX alıcıya ulaşılamıyor: %1 (%2 ms)").arg(m_hostIp).arg(elapsed), true);
+            emit logMessage(QString("[Ping] DRX alıcıya ulaşılamıyor: %1 (%2 ms)").arg(targetIp).arg(elapsed), true);
         }
 
         if (m_syncAfterPing) {
@@ -113,7 +199,7 @@ void Ethernet::pingHost(int timeoutMs) {
             if (reachable) {
                 login();
             } else {
-                emit loginFailed(QString("Host ping yanıtı vermiyor (%1)").arg(m_hostIp));
+                emit loginFailed(QString("Host ping yanıtı vermiyor (%1)").arg(targetIp));
             }
         }
     });
@@ -136,53 +222,75 @@ QUrl Ethernet::cgiUrl() const {
 }
 
 void Ethernet::login() {
-    QJsonObject obj;
-    obj["ResponseTo"] = "login";
-    obj["username"] = m_username;
-    obj["password"] = m_password;
+    QByteArray postData;
+    postData.append("ResponseTo=login\n");
+    postData.append("sessionKey=\n");
+    postData.append("lg_username=" + m_username.toUtf8() + "\n");
+    postData.append("lg_password=" + m_password.toUtf8() + "\n");
 
-    QJsonDocument doc(obj);
-    sendCgiRequest("login", doc.toJson(QJsonDocument::Compact));
+    emit logMessage(QString("[CGI Giriş] %1@%2:%3").arg(m_username, m_hostIp).arg(m_port), false);
+    sendCgiRequest("login", postData);
 }
 
 void Ethernet::requestStatus() {
-    QJsonObject obj;
-    obj["query"] = "alarmStatus";
-    QJsonDocument doc(obj);
-    sendCgiRequest("alarmStatus", doc.toJson(QJsonDocument::Compact));
+    if (m_sessionKey <= 0) {
+        m_pendingActionAfterLogin = "alarmStatus";
+        login();
+        return;
+    }
+    QByteArray postData;
+    postData.append("query=alarmStatus\n");
+    postData.append(QString("sessionKey=%1\n").arg(m_sessionKey).toUtf8());
+    sendCgiRequest("alarmStatus", postData);
 }
 
 void Ethernet::requestDeviceInfo() {
-    QJsonObject obj;
-    obj["query"] = "deviceInfo";
-    QJsonDocument doc(obj);
-    sendCgiRequest("deviceInfo", doc.toJson(QJsonDocument::Compact));
+    if (m_sessionKey <= 0) {
+        m_pendingActionAfterLogin = "deviceInfo";
+        login();
+        return;
+    }
+    QByteArray postData;
+    postData.append("query=deviceInfo\n");
+    postData.append(QString("sessionKey=%1\n").arg(m_sessionKey).toUtf8());
+    sendCgiRequest("deviceInfo", postData);
 }
 
 void Ethernet::sendTune(int freqMHz, int symbolRate, const QString &polarity) {
-    QJsonObject obj;
-    obj["ResponseTo"] = "freq";
-    obj["frequency"] = freqMHz * 1000;
-    obj["symbolRate"] = symbolRate * 1000;
-    obj["polarity"] = polarity.toUpper();
-    obj["lnb"] = 0;
+    int freqKhz = (freqMHz < 50000) ? (freqMHz * 1000) : freqMHz;
+    int srBdps = (symbolRate < 100000) ? (symbolRate * 1000) : symbolRate;
+    int polEnum = (polarity.trimmed().toUpper().startsWith('H')) ? 1 : 0;
 
-    QJsonDocument doc(obj);
-    sendCgiRequest("freq", doc.toJson(QJsonDocument::Compact));
+    QByteArray postData;
+    postData.append("ResponseTo=freq\n");
+    postData.append(QString("sessionKey=%1\n").arg(m_sessionKey > 0 ? QString::number(m_sessionKey) : "").toUtf8());
+    postData.append(QString("fr_frequency=%1\n").arg(freqKhz).toUtf8());
+    postData.append(QString("fr_srate=%1\n").arg(srBdps).toUtf8());
+    postData.append(QString("fr_pol=%1\n").arg(polEnum).toUtf8());
+
+    if (m_sessionKey <= 0) {
+        m_pendingActionAfterLogin = "freq";
+        m_pendingDataAfterLogin = postData;
+        login();
+        return;
+    }
+
+    sendCgiRequest("freq", postData);
 }
 
 void Ethernet::sendRaw(const QString &command) {
     QString q = command.trimmed();
-    QJsonObject obj;
-    if (q.startsWith("{") && q.endsWith("}")) {
-        QJsonDocument parsed = QJsonDocument::fromJson(q.toUtf8());
-        if (parsed.isObject()) obj = parsed.object();
-        else obj["query"] = q;
+    QByteArray postData;
+    if (q.contains("=")) {
+        postData = q.toUtf8();
+        if (!postData.endsWith('\n')) postData.append('\n');
     } else {
-        obj["query"] = q;
+        postData.append("query=" + q.toUtf8() + "\n");
     }
-    QJsonDocument doc(obj);
-    sendCgiRequest("raw", doc.toJson(QJsonDocument::Compact));
+    if (m_sessionKey > 0 && !postData.contains("sessionKey=")) {
+        postData.append(QString("sessionKey=%1\n").arg(m_sessionKey).toUtf8());
+    }
+    sendCgiRequest("raw", postData);
 }
 
 void Ethernet::sendCgiRequest(const QString &actionType, const QByteArray &postData) {
@@ -195,16 +303,14 @@ void Ethernet::sendCgiRequest(const QString &actionType, const QByteArray &postD
 
     QByteArray finalPayload = postData;
     if (m_sessionKey > 0 && actionType != "login") {
-        QJsonDocument doc = QJsonDocument::fromJson(postData);
-        if (doc.isObject()) {
-            QJsonObject root = doc.object();
-            root["sessionkey"] = m_sessionKey;
-            finalPayload = QJsonDocument(root).toJson(QJsonDocument::Compact);
+        if (finalPayload.contains("sessionKey=\n")) {
+            finalPayload.replace("sessionKey=\n", QString("sessionKey=%1\n").arg(m_sessionKey).toUtf8());
         }
     }
 
     QNetworkRequest request(cgiUrl());
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/x-www-form-urlencoded");
+    request.setHeader(QNetworkRequest::UserAgentHeader, "NETA-DRX9000-Automator");
     request.setAttribute(QNetworkRequest::Attribute(QNetworkRequest::User + 1), actionType);
 
     QNetworkReply *reply = m_netManager.post(request, finalPayload);
@@ -245,21 +351,30 @@ void Ethernet::parseCgiResponse(const QString &actionType, const QByteArray &pay
     QJsonObject root = doc.object();
     if (actionType == "login") {
         handleLoginResponse(root);
-    } else if (actionType == "alarmStatus") {
+    } else if (actionType == "alarmStatus" || actionType == "STATUS") {
         handleAlarmStatusResponse(root);
-    } else if (actionType == "deviceInfo") {
+    } else if (actionType == "deviceInfo" || actionType == "DEVICE_INFO") {
         handleDeviceInfoResponse(root);
-    } else if (actionType == "freq") {
+    } else if (actionType == "freq" || actionType == "TUNE") {
         handleTuneResponse(root);
     }
 }
 
 void Ethernet::handleLoginResponse(const QJsonObject &root) {
-    int key = root.value("sessionkey").toInt(-1);
-    if (key <= 0 && root.contains("key")) key = root.value("key").toInt(-1);
+    int key = -1;
+    if (root.contains("sessionkey")) {
+        key = root.value("sessionkey").toInt(-1);
+        if (key <= 0) key = root.value("sessionkey").toString().toInt();
+    } else if (root.contains("sessionKey")) {
+        key = root.value("sessionKey").toInt(-1);
+        if (key <= 0) key = root.value("sessionKey").toString().toInt();
+    } else if (root.contains("key")) {
+        key = root.value("key").toInt(-1);
+    }
 
     if (key > 0) {
         m_sessionKey = key;
+        m_isReachable = true;
         emit loginSucceeded(key);
         emit deviceConnected(QString("%1:%2").arg(m_hostIp).arg(m_port));
         emit logMessage(QString("[CGI] Giriş başarılı (SessionKey: %1)").arg(key), false);
@@ -269,10 +384,22 @@ void Ethernet::handleLoginResponse(const QJsonObject &root) {
             QByteArray nextData = m_pendingDataAfterLogin;
             m_pendingActionAfterLogin.clear();
             m_pendingDataAfterLogin.clear();
-            sendCgiRequest(nextAction, nextData);
+
+            if (nextAction == "alarmStatus" || nextAction == "STATUS") {
+                requestStatus();
+            } else if (nextAction == "deviceInfo" || nextAction == "DEVICE_INFO") {
+                requestDeviceInfo();
+            } else if (nextAction == "freq" || nextAction == "TUNE") {
+                if (nextData.contains("sessionKey=\n")) {
+                    nextData.replace("sessionKey=\n", QString("sessionKey=%1\n").arg(m_sessionKey).toUtf8());
+                }
+                sendCgiRequest("freq", nextData);
+            } else {
+                sendCgiRequest(nextAction, nextData);
+            }
         }
     } else {
-        QString reason = root.value("reason").toString("Geçersiz kullanıcı adı / şifre");
+        QString reason = root.value("reason").toString("Geçersiz kullanıcı adı / şifre veya oturum reddedildi.");
         emit loginFailed(reason);
         emit logMessage(QString("[CGI Giriş Başarısız] %1").arg(reason), true);
     }
@@ -283,35 +410,88 @@ void Ethernet::handleAlarmStatusResponse(const QJsonObject &root) {
     bool vid = false;
     bool aud = false;
     QString chName;
+    double pwr = 0.0;
+    double cn = 0.0;
+    double ber = 0.0;
+    double ebn0 = 0.0;
 
-    if (root.contains("signalLock")) sig = root.value("signalLock").toBool(false);
-    else if (root.contains("sLock")) sig = (root.value("sLock").toInt(0) == 1);
+    const QJsonArray allElements = extractElements(root);
+    if (!allElements.isEmpty()) {
+        for (const auto &val : allElements) {
+            QJsonObject elem = val.toObject();
+            QString domid = elem.value("domid").toString().trimmed().toLower();
+            QString caption = elem.value("caption").toString().trimmed().toLower();
+            QString strVal = elem.value("value").toString().trimmed();
 
-    if (root.contains("videoLock")) vid = root.value("videoLock").toBool(false);
-    else if (root.contains("vLock")) vid = (root.value("vLock").toInt(0) == 1);
+            if (domid == "st_channel" || caption.contains("kanal") || caption.contains("channel")) {
+                chName = strVal;
+            } else if (domid == "st_signal" || caption == "sinyal" || caption == "signal") {
+                sig = isDrxLockPositive(strVal);
+            } else if (domid == "st_video" || caption.contains("video")) {
+                vid = isDrxLockPositive(strVal);
+            } else if (domid == "st_audio" || caption.contains("audio") || caption.contains("ses")) {
+                aud = isDrxLockPositive(strVal);
+            } else if (domid == "st_cn" || caption.contains("c/n") || caption.contains("cn")) {
+                cn = parseDrxNumeric(strVal);
+            } else if (domid == "st_power" || caption.contains("güç") || caption.contains("power")) {
+                pwr = parseDrxNumeric(strVal);
+            } else if (domid == "st_ber" || caption.contains("ber")) {
+                ber = parseDrxNumeric(strVal);
+            } else if (domid == "st_ebn0" || caption.contains("ebn0") || caption.contains("eb/n0")) {
+                ebn0 = parseDrxNumeric(strVal);
+            }
+        }
+    } else {
+        // Düz (flat) JSON alanları için geriye dönük uyumluluk
+        if (root.contains("signalLock")) sig = root.value("signalLock").toBool(false);
+        else if (root.contains("sLock")) sig = (root.value("sLock").toInt(0) == 1);
 
-    if (root.contains("audioLock")) aud = root.value("audioLock").toBool(false);
-    else if (root.contains("aLock")) aud = (root.value("aLock").toInt(0) == 1);
+        if (root.contains("videoLock")) vid = root.value("videoLock").toBool(false);
+        else if (root.contains("vLock")) vid = (root.value("vLock").toInt(0) == 1);
 
-    chName = root.value("channelName").toString();
+        if (root.contains("audioLock")) aud = root.value("audioLock").toBool(false);
+        else if (root.contains("aLock")) aud = (root.value("aLock").toInt(0) == 1);
+
+        chName = root.value("channelName").toString();
+        pwr = root.value("powerDbm").toDouble(root.value("pow").toDouble(-99.0));
+        cn = root.value("cnDb").toDouble(root.value("cn").toDouble(0.0));
+        ber = root.value("ber").toDouble(1.0e-7);
+        ebn0 = root.value("ebN0Db").toDouble(root.value("ebn0").toDouble(0.0));
+    }
 
     emit statusReceived(sig, vid, aud, chName);
     emit statusReceivedFull(sig, vid, aud, chName);
-
-    double pwr = root.value("powerDbm").toDouble(root.value("pow").toDouble(-99.0));
-    double cn = root.value("cnDb").toDouble(root.value("cn").toDouble(0.0));
-    double ber = root.value("ber").toDouble(1.0e-7);
-    double ebn0 = root.value("ebN0Db").toDouble(root.value("ebn0").toDouble(0.0));
 
     emit telemetryReceived(pwr, cn, ber, ebn0);
     emit telemetryReceivedFull(pwr, cn, ber, ebn0);
 }
 
 void Ethernet::handleDeviceInfoResponse(const QJsonObject &root) {
-    QString sw = root.value("swVersion").toString(root.value("sw").toString());
-    QString devId = root.value("deviceId").toString(root.value("id").toString());
-    QString mac = root.value("mac").toString();
-    QString tuner = root.value("tunerModel").toString(root.value("tuner").toString());
+    QString sw, devId, mac, tuner;
+    const QJsonArray allElements = extractElements(root);
+    if (!allElements.isEmpty()) {
+        for (const auto &val : allElements) {
+            QJsonObject elem = val.toObject();
+            QString domid = elem.value("domid").toString().toLower();
+            QString cap = elem.value("caption").toString().toLower();
+            QString v = elem.value("value").toString();
+
+            if (domid == "di_sw" || cap.contains("sw") || cap.contains("yazılım") || cap.contains("versiyon")) {
+                sw = v;
+            } else if (domid == "di_devid" || cap.contains("cihaz id") || cap.contains("device id")) {
+                devId = v;
+            } else if (domid == "di_mac" || cap.contains("mac")) {
+                mac = v;
+            } else if (domid == "di_tuner" || cap.contains("tuner")) {
+                tuner = v;
+            }
+        }
+    } else {
+        sw = root.value("swVersion").toString(root.value("sw").toString());
+        devId = root.value("deviceId").toString(root.value("id").toString());
+        mac = root.value("mac").toString();
+        tuner = root.value("tunerModel").toString(root.value("tuner").toString());
+    }
 
     emit deviceInfoReceived("sw_version", sw);
     emit deviceInfoReceived("device_id", devId);
@@ -322,7 +502,7 @@ void Ethernet::handleDeviceInfoResponse(const QJsonObject &root) {
 
 void Ethernet::handleTuneResponse(const QJsonObject &root) {
     bool ok = root.value("status").toString().toLower() == "ok" || root.value("result").toBool(true);
-    QString details = root.value("message").toString("Tune komutu işlendi");
+    QString details = root.value("message").toString("Transponder ayarlandı");
     emit tuneCompleted(ok, details);
 }
 

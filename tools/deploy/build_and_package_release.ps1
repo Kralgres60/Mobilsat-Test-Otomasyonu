@@ -56,6 +56,13 @@ if ($stoppedAny) {
 # 1. Eski Klasörlerin Temizliği (dist, build, release_build, OUTPUT)
 Write-Host "`n[1/6] Eski build, dist ve OUTPUT klasorleri siliniyor..." -ForegroundColor Yellow
 
+# Kullanıcının mevcut neta_config.ini yapılandırmasını korumaya al
+$preservedConfig = $null
+if (Test-Path "$OutputDir\neta_config.ini") {
+    $preservedConfig = Get-Content "$OutputDir\neta_config.ini" -Raw -Encoding UTF8
+    Write-Host "      Mevcut neta_config.ini koruma altina alindi." -ForegroundColor DarkCyan
+}
+
 $dirsToClean = @(
     "$ProjectDir\dist",
     "$ProjectDir\build",
@@ -222,6 +229,12 @@ Set-Content -Path "$OutputDir\0_Yonetici_Sunucuyu_Baslat.bat" -Value $HostLaunch
 # Son Kontrol: dist veya build kalmış mı?
 if (Test-Path "$ProjectDir\dist") { Remove-Item -Path "$ProjectDir\dist" -Recurse -Force -ErrorAction SilentlyContinue }
 if (Test-Path "$ProjectDir\build") { Remove-Item -Path "$ProjectDir\build" -Recurse -Force -ErrorAction SilentlyContinue }
+
+# Korunan neta_config.ini geri yükleniyor
+if ($preservedConfig) {
+    Set-Content -Path "$OutputDir\neta_config.ini" -Value $preservedConfig -Encoding UTF8
+    Write-Host "      Kullanici neta_config.ini yapilandirmasi basariyla geri yuklendi." -ForegroundColor Green
+}
 
 Write-Host "`n=====================================================================" -ForegroundColor Green
 Write-Host "                OUTPUT PAKETI HAZIR! (BUILD BASARILI)               " -ForegroundColor Green

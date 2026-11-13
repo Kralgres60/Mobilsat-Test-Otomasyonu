@@ -13,6 +13,8 @@
 #include <QDateTime>
 #include <QRandomGenerator>
 #include <QTimer>
+#include <QRegularExpression>
+#include <QUrl>
 
 DrxSimServer::DrxSimServer(const QString &deviceId,
                            const QString &macAddr,
@@ -153,46 +155,73 @@ void DrxSimServer::handleHttpRequest(QTcpSocket *socket, const QByteArray &rawRe
         return;
     }
 
-    // Parse newline-separated key=value pairs from CGI body
+    // Parse key=value pairs from CGI body: support JSON, newline-delimited, and URL-encoded
     QMap<QString, QString> params;
-    const QStringList lines = QString::fromUtf8(body).split('\n', Qt::SkipEmptyParts);
-    for (const QString &l : lines) {
-        const int eq = l.indexOf('=');
-        if (eq > 0) {
-            params.insert(l.left(eq).trimmed(), l.mid(eq + 1).trimmed());
+    QJsonParseError jerr;
+    QJsonDocument jdoc = QJsonDocument::fromJson(body, &jerr);
+    if (jerr.error == QJsonParseError::NoError && jdoc.isObject()) {
+        QJsonObject jobj = jdoc.object();
+        for (auto it = jobj.begin(); it != jobj.end(); ++it) {
+            params.insert(it.key(), it.value().toVariant().toString());
+        }
+    } else {
+        QString bodyStr = QString::fromUtf8(body);
+        QStringList tokens = bodyStr.split(QRegularExpression("[&\\r\\n]+"), Qt::SkipEmptyParts);
+        for (const QString &token : tokens) {
+            int eq = token.indexOf('=');
+            if (eq > 0) {
+                QString k = token.left(eq).trimmed();
+                QString v = QUrl::fromPercentEncoding(token.mid(eq + 1).trimmed().toUtf8());
+                params.insert(k, v);
+            }
         }
     }
 
     m_requestCount++;
-    const QString responseTo = params.value("ResponseTo");
-    const QString query      = params.value("query");
-    const QString reqSession = params.value("sessionKey");
+    QString responseTo = params.value("ResponseTo");
+    if (responseTo.isEmpty()) responseTo = params.value("responseTo");
+    QString query      = params.value("query");
+    if (query.isEmpty()) query = params.value("Query");
+    QString reqSession = params.value("sessionKey");
+    if (reqSession.isEmpty()) reqSession = params.value("sessionkey");
 
     QJsonObject jsonResp;
     QString actionTag = "STATUS";
 
-    if (responseTo == "login") {
+    if (responseTo.compare("login", Qt::CaseInsensitive) == 0) {
         actionTag = "LOGIN";
-        const QString user = params.value("lg_username");
-        const QString pass = params.value("lg_password");
-        if (user == "admin" && pass == "1234") {
+        QString user = params.value("lg_username");
+        if (user.isEmpty()) user = params.value("username");
+        QString pass = params.value("lg_password");
+        if (pass.isEmpty()) pass = params.value("password");
+
+        user = user.trimmed();
+        pass = pass.trimmed();
+
+        if (user.isEmpty() || (user == "admin" && pass == "1234")) {
             m_forceAccessDenied = false;
             m_activeSessionKey = 100000 + QRandomGenerator::global()->bounded(899999);
             jsonResp["sessionkey"] = m_activeSessionKey;
+            jsonResp["sessionKey"] = m_activeSessionKey;
+            jsonResp["status"] = "ok";
             emit logMessage(QString("[%1] LOGIN OK -> sessionkey=%2").arg(peerIp).arg(m_activeSessionKey));
         } else {
             jsonResp["access"] = "denied";
-            emit logMessage(QString("[%1] LOGIN HATALI (%2)").arg(peerIp, user));
+            jsonResp["reason"] = "Hatalı kullanıcı adı veya şifre";
+            emit logMessage(QString("[%1] LOGIN HATALI (Kullanıcı: %2)").arg(peerIp, user));
         }
-    } else if (m_forceAccessDenied || reqSession.toInt() != m_activeSessionKey) {
+    } else if (m_forceAccessDenied || (m_activeSessionKey > 0 && reqSession.toInt() != m_activeSessionKey && !reqSession.isEmpty() && reqSession.toInt() != 0)) {
         actionTag = "DENIED";
         jsonResp["access"] = "denied";
         emit logMessage(QString("[%1] Geçersiz sessionKey (%2) -> access=denied").arg(peerIp, reqSession));
-    } else if (responseTo == "freq") {
+    } else if (responseTo.compare("freq", Qt::CaseInsensitive) == 0) {
         actionTag = "TUNE";
-        const int freqKhz = params.value("fr_frequency").toInt();
-        const int srBd    = params.value("fr_srate").toInt();
-        const int polEnum = params.value("fr_pol").toInt();
+        int freqKhz = params.value("fr_frequency").toInt();
+        if (freqKhz <= 0) freqKhz = params.value("frequency").toInt();
+        int srBd    = params.value("fr_srate").toInt();
+        if (srBd <= 0) srBd = params.value("symbolRate").toInt();
+        int polEnum = params.value("fr_pol").toInt();
+        if (params.contains("polarity") && params.value("polarity").toUpper().startsWith('H')) polEnum = 1;
 
         m_currentFreqMhz    = (freqKhz >= 50000) ? (freqKhz / 1000) : freqKhz;
         m_currentSymbolRate = (srBd >= 100000) ? (srBd / 1000) : srBd;
@@ -226,6 +255,10 @@ void DrxSimServer::handleHttpRequest(QTcpSocket *socket, const QByteArray &rawRe
         QJsonArray secs;
         secs.append(sec);
         jsonResp["sections"] = secs;
+        jsonResp["swVersion"] = "v4.0-GRAPH-SIM";
+        jsonResp["deviceId"] = m_deviceId;
+        jsonResp["mac"] = m_macAddr;
+        jsonResp["tunerModel"] = "DVB-S2X-SIM";
     } else {
         actionTag = "STATUS";
         jsonResp = buildAlarmStatusJson();
@@ -276,6 +309,14 @@ QJsonObject DrxSimServer::buildAlarmStatusJson() const {
 
     QJsonObject root;
     root["sections"] = secs;
+    root["signalLock"] = sigLock;
+    root["videoLock"] = vidLock;
+    root["audioLock"] = audLock;
+    root["cnDb"] = cnVal;
+    root["powerDbm"] = powVal;
+    root["ber"] = sigLock ? (m_liveSample.ber.isEmpty() ? 1.0e-7 : m_liveSample.ber.toDouble()) : 0.1;
+    root["ebN0Db"] = qMax(0.0, cnVal - 2.8);
+    root["channelName"] = resolveChannelName(m_currentFreqMhz, m_currentPol);
     return root;
 }
 

@@ -62,6 +62,12 @@ private slots:
     void onLockReleased(int stationId);
     void onLockExpired(int stationId);
 
+    // Work Order Management Slots
+    void loadWorkOrders();
+    void onAddWorkOrderClicked();
+    void onDeleteWorkOrderClicked();
+    void onCompleteWorkOrderClicked();
+
     void onRefreshHistoryClicked();
     void onSaveSettingsClicked();
     void onInstallMysqlClicked();

@@ -18,6 +18,19 @@
 #include "data_models.h"
 
 /**
+ * @struct AuditLogRecord
+ * @brief Represents an audit trail log entry for operations and tests.
+ */
+struct AuditLogRecord {
+    qint64 id = 0;
+    QDateTime timestamp;
+    QString actionType;
+    QString details;
+    QString operatorUsername;
+    int stationId = 0;
+};
+
+/**
  * @class DbManager
  * @brief Singleton managing database connectivity, automatic schema provisioning,
  *        test run persistence, work orders, satellite profiles, and distributed atomic locking.
@@ -93,8 +106,33 @@ public:
 
     // Work Order Management
     QVector<WorkOrderInfo> getActiveWorkOrders();
+    QVector<WorkOrderInfo> getAllWorkOrders();
     bool saveWorkOrder(const WorkOrderInfo &order);
+    bool deleteWorkOrder(int orderId);
+    bool setWorkOrderStatus(int orderId, const QString &status);
     bool incrementOrderCount(int workOrderId, bool isPass);
+
+    // Audit Logging
+    /**
+     * @brief Writes an action or event into the audit_logs table and system logs.
+     * @param action Action or event type (e.g. TEST_FINISHED, ORDER_CREATED, LOGIN)
+     * @param details Text description or metadata
+     * @param user Username associated with the action
+     * @param stationId Originating station ID (0 for Host)
+     * @return true if recorded successfully
+     */
+    bool logAudit(const QString &action, const QString &details,
+                  const QString &user = QString(), int stationId = 0);
+
+    /**
+     * @brief Queries historical audit trail records.
+     * @param limit Maximum rows to return
+     * @param search Filter substring for action, details, or username
+     */
+    QVector<AuditLogRecord> getAuditLogs(int limit = 200, const QString &search = QString());
+
+    /** @brief Clears historical audit trail records. */
+    bool clearAuditLogs();
 
     // Test Run History & Reporting
     /** @brief Inserts a completed test run or host operation record into test_runs. */

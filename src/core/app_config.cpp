@@ -155,6 +155,52 @@ void AppConfig::save() {
     settings.sync();
 }
 
+void AppConfig::setRefDrxHost(const QString &host) {
+    QString clean = host.trimmed();
+    if (clean.startsWith("http://", Qt::CaseInsensitive)) clean = clean.mid(7);
+    else if (clean.startsWith("https://", Qt::CaseInsensitive)) clean = clean.mid(8);
+
+    if (clean.contains(':')) {
+        QStringList p = clean.split(':');
+        m_refDrxHost = p[0].trimmed();
+        bool ok = false;
+        int port = p[1].trimmed().toInt(&ok);
+        if (ok && port > 0) m_refDrxPort = port;
+    } else {
+        m_refDrxHost = clean;
+    }
+}
+
+QString AppConfig::refDrxEndpoint() const {
+    if (m_refDrxPort > 0 && m_refDrxPort != 80) {
+        return QString("%1:%2").arg(m_refDrxHost).arg(m_refDrxPort);
+    }
+    return m_refDrxHost;
+}
+
+void AppConfig::setStationDrxHost(const QString &host) {
+    QString clean = host.trimmed();
+    if (clean.startsWith("http://", Qt::CaseInsensitive)) clean = clean.mid(7);
+    else if (clean.startsWith("https://", Qt::CaseInsensitive)) clean = clean.mid(8);
+
+    if (clean.contains(':')) {
+        QStringList p = clean.split(':');
+        m_stationDrxHost = p[0].trimmed();
+        bool ok = false;
+        int port = p[1].trimmed().toInt(&ok);
+        if (ok && port > 0) m_stationDrxPort = port;
+    } else {
+        m_stationDrxHost = clean;
+    }
+}
+
+QString AppConfig::stationDrxEndpoint() const {
+    if (m_stationDrxPort > 0 && m_stationDrxPort != 80) {
+        return QString("%1:%2").arg(m_stationDrxHost).arg(m_stationDrxPort);
+    }
+    return m_stationDrxHost;
+}
+
 bool AppConfig::launchSimulator(QWidget *parent) {
     const QString appDir = QCoreApplication::applicationDirPath();
     const QStringList candidates = {

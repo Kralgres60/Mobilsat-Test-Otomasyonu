@@ -44,11 +44,16 @@ void TestHistoryWidget::setupUi() {
     setupDbViewerTab(tabDb);
     m_tabs->addTab(tabDb, "🗄️ Veritabanı Tabloları (SQL)");
 
+    auto *tabAudit = new QWidget(m_tabs);
+    setupAuditLogTab(tabAudit);
+    m_tabs->addTab(tabAudit, "📜 Sistem Olay & Denetim Logları (Audit)");
+
     root->addWidget(m_tabs);
 
     connect(m_tabs, &QTabWidget::currentChanged, this, [this](int idx) {
         if (idx == 0) refreshHistory();
         else if (idx == 1) refreshDbTables();
+        else if (idx == 2) refreshAuditLogs();
     });
 }
 
@@ -493,5 +498,94 @@ void TestHistoryWidget::applyDbFilter(const QString &text) {
             }
         }
         m_tableDb->setRowHidden(r, !match);
+    }
+}
+
+void TestHistoryWidget::setupAuditLogTab(QWidget *tab) {
+    auto *vbox = new QVBoxLayout(tab);
+    vbox->setContentsMargins(6, 6, 6, 6);
+    vbox->setSpacing(6);
+
+    QHBoxLayout *filterRow = new QHBoxLayout();
+    filterRow->setSpacing(6);
+
+    filterRow->addWidget(new QLabel("Ara / Filtre:", tab));
+    m_txtAuditSearch = new QLineEdit(tab);
+    m_txtAuditSearch->setPlaceholderText("Olay türü, operatör veya detay filtrele...");
+    connect(m_txtAuditSearch, &QLineEdit::textChanged, this, &TestHistoryWidget::refreshAuditLogs);
+    filterRow->addWidget(m_txtAuditSearch, 2);
+
+    m_btnAuditRefresh = new QPushButton("🔄 Yenile", tab);
+    connect(m_btnAuditRefresh, &QPushButton::clicked, this, &TestHistoryWidget::refreshAuditLogs);
+    filterRow->addWidget(m_btnAuditRefresh);
+
+    m_btnAuditClear = new QPushButton("🗑️ Denetim Loglarını Temizle", tab);
+    m_btnAuditClear->setStyleSheet("background-color: #B91C1C; color: white; border-radius: 4px; padding: 4px 10px; font-weight: bold;");
+    connect(m_btnAuditClear, &QPushButton::clicked, this, &TestHistoryWidget::onClearAuditLogsClicked);
+    filterRow->addWidget(m_btnAuditClear);
+
+    filterRow->addStretch();
+    m_lblAuditSummary = new QLabel("0 denetim kaydı listelendi", tab);
+    m_lblAuditSummary->setStyleSheet("color: #34D399; font-weight: bold;");
+    filterRow->addWidget(m_lblAuditSummary);
+
+    vbox->addLayout(filterRow);
+
+    m_tableAudit = new QTableWidget(tab);
+    m_tableAudit->setColumnCount(6);
+    m_tableAudit->setHorizontalHeaderLabels({
+        "ID", "Zaman Damgası", "Olay / Eylem Türü", "İstasyon", "Operatör", "Detaylar & Açıklama"
+    });
+    m_tableAudit->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    m_tableAudit->horizontalHeader()->setSectionResizeMode(5, QHeaderView::Stretch);
+    m_tableAudit->verticalHeader()->setVisible(false);
+    m_tableAudit->setAlternatingRowColors(true);
+    m_tableAudit->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_tableAudit->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    vbox->addWidget(m_tableAudit, 1);
+}
+
+void TestHistoryWidget::refreshAuditLogs() {
+    if (!m_tableAudit) return;
+    QString search = m_txtAuditSearch ? m_txtAuditSearch->text().trimmed() : QString();
+    QVector<AuditLogRecord> logs = DbManager::instance().getAuditLogs(300, search);
+
+    m_tableAudit->setRowCount(0);
+    for (int i = 0; i < logs.size(); ++i) {
+        const auto &log = logs[i];
+        m_tableAudit->insertRow(i);
+        m_tableAudit->setItem(i, 0, new QTableWidgetItem(QString::number(log.id)));
+        m_tableAudit->setItem(i, 1, new QTableWidgetItem(log.timestamp.toString("yyyy-MM-dd HH:mm:ss")));
+
+        QTableWidgetItem *actItem = new QTableWidgetItem(log.actionType);
+        if (log.actionType.contains("FINISH") || log.actionType.contains("PASS")) {
+            actItem->setForeground(QBrush(QColor("#34D399")));
+        } else if (log.actionType.contains("FAIL") || log.actionType.contains("DELETE")) {
+            actItem->setForeground(QBrush(QColor("#F87171")));
+        } else {
+            actItem->setForeground(QBrush(QColor("#38BDF8")));
+        }
+        actItem->setFont(QFont("Segoe UI", 9, QFont::Bold));
+        m_tableAudit->setItem(i, 2, actItem);
+
+        QString stStr = (log.stationId == 0) ? "Host (0)" : QString("İstasyon %1").arg(log.stationId);
+        m_tableAudit->setItem(i, 3, new QTableWidgetItem(stStr));
+        m_tableAudit->setItem(i, 4, new QTableWidgetItem(log.operatorUsername));
+        m_tableAudit->setItem(i, 5, new QTableWidgetItem(log.details));
+    }
+
+    if (m_lblAuditSummary) {
+        m_lblAuditSummary->setText(QString("%1 denetim kaydı listelendi").arg(logs.size()));
+    }
+}
+
+void TestHistoryWidget::onClearAuditLogsClicked() {
+    auto ans = QMessageBox::question(this, "Denetim Kayıtlarını Temizle",
+                                     "Tüm sistem ve olay denetim kayıtlarını silmek istediğinize emin misiniz?",
+                                     QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (ans == QMessageBox::Yes) {
+        DbManager::instance().clearAuditLogs();
+        refreshAuditLogs();
+        emit logMessage("[Denetim Log] Sistem olay kayıtları temizlendi.");
     }
 }

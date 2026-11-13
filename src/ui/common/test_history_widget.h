@@ -33,6 +33,7 @@ public slots:
     void refreshHistory();
     void refreshDbTables();
     void loadSelectedDbTable();
+    void refreshAuditLogs();
 
 signals:
     void logMessage(const QString &msg);
@@ -42,11 +43,13 @@ private slots:
     void onExportExcelClicked();
     void onImportExcelClicked();
     void applyDbFilter(const QString &text);
+    void onClearAuditLogsClicked();
 
 private:
     void setupUi();
     void setupHistoryTab(QWidget *tab);
     void setupDbViewerTab(QWidget *tab);
+    void setupAuditLogTab(QWidget *tab);
     void populateTable(const QVector<TestRunData> &runs);
 
     QTabWidget   *m_tabs          = nullptr;
@@ -70,6 +73,13 @@ private:
     QLabel       *m_lblDbInfo     = nullptr;
     QTableWidget *m_tableDb       = nullptr;
     QStringList   m_knownTables;
+
+    // Tab 3: Sistem Olay & Denetim Logları (Audit)
+    QLineEdit    *m_txtAuditSearch   = nullptr;
+    QPushButton  *m_btnAuditRefresh  = nullptr;
+    QPushButton  *m_btnAuditClear    = nullptr;
+    QLabel       *m_lblAuditSummary  = nullptr;
+    QTableWidget *m_tableAudit       = nullptr;
 };
 
 #endif // TEST_HISTORY_WIDGET_H

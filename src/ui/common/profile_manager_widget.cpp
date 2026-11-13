@@ -333,9 +333,9 @@ ChannelConfig ProfileManagerWidget::readChannelFromRow(int row, double fallbackT
     }
 
     auto *itName = m_tableProfileChannels->item(row, 1);
-    ch.channelName = itName ? itName->text().trimmed() : QString("Frekans %1").arg(row + 1);
+    ch.channelName = itName ? itName->text().trimmed() : QString("Kanal %1").arg(row + 1);
     if (ch.channelName.isEmpty()) {
-        ch.channelName = QString("Frekans %1").arg(row + 1);
+        ch.channelName = QString("Kanal %1").arg(row + 1);
     }
 
     if (auto *wFreq = qobject_cast<QSpinBox*>(m_tableProfileChannels->cellWidget(row, 2))) {
@@ -477,7 +477,7 @@ void ProfileManagerWidget::onAddChannelRowClicked() {
 
     ChannelConfig ch;
     ch.channelNo = row + 1;
-    ch.channelName = QString("Frekans %1").arg(row + 1);
+    ch.channelName = QString("Kanal %1").arg(row + 1);
     ch.frequencyMhz = 11054;
     ch.symbolRate = 30000;
     ch.polarization = "V";

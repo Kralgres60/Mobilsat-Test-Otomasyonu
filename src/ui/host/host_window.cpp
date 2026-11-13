@@ -256,7 +256,7 @@ void HostWindow::setupUi() {
     QLabel *lblRefIpTitle = new QLabel("🌐 Ref DRX IP:", grpHeader);
     lblRefIpTitle->setStyleSheet("color: #34D399; font-weight: bold;");
 
-    m_txtHeaderRefIp = new QLineEdit(AppConfig::instance().refDrxHost(), grpHeader);
+    m_txtHeaderRefIp = new QLineEdit(AppConfig::instance().refDrxEndpoint(), grpHeader);
     m_txtHeaderRefIp->setPlaceholderText("192.168.0.167 veya 127.0.0.1:8080");
     m_txtHeaderRefIp->setFixedWidth(185);
     m_txtHeaderRefIp->setToolTip("Referans DRX9000 IP adresi (Simülatör için örn: 127.0.0.1:8080)");
@@ -266,16 +266,21 @@ void HostWindow::setupUi() {
         const QString enteredIp = m_txtHeaderRefIp->text().trimmed();
         if (enteredIp.isEmpty()) return;
         AppConfig &cfg = AppConfig::instance();
-        if (enteredIp != cfg.refDrxHost()) {
+        if (enteredIp != cfg.refDrxEndpoint()) {
             cfg.setRefDrxHost(enteredIp);
             cfg.save();
             m_refWebClient.setHost(cfg.refDrxHost(), cfg.refDrxPort());
             if (m_txtRefDrxIp) {
                 m_txtRefDrxIp->blockSignals(true);
-                m_txtRefDrxIp->setText(enteredIp);
+                m_txtRefDrxIp->setText(cfg.refDrxHost());
                 m_txtRefDrxIp->blockSignals(false);
             }
-            setStatusMessage(QString("Referans DRX IP güncellendi: %1").arg(enteredIp));
+            if (m_spinRefDrxPort) {
+                m_spinRefDrxPort->blockSignals(true);
+                m_spinRefDrxPort->setValue(cfg.refDrxPort());
+                m_spinRefDrxPort->blockSignals(false);
+            }
+            setStatusMessage(QString("Referans DRX IP güncellendi: %1").arg(cfg.refDrxEndpoint()));
         }
     };
     connect(m_txtHeaderRefIp, &QLineEdit::editingFinished, this, applyHeaderRefIp);
@@ -387,6 +392,8 @@ void HostWindow::setupUi() {
             .arg(NETA_APP_DEVELOPER, NETA_APP_VERSION), this);
     lblFooterRight->setStyleSheet("color: #4B7A66; padding-right: 6px; font-size: 8.5pt;");
     statusBar()->addPermanentWidget(lblFooterRight);
+
+    loadWorkOrders();
 }
 
 /**
@@ -402,6 +409,8 @@ void HostWindow::onNavItemChanged(int row) {
             m_userManager->reloadUsers();
         } else if (m_pageStack->widget(pageIdx) == m_pageHistory && m_historyWidget) {
             m_historyWidget->refreshHistory();
+        } else if (m_pageStack->widget(pageIdx) == m_pageOrders) {
+            loadWorkOrders();
         }
     }
 }
@@ -646,16 +655,196 @@ void HostWindow::setupOrdersPage() {
     m_pageOrders = new QWidget(this);
     QVBoxLayout *vbox = new QVBoxLayout(m_pageOrders);
     vbox->setContentsMargins(10, 10, 10, 10);
+    vbox->setSpacing(8);
+
+    // Toolbar
+    QHBoxLayout *toolBar = new QHBoxLayout();
+    toolBar->setSpacing(8);
+
+    QPushButton *btnAddOrder = new QPushButton("➕ Yeni İş Emri Ekle", m_pageOrders);
+    btnAddOrder->setStyleSheet("background-color: #059669; color: white; border: none; border-radius: 4px; padding: 6px 14px; font-weight: bold;");
+    connect(btnAddOrder, &QPushButton::clicked, this, &HostWindow::onAddWorkOrderClicked);
+    toolBar->addWidget(btnAddOrder);
+
+    QPushButton *btnCompleteOrder = new QPushButton("✔️ Tamamlandı Olarak İşaretle", m_pageOrders);
+    btnCompleteOrder->setStyleSheet("background-color: #0284C7; color: white; border: none; border-radius: 4px; padding: 6px 14px; font-weight: bold;");
+    connect(btnCompleteOrder, &QPushButton::clicked, this, &HostWindow::onCompleteWorkOrderClicked);
+    toolBar->addWidget(btnCompleteOrder);
+
+    QPushButton *btnDeleteOrder = new QPushButton("🗑️ Seçili İş Emrini Sil", m_pageOrders);
+    btnDeleteOrder->setStyleSheet("background-color: #B91C1C; color: white; border: none; border-radius: 4px; padding: 6px 14px; font-weight: bold;");
+    connect(btnDeleteOrder, &QPushButton::clicked, this, &HostWindow::onDeleteWorkOrderClicked);
+    toolBar->addWidget(btnDeleteOrder);
+
+    QPushButton *btnRefresh = new QPushButton("🔄 Listeyi Yenile", m_pageOrders);
+    connect(btnRefresh, &QPushButton::clicked, this, &HostWindow::loadWorkOrders);
+    toolBar->addWidget(btnRefresh);
+
+    toolBar->addStretch();
+    vbox->addLayout(toolBar);
 
     m_tableOrders = new QTableWidget(m_pageOrders);
-    m_tableOrders->setColumnCount(7);
-    m_tableOrders->setHorizontalHeaderLabels({"Sipariş No", "Müşteri", "Ürün Kodu", "Hedef Adet", "Tamamlanan", "Başarılı", "Durum"});
-    m_tableOrders->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    m_tableOrders->setColumnCount(11);
+    m_tableOrders->setHorizontalHeaderLabels({
+        "ID", "Sipariş No", "Müşteri Adı", "Ürün Kodu", "Uydu Profili",
+        "Hedef Adet", "Tamamlanan", "Başarılı", "Hatalı", "Durum", "Notlar"
+    });
+    m_tableOrders->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    m_tableOrders->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_tableOrders->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
     m_tableOrders->verticalHeader()->setVisible(false);
     m_tableOrders->setAlternatingRowColors(true);
     m_tableOrders->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_tableOrders->setEditTriggers(QAbstractItemView::NoEditTriggers);
     vbox->addWidget(m_tableOrders);
+}
+
+void HostWindow::loadWorkOrders() {
+    if (!m_tableOrders) return;
+    QVector<WorkOrderInfo> orders = DbManager::instance().getAllWorkOrders();
+    QVector<SatelliteProfileInfo> profiles = DbManager::instance().getProfiles();
+    QMap<int, QString> profMap;
+    for (const auto &p : profiles) profMap[p.id] = p.profileName;
+
+    m_tableOrders->setRowCount(0);
+    for (int i = 0; i < orders.size(); ++i) {
+        const auto &o = orders[i];
+        m_tableOrders->insertRow(i);
+        m_tableOrders->setItem(i, 0, new QTableWidgetItem(QString::number(o.id)));
+        m_tableOrders->setItem(i, 1, new QTableWidgetItem(o.orderNo));
+        m_tableOrders->setItem(i, 2, new QTableWidgetItem(o.customerName));
+        m_tableOrders->setItem(i, 3, new QTableWidgetItem(o.productCode));
+        m_tableOrders->setItem(i, 4, new QTableWidgetItem(profMap.value(o.satelliteProfileId, QString("Profil #%1").arg(o.satelliteProfileId))));
+        m_tableOrders->setItem(i, 5, new QTableWidgetItem(QString::number(o.targetQuantity)));
+        m_tableOrders->setItem(i, 6, new QTableWidgetItem(QString::number(o.completedQuantity)));
+        m_tableOrders->setItem(i, 7, new QTableWidgetItem(QString::number(o.passedQuantity)));
+        m_tableOrders->setItem(i, 8, new QTableWidgetItem(QString::number(o.failedQuantity)));
+
+        QTableWidgetItem *itemStatus = new QTableWidgetItem(o.status);
+        if (o.status == "COMPLETED") {
+            itemStatus->setForeground(QBrush(QColor("#34D399")));
+        } else if (o.status == "IN_PROGRESS") {
+            itemStatus->setForeground(QBrush(QColor("#38BDF8")));
+        } else {
+            itemStatus->setForeground(QBrush(QColor("#FBBF24")));
+        }
+        itemStatus->setTextAlignment(Qt::AlignCenter);
+        m_tableOrders->setItem(i, 9, itemStatus);
+        m_tableOrders->setItem(i, 10, new QTableWidgetItem(o.notes));
+    }
+}
+
+void HostWindow::onAddWorkOrderClicked() {
+    QDialog dlg(this);
+    dlg.setWindowTitle("Yeni İş Emri Oluştur");
+    dlg.setMinimumWidth(440);
+    QVBoxLayout *layout = new QVBoxLayout(&dlg);
+    layout->setSpacing(10);
+
+    QFormLayout *form = new QFormLayout();
+    form->setSpacing(8);
+
+    QLineEdit *txtOrderNo = new QLineEdit(&dlg);
+    txtOrderNo->setText(QString("NETA-%1-%2").arg(QDate::currentDate().year()).arg(QTime::currentTime().msec(), 3, 10, QChar('0')));
+    form->addRow("Sipariş / İş Emri No *:", txtOrderNo);
+
+    QLineEdit *txtCustomer = new QLineEdit("Genel Üretim", &dlg);
+    form->addRow("Müşteri Adı:", txtCustomer);
+
+    QLineEdit *txtProduct = new QLineEdit("DRX9000-ANT-V1", &dlg);
+    form->addRow("Ürün Kodu:", txtProduct);
+
+    QComboBox *comboProfiles = new QComboBox(&dlg);
+    auto profiles = DbManager::instance().getProfiles();
+    for (const auto &p : profiles) {
+        comboProfiles->addItem(QString("%1 (%2)").arg(p.profileName, p.orbitalPosition), p.id);
+    }
+    form->addRow("Uydu Profili *:", comboProfiles);
+
+    QSpinBox *spinTarget = new QSpinBox(&dlg);
+    spinTarget->setRange(1, 100000);
+    spinTarget->setValue(100);
+    form->addRow("Hedef Üretim Adedi *:", spinTarget);
+
+    QLineEdit *txtNotes = new QLineEdit(&dlg);
+    txtNotes->setPlaceholderText("Opsiyonel parti veya sipariş notu...");
+    form->addRow("Notlar:", txtNotes);
+
+    layout->addLayout(form);
+
+    QHBoxLayout *btnRow = new QHBoxLayout();
+    QPushButton *btnSave = new QPushButton("💾 Kaydet ve İstasyonlara Sun", &dlg);
+    btnSave->setStyleSheet("background-color: #059669; color: white; font-weight: bold; padding: 6px 14px; border-radius: 4px;");
+    QPushButton *btnCancel = new QPushButton("İptal", &dlg);
+    btnRow->addStretch();
+    btnRow->addWidget(btnCancel);
+    btnRow->addWidget(btnSave);
+    layout->addLayout(btnRow);
+
+    connect(btnCancel, &QPushButton::clicked, &dlg, &QDialog::reject);
+    connect(btnSave, &QPushButton::clicked, [&]() {
+        if (txtOrderNo->text().trimmed().isEmpty()) {
+            QMessageBox::warning(&dlg, "Eksik Alan", "Sipariş / İş Emri No boş bırakılamaz!");
+            return;
+        }
+        WorkOrderInfo wo;
+        wo.orderNo = txtOrderNo->text().trimmed();
+        wo.customerName = txtCustomer->text().trimmed();
+        wo.productCode = txtProduct->text().trimmed();
+        wo.satelliteProfileId = comboProfiles->currentData().toInt();
+        wo.targetQuantity = spinTarget->value();
+        wo.status = "IN_PROGRESS";
+        wo.notes = txtNotes->text().trimmed();
+
+        if (DbManager::instance().saveWorkOrder(wo)) {
+            dlg.accept();
+        } else {
+            QMessageBox::warning(&dlg, "Hata", "İş emri kaydedilemedi: " + DbManager::instance().lastError());
+        }
+    });
+
+    if (dlg.exec() == QDialog::Accepted) {
+        loadWorkOrders();
+        appendLog("[İş Emri] Yeni iş emri oluşturuldu: " + txtOrderNo->text().trimmed());
+    }
+}
+
+void HostWindow::onCompleteWorkOrderClicked() {
+    int row = m_tableOrders ? m_tableOrders->currentRow() : -1;
+    if (row < 0) {
+        QMessageBox::information(this, "Seçim Yapılmadı", "Lütfen tamamlandı olarak işaretlemek istediğiniz iş emrini tablodan seçiniz.");
+        return;
+    }
+    int woId = m_tableOrders->item(row, 0)->text().toInt();
+    QString orderNo = m_tableOrders->item(row, 1)->text();
+
+    if (DbManager::instance().setWorkOrderStatus(woId, "COMPLETED")) {
+        loadWorkOrders();
+        appendLog(QString("[İş Emri] İş emri tamamlandı olarak güncellendi: %1 (ID: #%2)").arg(orderNo).arg(woId));
+        QMessageBox::information(this, "Tamamlandı", QString("İş Emri '%1' tamamlandı olarak işaretlendi.").arg(orderNo));
+    }
+}
+
+void HostWindow::onDeleteWorkOrderClicked() {
+    int row = m_tableOrders ? m_tableOrders->currentRow() : -1;
+    if (row < 0) {
+        QMessageBox::information(this, "Seçim Yapılmadı", "Lütfen silmek istediğiniz iş emrini tablodan seçiniz.");
+        return;
+    }
+    int woId = m_tableOrders->item(row, 0)->text().toInt();
+    QString orderNo = m_tableOrders->item(row, 1)->text();
+
+    auto ans = QMessageBox::question(this, "İş Emrini Sil",
+                                     QString("'%1' numaralı iş emrini silmek istediğinize emin misiniz?").arg(orderNo),
+                                     QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (ans == QMessageBox::Yes) {
+        if (DbManager::instance().deleteWorkOrder(woId)) {
+            loadWorkOrders();
+            appendLog(QString("[İş Emri] İş emri silindi: %1 (ID: #%2)").arg(orderNo).arg(woId));
+        } else {
+            QMessageBox::warning(this, "Hata", "İş emri silinemedi: " + DbManager::instance().lastError());
+        }
+    }
 }
 
 void HostWindow::setupSettingsPage() {
@@ -861,13 +1050,12 @@ void HostWindow::onRefEthPingSyncClicked() {
     if (m_txtHeaderRefIp) {
         const QString enteredIp = m_txtHeaderRefIp->text().trimmed();
         AppConfig &cfg = AppConfig::instance();
-        if (!enteredIp.isEmpty() && enteredIp != cfg.refDrxHost()) {
+        if (!enteredIp.isEmpty() && enteredIp != cfg.refDrxEndpoint()) {
             cfg.setRefDrxHost(enteredIp);
             cfg.save();
             m_refWebClient.setHost(cfg.refDrxHost(), cfg.refDrxPort());
-            if (m_txtRefDrxIp) {
-                m_txtRefDrxIp->setText(enteredIp);
-            }
+            if (m_txtRefDrxIp) m_txtRefDrxIp->setText(cfg.refDrxHost());
+            if (m_spinRefDrxPort) m_spinRefDrxPort->setValue(cfg.refDrxPort());
         }
     }
     m_lblRefPingBadge->setText("📶 Ref Ping: Aranıyor...");
@@ -916,7 +1104,7 @@ void HostWindow::onSaveRefWebSettingsClicked() {
     m_refWebClient.setHost(cfg.refDrxHost(), cfg.refDrxPort());
     m_refWebClient.setCredentials(cfg.drxUsername(), cfg.drxPassword());
     if (m_txtHeaderRefIp) {
-        m_txtHeaderRefIp->setText(cfg.refDrxHost());
+        m_txtHeaderRefIp->setText(cfg.refDrxEndpoint());
     }
 
     onRefEthPingSyncClicked();

@@ -80,7 +80,7 @@ void GoldenReferenceWidget::setupUi() {
     m_tableFreqs = new QTableWidget(grpFreq);
     m_tableFreqs->setColumnCount(9);
     m_tableFreqs->setHorizontalHeaderLabels({
-        "#", "Etiket / Açıklama", "Frekans (MHz)", "Sembol Hızı", "Pol (V/H)",
+        "#", "Kanal Adı (Örn: TRT 1 HD)", "Frekans (MHz)", "Sembol Hızı", "Pol (V/H)",
         "Tolerans (dB)", "Golden C/N", "Golden POW", "Son Güncelleme"
     });
     m_tableFreqs->verticalHeader()->setVisible(false);
@@ -97,7 +97,7 @@ void GoldenReferenceWidget::setupUi() {
     freqVBox->addWidget(m_tableFreqs, 1);
 
     QHBoxLayout *btnRow = new QHBoxLayout();
-    QPushButton *btnAdd = new QPushButton("➕ Frekans Ekle", grpFreq);
+    QPushButton *btnAdd = new QPushButton("➕ Kanal / Frekans Ekle", grpFreq);
     btnAdd->setCursor(Qt::PointingHandCursor);
     connect(btnAdd, &QPushButton::clicked, this, &GoldenReferenceWidget::onAddRowClicked);
 
@@ -248,7 +248,7 @@ void GoldenReferenceWidget::onAddRowClicked() {
     m_tableFreqs->insertRow(row);
 
     GoldenFrequencyRecord rec;
-    rec.label = QString("Frekans %1").arg(row + 1);
+    rec.label = QString("Kanal %1").arg(row + 1);
     rec.frequencyMhz = 11054;
     rec.symbolRate = 30000;
     rec.polarization = "V";

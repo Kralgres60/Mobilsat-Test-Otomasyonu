@@ -190,6 +190,32 @@ InstallerPrefix=NETA_DRX9000_ANTENNA_Test_Setup
 
 ---
 
+## 📸 Sistem Ekran Görüntüleri ve Mimari Şemalar
+
+### Mimari ve Akış Şemaları
+- **Algoritma 1 Akış Şeması:** [`docs/DRX_Algoritma_1_Akis_Semasi.png`](file:///d:/A_SCIENCES/PROJECTS/NETA/DRX-Antenna-Test/docs/DRX_Algoritma_1_Akis_Semasi.png)
+- **Algoritma 2 Akış Şeması:** [`docs/DRX_Algoritma_2_Akis_Semasi.png`](file:///d:/A_SCIENCES/PROJECTS/NETA/DRX-Antenna-Test/docs/DRX_Algoritma_2_Akis_Semasi.png)
+- **Algoritma 1 Sistem Mimarisi:** [`docs/DRX_Sistem_Mimarisi_Algoritma_1.png`](file:///d:/A_SCIENCES/PROJECTS/NETA/DRX-Antenna-Test/docs/DRX_Sistem_Mimarisi_Algoritma_1.png)
+- **Algoritma 2 Sistem Mimarisi:** [`docs/DRX_Sistem_Mimarisi_Algoritma_2.png`](file:///d:/A_SCIENCES/PROJECTS/NETA/DRX-Antenna-Test/docs/DRX_Sistem_Mimarisi_Algoritma_2.png)
+
+### Uygulama Arayüzleri (`docs/screen/`)
+1. **Kullanıcı Giriş Ekranı:** [`docs/screen/01_Kullanici_Giris_Ekrani.png`](file:///d:/A_SCIENCES/PROJECTS/NETA/DRX-Antenna-Test/docs/screen/01_Kullanici_Giris_Ekrani.png)
+2. **Ağ Lobisi Sunucu Seçimi:** [`docs/screen/02_Ag_Lobisi_Sunucu_Secimi.png`](file:///d:/A_SCIENCES/PROJECTS/NETA/DRX-Antenna-Test/docs/screen/02_Ag_Lobisi_Sunucu_Secimi.png)
+3. **İstasyon Üretim Testi (Hazır):** [`docs/screen/03_Istasyon_Uretim_Testi_Beklemede.png`](file:///d:/A_SCIENCES/PROJECTS/NETA/DRX-Antenna-Test/docs/screen/03_Istasyon_Uretim_Testi_Beklemede.png)
+4. **İstasyon Üretim Testi (Çalışıyor):** [`docs/screen/04_Istasyon_Uretim_Testi_Calisiyor.png`](file:///d:/A_SCIENCES/PROJECTS/NETA/DRX-Antenna-Test/docs/screen/04_Istasyon_Uretim_Testi_Calisiyor.png)
+5. **İstasyon Test Matrisi Canlı Sonuçlar:** [`docs/screen/05_Istasyon_Test_Matrisi_Sonuclari.png`](file:///d:/A_SCIENCES/PROJECTS/NETA/DRX-Antenna-Test/docs/screen/05_Istasyon_Test_Matrisi_Sonuclari.png)
+6. **İstasyon Test Tamamlandı (FAIL):** [`docs/screen/06_Istasyon_Test_Tamamlandi_Fail.png`](file:///d:/A_SCIENCES/PROJECTS/NETA/DRX-Antenna-Test/docs/screen/06_Istasyon_Test_Tamamlandi_Fail.png)
+7. **Uydu Profilleri Yönetimi:** [`docs/screen/07_Uydu_Profilleri_Yonetimi.png`](file:///d:/A_SCIENCES/PROJECTS/NETA/DRX-Antenna-Test/docs/screen/07_Uydu_Profilleri_Yonetimi.png)
+8. **Mühendis Parametre ve Ayarları:** [`docs/screen/08_Muhendis_Ayarlari_Parametreler.png`](file:///d:/A_SCIENCES/PROJECTS/NETA/DRX-Antenna-Test/docs/screen/08_Muhendis_Ayarlari_Parametreler.png)
+9. **Host Canlı Test Lobisi ve Mutex:** [`docs/screen/09_Host_Canli_Test_Lobisi_Mutex.png`](file:///d:/A_SCIENCES/PROJECTS/NETA/DRX-Antenna-Test/docs/screen/09_Host_Canli_Test_Lobisi_Mutex.png)
+10. **Host Ağdaki PC'ler ve Durumlar:** [`docs/screen/10_Host_Agdaki_Istasyon_Durumlari.png`](file:///d:/A_SCIENCES/PROJECTS/NETA/DRX-Antenna-Test/docs/screen/10_Host_Agdaki_Istasyon_Durumlari.png)
+11. **Host Sistem ve Donanım Ayarları:** [`docs/screen/11_Host_Sistem_Ayarlari.png`](file:///d:/A_SCIENCES/PROJECTS/NETA/DRX-Antenna-Test/docs/screen/11_Host_Sistem_Ayarlari.png)
+12. **Host Sistem ve Ağ Logları:** [`docs/screen/12_Host_Sistem_Loglari.png`](file:///d:/A_SCIENCES/PROJECTS/NETA/DRX-Antenna-Test/docs/screen/12_Host_Sistem_Loglari.png)
+13. **Host Kullanıcı ve Yetkilendirme:** [`docs/screen/13_Host_Kullanici_Yetkilendirme_Yonetimi.png`](file:///d:/A_SCIENCES/PROJECTS/NETA/DRX-Antenna-Test/docs/screen/13_Host_Kullanici_Yetkilendirme_Yonetimi.png)
+14. **Yönetici Sunucu Kapatıldı Uyarısı:** [`docs/screen/14_Sunucu_Kapatildi_Uyarisi.png`](file:///d:/A_SCIENCES/PROJECTS/NETA/DRX-Antenna-Test/docs/screen/14_Sunucu_Kapatildi_Uyarisi.png)
+
+---
+
 ## 👨‍💻 Geliştirici ve İthaf
 
 Bu otomasyon yazılımı; NETA DRX9000 serisi mobil uydu anten sistemlerinin seri üretim hattında çoklu istasyon eşzamanlı test, referans almaç karşılaştırmalı canlı RF telemetri analizi, otomatik taşıyıcı/video kilitleme denetimi ve fabrika merkezi veritabanı kalite kayıt süreçleri amacıyla **Semi Eren Gökyıldız** tarafından özel olarak tasarlanıp geliştirilmiştir.

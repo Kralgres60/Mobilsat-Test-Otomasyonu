@@ -96,6 +96,13 @@ ClientWindow::ClientWindow(QWidget *parent)
 
     m_stateMachine->setDataTransfers(&m_dutWebClient, &m_refWebClient);
 
+    // Proaktif veritabanı bağlantısı (MariaDB veya SQLite Yedek Modu)
+    if (!DbManager::instance().isConnected()) {
+        AppConfig &cfg = AppConfig::instance();
+        DbManager::instance().connectToDatabase(
+            cfg.dbHost(), cfg.dbPort(), cfg.dbName(), cfg.dbUser(), cfg.dbPassword());
+    }
+
     setupMenuBar();
     setupUi();
     setupPlot();
@@ -109,11 +116,12 @@ ClientWindow::ClientWindow(QWidget *parent)
         m_lblConnectionStatus->setStyleSheet(StyleHelper::getPastelRedStyle());
         m_lblLockBanner->setText("⚪ Kilit: Sunucu Kapalı");
         m_lblLockBanner->setStyleSheet(StyleHelper::getPastelSlateStyle());
-        setStatusMessage("Yönetici Sunucu kapatıldı. Tekrar açıldığında bağlanabilirsiniz.");
+        setStatusMessage("Yönetici Sunucu kapatıldı.");
         appendLog("[AĞ UYARI] Yönetici Sunucu (Host) kapatıldı!");
         QMessageBox::warning(this, "Yönetici Sunucu Kapatıldı",
                              "Yönetici PC sunucuyu kapattı.\n\n"
-                             "Yönetici tekrar sunucuyu başlattığında 'Sunucuya Yeniden Bağlan' veya Lobi üzerinden bağlanabilirsiniz.");
+                             "İstasyon otomatik olarak Ağ Lobisi (Sunucu Seçim) ekranına yönlendiriliyor.");
+        onReturnLobbyClicked();
     });
     connect(&m_netClient, &TcpClient::userAuthorizationReceived, this, [this](const QString &role, const QString &fullName, bool isActive) {
         if (!isActive) {
@@ -386,7 +394,7 @@ void ClientWindow::setupProductionPage() {
     QLabel *lblDutIpTitle = new QLabel("🌐 DRX IP:", grpStation);
     lblDutIpTitle->setStyleSheet("color: #34D399; font-weight: bold;");
 
-    m_txtHeaderDutIp = new QLineEdit(AppConfig::instance().stationDrxHost(), grpStation);
+    m_txtHeaderDutIp = new QLineEdit(AppConfig::instance().stationDrxEndpoint(), grpStation);
     m_txtHeaderDutIp->setPlaceholderText("192.168.0.168 veya 127.0.0.1:8080");
     m_txtHeaderDutIp->setFixedWidth(185);
     m_txtHeaderDutIp->setToolTip("Test edilecek DUT DRX9000 IP adresi (Simülatör için örn: 127.0.0.1:8080)");
@@ -396,16 +404,16 @@ void ClientWindow::setupProductionPage() {
         const QString enteredIp = m_txtHeaderDutIp->text().trimmed();
         if (enteredIp.isEmpty()) return;
         AppConfig &cfg = AppConfig::instance();
-        if (enteredIp != cfg.stationDrxHost()) {
+        if (enteredIp != cfg.stationDrxEndpoint()) {
             cfg.setStationDrxHost(enteredIp);
             cfg.save();
             m_dutWebClient.setHost(cfg.stationDrxHost(), cfg.stationDrxPort());
             if (m_txtDutDrxIp) {
                 m_txtDutDrxIp->blockSignals(true);
-                m_txtDutDrxIp->setText(enteredIp);
+                m_txtDutDrxIp->setText(cfg.stationDrxHost());
                 m_txtDutDrxIp->blockSignals(false);
             }
-            setStatusMessage(QString("DUT DRX IP güncellendi: %1").arg(enteredIp));
+            setStatusMessage(QString("DUT DRX IP güncellendi: %1").arg(cfg.stationDrxEndpoint()));
         }
     };
     connect(m_txtHeaderDutIp, &QLineEdit::editingFinished, this, applyHeaderDutIp);
@@ -1123,12 +1131,12 @@ void ClientWindow::onEthPingSyncClicked() {
     if (m_txtHeaderDutIp) {
         const QString enteredIp = m_txtHeaderDutIp->text().trimmed();
         AppConfig &cfg = AppConfig::instance();
-        if (!enteredIp.isEmpty() && enteredIp != cfg.stationDrxHost()) {
+        if (!enteredIp.isEmpty() && enteredIp != cfg.stationDrxEndpoint()) {
             cfg.setStationDrxHost(enteredIp);
             cfg.save();
             m_dutWebClient.setHost(cfg.stationDrxHost(), cfg.stationDrxPort());
             if (m_txtDutDrxIp) {
-                m_txtDutDrxIp->setText(enteredIp);
+                m_txtDutDrxIp->setText(cfg.stationDrxHost());
             }
         }
     }
@@ -1583,7 +1591,20 @@ void ClientWindow::onTestFinished(const TestRunData &finalResult) {
     }
     m_activeAntennaSn.clear();
 
-    DbManager::instance().insertTestRun(finalResult);
+    qint64 runId = DbManager::instance().insertTestRun(finalResult);
+    if (runId > 0) {
+        appendLog(QString("✔ Test sonucu veritabanına kaydedildi (#ID: %1 | Seri: %2 | Sonuç: %3 | Sürücü: %4)")
+                      .arg(runId).arg(finalResult.antennaSn, finalResult.overallResult, DbManager::instance().activeDriver()));
+        if (finalResult.workOrderId > 0) {
+            loadWorkOrdersAndProfiles();
+        }
+        if (m_testHistory) {
+            m_testHistory->refreshHistory();
+        }
+    } else {
+        appendLog(QString("❌ [HATA] Test sonucu veritabanına kaydedilemedi! Hata: %1")
+                      .arg(DbManager::instance().lastError()));
+    }
 
     if (m_txtTesterName) m_txtTesterName->clear();
     m_txtAntennaSn->clear();
@@ -1628,7 +1649,7 @@ void ClientWindow::onSaveWebSettingsClicked() {
     m_refWebClient.setCredentials(cfg.drxUsername(), cfg.drxPassword());
 
     if (m_txtHeaderDutIp) {
-        m_txtHeaderDutIp->setText(cfg.stationDrxHost());
+        m_txtHeaderDutIp->setText(cfg.stationDrxEndpoint());
     }
 
     appendLog(QString("[Mühendis] Web CGI adresleri güncellendi -> DUT: %1 | REF: %2. Ping testi başlatılıyor...")
