@@ -1,6 +1,6 @@
 /**
  * @file host_window.cpp
- * @brief Implementation of the NETA Yeşili Central Host dashboard with sidebar navigation and Reference Ethernet Ping & Web CGI control.
+ * @brief Implementation of the NETA Green Central Host dashboard with sidebar navigation and Reference Ethernet Ping & Web CGI control.
  * @author Semi Eren Gökyıldız
  * @copyright Copyright (C) 2026 NETA Elektronik A.Ş.
  */
@@ -1005,7 +1005,7 @@ void HostWindow::setupSettingsPage() {
     vbox->addLayout(cardsGrid);
     vbox->addStretch();
 
-    // Anında QSettings (.ini) otomatik kayıt bağlantıları
+    // Auto-save settings to QSettings (.ini) on value changes
     auto autoSaveHostSettings = [this]() {
         AppConfig &cfg = AppConfig::instance();
         cfg.setLockTimeoutSec(m_spinLockTimeout->value());

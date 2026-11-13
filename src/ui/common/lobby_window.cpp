@@ -70,7 +70,7 @@ void LobbyWindow::setupUi() {
     rootVBox->setContentsMargins(18, 14, 18, 14);
     rootVBox->setSpacing(14);
 
-    // ── 1. Üst Karşılama & Kullanıcı Başlığı ─────────────────────────────────
+    // ── 1. Top Header & User Welcome ─────────────────────────────────────
     QFrame *headerCard = new QFrame(central);
     headerCard->setStyleSheet("background-color: #0A1F17; border: 1px solid #1A3D2B; border-radius: 8px; padding: 10px 14px;");
     QHBoxLayout *headerHBox = new QHBoxLayout(headerCard);
@@ -109,7 +109,7 @@ void LobbyWindow::setupUi() {
     headerHBox->addWidget(btnSwitchUser);
     rootVBox->addWidget(headerCard);
 
-    // ── 2. Ortada İki Büyük Kart: HOST (Sunucu Kur) | JOIN (Sunucuya Katıl) ─
+    // ── 2. Two Main Action Cards: HOST (Start Server) | JOIN (Connect) ──
     QHBoxLayout *cardsHBox = new QHBoxLayout();
     cardsHBox->setSpacing(16);
 
@@ -169,7 +169,7 @@ void LobbyWindow::setupUi() {
 
     cardsHBox->addWidget(grpHost);
 
-    // --- SAĞ KART: JOIN ---
+    // --- RIGHT CARD: JOIN ---
     QGroupBox *grpJoin = new QGroupBox("🎮 AĞDAKİ SUNUCUYA KATIL (JOIN — Test İstasyonu)", central);
     QVBoxLayout *joinVBox = new QVBoxLayout(grpJoin);
     joinVBox->setSpacing(10);
@@ -219,7 +219,7 @@ void LobbyWindow::setupUi() {
     connect(m_btnJoinSelected, &QPushButton::clicked, this, &LobbyWindow::onJoinSelectedClicked);
     joinVBox->addWidget(m_btnJoinSelected);
 
-    // Manuel bağlantı fallback (broadcast engelli ağlar için)
+    // Direct IP fallback (for networks where UDP broadcast is blocked)
     QHBoxLayout *manualRow = new QHBoxLayout();
     QLabel *lblMan = new QLabel("Doğrudan IP ile Katıl:", grpJoin);
     m_txtManualIp = new QLineEdit(cfg.hostIp(), grpJoin);

@@ -45,7 +45,7 @@ void GoldenReferenceWidget::setupUi() {
     rootVBox->setContentsMargins(10, 10, 10, 10);
     rootVBox->setSpacing(10);
 
-    // ── 1. Referans Karşılaştırma Modu (Yönetici Yetkisi) ──────────────────────
+    // ── 1. Reference Comparison Mode (Admin Authority) ──────────────────
     QGroupBox *grpMode = new QGroupBox("🎯 Yönetici Referans Modu (Tüm İstasyonları Belirler)", this);
     QHBoxLayout *modeHBox = new QHBoxLayout(grpMode);
     modeHBox->setSpacing(10);
@@ -72,7 +72,7 @@ void GoldenReferenceWidget::setupUi() {
     modeHBox->addWidget(btnApply);
     rootVBox->addWidget(grpMode);
 
-    // ── 2. Frekans Bazlı Referans Ölçüm Tablosu (Profil Bağımsız) ──────────────
+    // ── 2. Frequency-Based Reference Table (Profile Independent) ─────────
     QGroupBox *grpFreq = new QGroupBox("🌟 Yönetici Frekans Referans (Golden Sample) Havuzu", this);
     QVBoxLayout *freqVBox = new QVBoxLayout(grpFreq);
     freqVBox->setSpacing(8);

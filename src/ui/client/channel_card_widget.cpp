@@ -13,7 +13,7 @@ ChannelCardWidget::ChannelCardWidget(int channelNo, QWidget *parent)
     vbox->setSpacing(3);
     vbox->setContentsMargins(6, 6, 6, 6);
 
-    // Satır 1: Kanal No, İsim ve Frekans
+    // Row 1: Channel number, name, and frequency
     QHBoxLayout *topRow = new QHBoxLayout();
     topRow->setSpacing(4);
     m_lblTitle = new QLabel(QString("CH %1: --").arg(channelNo), this);
@@ -27,7 +27,7 @@ ChannelCardWidget::ChannelCardWidget(int channelNo, QWidget *parent)
     topRow->addWidget(m_lblFreq);
     vbox->addLayout(topRow);
 
-    // Satır 2: DUT ve REF C/N Değerleri
+    // Row 2: DUT and REF C/N values
     QHBoxLayout *valRow = new QHBoxLayout();
     valRow->setSpacing(4);
     m_lblDutCn = new QLabel("DUT: -- dB", this);
@@ -41,7 +41,7 @@ ChannelCardWidget::ChannelCardWidget(int channelNo, QWidget *parent)
     valRow->addWidget(m_lblRefCn);
     vbox->addLayout(valRow);
 
-    // Satır 3: Delta Rozeti + Kilit Bayrakları + Durum Rozeti (Tek satırda)
+    // Row 3: Delta badge + lock flags + status badge
     QHBoxLayout *botRow = new QHBoxLayout();
     botRow->setSpacing(4);
 

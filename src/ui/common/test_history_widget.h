@@ -1,6 +1,6 @@
 /**
  * @file test_history_widget.h
- * @brief Ortak Test Geçmişi & Veritabanı Tablo Tarayıcısı bileşeni (Excel desteği ile).
+ * @brief Unified Test History, SQL Browser, and Audit Trail component with Excel export/import.
  * @author Semi Eren Gökyıldız
  * @copyright Copyright (C) 2026 NETA Elektronik A.Ş.
  */
@@ -21,8 +21,7 @@
 
 /**
  * @class TestHistoryWidget
- * @brief Test koşum geçmişi ile SQL veritabanı tablolarını tek çatı altında
- *        sekme bazlı (QTabWidget) olarak sunan kapsamlı veri görüntüleme bileşeni.
+ * @brief Tab-based component presenting test runs, database tables, and audit logs.
  */
 class TestHistoryWidget : public QWidget {
     Q_OBJECT
@@ -54,7 +53,7 @@ private:
 
     QTabWidget   *m_tabs          = nullptr;
 
-    // Tab 1: Test Geçmişi
+    // Tab 1: Test History
     QLineEdit    *m_txtSearch     = nullptr;
     QComboBox    *m_comboStation  = nullptr;
     QComboBox    *m_comboResult   = nullptr;
@@ -65,7 +64,7 @@ private:
     QTableWidget *m_table         = nullptr;
     QVector<TestRunData> m_cachedRuns;
 
-    // Tab 2: Veritabanı Tablo Tarayıcısı
+    // Tab 2: Database Table Browser
     QComboBox    *m_comboTables   = nullptr;
     QComboBox    *m_comboLimit    = nullptr;
     QLineEdit    *m_txtDbFilter   = nullptr;
@@ -74,7 +73,7 @@ private:
     QTableWidget *m_tableDb       = nullptr;
     QStringList   m_knownTables;
 
-    // Tab 3: Sistem Olay & Denetim Logları (Audit)
+    // Tab 3: System Event & Audit Logs
     QLineEdit    *m_txtAuditSearch   = nullptr;
     QPushButton  *m_btnAuditRefresh  = nullptr;
     QPushButton  *m_btnAuditClear    = nullptr;

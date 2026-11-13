@@ -32,7 +32,7 @@ DependencyInstallDialog::DependencyInstallDialog(QWidget *parent)
 
     connect(&m_pollTimer, &QTimer::timeout, this, &DependencyInstallDialog::onPollTimer);
 
-    // Açılır açılmaz kurulumu başlat
+    // Start installation as soon as dialog opens
     QTimer::singleShot(200, this, &DependencyInstallDialog::startInstallation);
 }
 
@@ -45,7 +45,7 @@ void DependencyInstallDialog::setupUi() {
     mainLayout->setSpacing(12);
     mainLayout->setContentsMargins(20, 20, 20, 20);
 
-    // 1. Üst Başlık ve Durum
+    // 1. Top Title and Status
     QVBoxLayout *headerLayout = new QVBoxLayout();
     headerLayout->setSpacing(4);
 
@@ -60,7 +60,7 @@ void DependencyInstallDialog::setupUi() {
     headerLayout->addWidget(m_lblSubtitle);
     mainLayout->addLayout(headerLayout);
 
-    // 2. İlerleme Çubuğu
+    // 2. Progress Bar
     m_progressBar = new QProgressBar(this);
     m_progressBar->setFixedHeight(8);
     m_progressBar->setTextVisible(false);
@@ -71,7 +71,7 @@ void DependencyInstallDialog::setupUi() {
     );
     mainLayout->addWidget(m_progressBar);
 
-    // 3. Canlı Debug Konsolu (QPlainTextEdit)
+    // 3. Live Debug Console (QPlainTextEdit)
     m_txtConsole = new QPlainTextEdit(this);
     m_txtConsole->setReadOnly(true);
     m_txtConsole->setStyleSheet(
@@ -87,7 +87,7 @@ void DependencyInstallDialog::setupUi() {
     );
     mainLayout->addWidget(m_txtConsole);
 
-    // 4. Alt Bilgi Rozeti ve Kontrol Butonları
+    // 4. Footer Badge and Control Buttons
     QHBoxLayout *botLayout = new QHBoxLayout();
     m_lblPortStatus = new QLabel("Port 3306 (MySQL): Bekleniyor...", this);
     m_lblPortStatus->setStyleSheet("font-size: 12px; font-weight: bold; color: #FFA726;");
@@ -139,7 +139,7 @@ void DependencyInstallDialog::startInstallation() {
 
     appendLog("[BİLGİ] NETA DRX9000 Veritabanı Kurulum Motoru başlatılıyor...");
 
-    // Eski canlı log dosyasını temizle
+    // Remove old log file
     if (!m_streamLogPath.isEmpty() && QFile::exists(m_streamLogPath)) {
         QFile::remove(m_streamLogPath);
     }
@@ -165,7 +165,7 @@ void DependencyInstallDialog::startInstallation() {
     appendLog("[BİLGİ] Windows Yönetici (UAC) onayı isteniyor...");
 
 #ifdef Q_OS_WIN
-    // PowerShell'i doğrudan yönetici yetkisiyle (runas) başlatıp çıktıyı hem ekranda hem log dosyasında oluşturuyoruz
+    // Launch PowerShell with admin privileges (runas) to write output to screen and log file
     QString params = QString("-NoProfile -ExecutionPolicy Bypass -Command \"& '%1' *>&1 | Tee-Object -FilePath '%2'\"")
                          .arg(nativePsScript, nativeLogFile);
 
@@ -192,10 +192,10 @@ void DependencyInstallDialog::startInstallation() {
 void DependencyInstallDialog::onPollTimer() {
     m_elapsedTicks++;
 
-    // 1. Log dosyasındaki yeni satırları oku
+    // 1. Read new lines from log file
     readStreamLog();
 
-    // 2. Her 8 tickte bir (~1 saniye) Port 3306 kontrolü yap
+    // 2. Check Port 3306 every second
     if (m_elapsedTicks % 8 == 0) {
         bool listening = DependencyInstaller::isMySqlListening("127.0.0.1", 3306);
         if (listening) {
@@ -224,7 +224,7 @@ void DependencyInstallDialog::onPollTimer() {
             m_lblPortStatus->setText(QString("Port 3306: Bekleniyor... (%1 sn)").arg(sec));
         }
 
-        // Zaman aşımı kontrolü (120 saniye)
+        // Timeout check (120 seconds)
         if (m_elapsedTicks > (120 * 1000 / 120)) {
             finishInstallation(false, "Zaman aşımı: MySQL servisi 120 saniye içinde yanıt vermedi.");
         }
@@ -273,7 +273,7 @@ void DependencyInstallDialog::finishInstallation(bool success, const QString &me
     m_finished = true;
     m_success = success;
 
-    // Kalan son satırları da oku
+    // Read remaining lines
     readStreamLog();
 
     m_progressBar->setRange(0, 100);

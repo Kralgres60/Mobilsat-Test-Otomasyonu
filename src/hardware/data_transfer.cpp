@@ -1,7 +1,6 @@
 /**
  * @file data_transfer.cpp
- * @brief Donanım veri iletimi (DataTransfer) temel sınıfı ve ondan türeyen
- *        Ethernet (Web CGI) ile RS232 (Seri Port) sürücülerinin birleşik uygulaması.
+ * @brief Implementation of DataTransfer base class and Ethernet (Web CGI) and RS232 drivers.
  * @author Semi Eren Gökyıldız
  * @copyright Copyright (C) 2026 NETA Elektronik A.Ş.
  */
@@ -14,7 +13,7 @@
 #include <QDebug>
 
 // =============================================================================
-// YARDIMCI NUMERİK VE KİLİT AYRIŞTIRICILARI (DRX DOM & JSON)
+// HELPER NUMERIC AND LOCK PARSERS (DRX DOM & JSON)
 // =============================================================================
 static double parseDrxNumeric(QString str) {
     str = str.trimmed();
@@ -63,7 +62,7 @@ static QJsonArray extractElements(const QJsonObject &root) {
 }
 
 // =============================================================================
-// 1. ETHERNET SÜRÜCÜSÜ (WEB CGI + ICMP PING)
+// 1. ETHERNET DRIVER (WEB CGI + ICMP PING)
 // =============================================================================
 Ethernet::Ethernet(QObject *parent)
     : DataTransfer(parent) {
@@ -143,7 +142,7 @@ void Ethernet::pingHost(int timeoutMs) {
     }
     if (m_pingInProgress) return;
 
-    // Yerel simülatör (127.0.0.1 / localhost) için ping daima anında başarılıdır
+    // For local simulator (127.0.0.1 / localhost), ping is always instant and successful
     if (m_hostIp == "127.0.0.1" || m_hostIp.compare("localhost", Qt::CaseInsensitive) == 0) {
         m_isReachable = true;
         m_lastLatencyMs = 1;
@@ -442,7 +441,7 @@ void Ethernet::handleAlarmStatusResponse(const QJsonObject &root) {
             }
         }
     } else {
-        // Düz (flat) JSON alanları için geriye dönük uyumluluk
+        // Backward compatibility for flat JSON fields
         if (root.contains("signalLock")) sig = root.value("signalLock").toBool(false);
         else if (root.contains("sLock")) sig = (root.value("sLock").toInt(0) == 1);
 
@@ -507,7 +506,7 @@ void Ethernet::handleTuneResponse(const QJsonObject &root) {
 }
 
 // =============================================================================
-// 2. RS232 SÜRÜCÜSÜ (SERİ PORT + DAHİLİ PROTOKOL PARSER)
+// 2. RS232 DRIVER (SERIAL PORT + INTERNAL PROTOCOL PARSER)
 // =============================================================================
 RS232::RS232(QObject *parent)
     : DataTransfer(parent) {

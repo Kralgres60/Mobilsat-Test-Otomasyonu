@@ -136,7 +136,7 @@ void ProfileManagerWidget::setupUi() {
 
     splitHBox->addWidget(grpProfLeft);
 
-    // Sağ Kolon: Frekans & Golden Sample Düzenleme Tablosu
+    // Right Column: Frequency and Golden Sample table
     QGroupBox *grpChannels = new QGroupBox("📺 Profil Frekansları & Transponder Listesi", this);
     QVBoxLayout *chVBox = new QVBoxLayout(grpChannels);
     chVBox->setSpacing(8);
@@ -158,7 +158,7 @@ void ProfileManagerWidget::setupUi() {
     m_tableProfileChannels->setColumnWidth(7, 100);
     m_tableProfileChannels->setColumnWidth(8, 105);
 
-    // İstasyon tarafında referans / kalibrasyon alanları gösterilmez (yalnızca Yönetici görür)
+    // Stations only see test parameters; Golden Sample calibration is managed by Admin
     if (!m_isHostMode) {
         m_tableProfileChannels->setColumnHidden(5, true); // Tolerans (dB)
         m_tableProfileChannels->setColumnHidden(6, true); // Golden C/N
@@ -259,7 +259,7 @@ void ProfileManagerWidget::populateChannelRow(int row, const ChannelConfig &ch) 
 
     m_tableProfileChannels->setItem(row, 1, new QTableWidgetItem(ch.channelName));
 
-    // Frekans (MHz): Sadece geçerli uydu frekans aralığı (950 - 14500 MHz)
+    // Frequency (MHz): Valid satellite RF frequency range (950 - 14500 MHz)
     auto *spinFreq = new QSpinBox(m_tableProfileChannels);
     spinFreq->setRange(950, 14500);
     spinFreq->setButtonSymbols(QAbstractSpinBox::NoButtons);
@@ -269,7 +269,7 @@ void ProfileManagerWidget::populateChannelRow(int row, const ChannelConfig &ch) 
     spinFreq->setToolTip("Frekans formatı: 950 - 14500 MHz (Örn: 11054)");
     m_tableProfileChannels->setCellWidget(row, 2, spinFreq);
 
-    // Sembol Hızı (kS/s): Sadece geçerli sembol hızı aralığı (1000 - 65000 kS/s)
+    // Symbol Rate (kS/s): Valid symbol rate range (1000 - 65000 kS/s)
     auto *spinSr = new QSpinBox(m_tableProfileChannels);
     spinSr->setRange(1000, 65000);
     spinSr->setButtonSymbols(QAbstractSpinBox::NoButtons);
@@ -279,7 +279,7 @@ void ProfileManagerWidget::populateChannelRow(int row, const ChannelConfig &ch) 
     spinSr->setToolTip("Sembol hızı formatı: 1000 - 65000 kS/s (Örn: 30000)");
     m_tableProfileChannels->setCellWidget(row, 3, spinSr);
 
-    // Polarizasyon: Yalnızca V veya H seçilebilir
+    // Polarization: Only V or H
     auto *comboPol = new QComboBox(m_tableProfileChannels);
     comboPol->addItem("V");
     comboPol->addItem("H");
@@ -527,7 +527,7 @@ void ProfileManagerWidget::onSaveProfileClicked() {
 
     for (int r = 0; r < m_tableProfileChannels->rowCount(); ++r) {
         ChannelConfig ch = readChannelFromRow(r, p.defaultToleranceDb);
-        // İstasyon düzenlemelerinde yöneticinin kayıtlı tolerans ve Golden Sample verilerini koru
+        // Keep Admin baseline Golden Sample and tolerance values when editing
         if (!m_isHostMode && r < prevChannels.size()) {
             ch.toleranceDb = prevChannels[r].toleranceDb;
             ch.goldenCnDb = prevChannels[r].goldenCnDb;

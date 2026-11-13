@@ -33,7 +33,7 @@
 
 /**
  * @class HostWindow
- * @brief Central controller dashboard in NETA Yeşili theme providing multi-station lobby supervision,
+ * @brief Central controller dashboard in NETA Green theme providing multi-station lobby supervision,
  *        mutual exclusion tracking, Reference DRX Ethernet Ping & Web CGI control, reporting, and configuration.
  */
 class HostWindow : public QMainWindow {

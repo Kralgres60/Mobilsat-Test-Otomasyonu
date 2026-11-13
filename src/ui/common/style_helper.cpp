@@ -1,8 +1,8 @@
 /**
  * @file style_helper.cpp
- * @brief Implementation of the NETA Yeşili QPalette and QSS stylesheets.
+ * @brief Implementation of the NETA Green QPalette and QSS stylesheets.
  *
- * NETA Yeşili Color Palette:
+ * NETA Green Color Palette:
  *   #071210  – deepest background
  *   #0A1F17  – surface / sidebar
  *   #112D21  – panel / groupbox
@@ -23,7 +23,7 @@
 #include <QColor>
 
 /**
- * @brief Applies the NETA Yeşili QPalette across the Qt application instance.
+ * @brief Applies the NETA Green QPalette across the Qt application instance.
  * @param app Pointer to the QApplication instance.
  */
 void StyleHelper::applyAppPalette(QApplication *app) {
@@ -45,7 +45,7 @@ void StyleHelper::applyAppPalette(QApplication *app) {
 }
 
 /**
- * @brief Returns the global NETA Yeşili application QSS stylesheet.
+ * @brief Returns the global NETA Green application QSS stylesheet.
  * @return QString containing the full application stylesheet.
  */
 QString StyleHelper::getAppStyle() {
@@ -186,7 +186,7 @@ QString StyleHelper::getAppStyle() {
             border-color: #1A3D2B;
         }
 
-        /* Sol menü QListWidget (Sidebar Navigation) */
+        /* Sidebar Navigation (QListWidget) */
         QListWidget#sideNav {
             background-color: #0A1F17;
             border: none;

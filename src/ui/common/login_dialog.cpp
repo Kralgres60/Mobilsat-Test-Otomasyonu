@@ -1,6 +1,6 @@
 /**
  * @file login_dialog.cpp
- * @brief Implementation of the minimalist NETA Yeşili authentication dialog (no station/host selection here).
+ * @brief Implementation of the minimalist NETA Green authentication dialog (no station/host selection here).
  * @author Semi Eren Gökyıldız
  * @copyright Copyright (C) 2026 NETA Elektronik A.Ş.
  */

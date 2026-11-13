@@ -1,6 +1,6 @@
 /**
  * @file login_dialog.h
- * @brief Minimalist NETA Yeşili authentication dialog (username & password only; HOST/JOIN happens in Lobby).
+ * @brief Minimalist NETA Green authentication dialog (username & password only; HOST/JOIN happens in Lobby).
  * @author Semi Eren Gökyıldız
  * @copyright Copyright (C) 2026 NETA Elektronik A.Ş.
  */
@@ -18,7 +18,7 @@ class QShowEvent;
 
 /**
  * @class LoginDialog
- * @brief Clean NETA Yeşili authentication screen authenticating Technician and Engineer accounts
+ * @brief Clean NETA Green authentication screen authenticating Technician and Engineer accounts
  *        before entering the unified HOST/JOIN server lobby.
  */
 class LoginDialog : public QDialog {

@@ -1,7 +1,6 @@
 /**
  * @file data_transfer.h
- * @brief Donanım veri iletimi (DataTransfer) soyut temel sınıfı ve
- *        ondan türeyen Ethernet (Web CGI) ile RS232 (Seri Port) sürücüleri.
+ * @brief Abstract base class for hardware data transfer and derived Ethernet (Web CGI) and RS232 drivers.
  * @author Semi Eren Gökyıldız
  * @copyright Copyright (C) 2026 NETA Elektronik A.Ş.
  */
@@ -26,8 +25,8 @@
 
 /**
  * @class DataTransfer
- * @brief Donanım veri aktarımı ve telemetri alma işlemleri için temel soyut sınıf (Interface).
- *        Frekans ayarlama (tune), durum sorgulama ve telemetri dinleme işlevlerini tekilleştirir.
+ * @brief Abstract interface class for hardware communication and telemetry.
+ *        Unifies frequency tuning, status querying, and telemetry monitoring.
  */
 class DataTransfer : public QObject {
     Q_OBJECT
@@ -35,50 +34,50 @@ public:
     explicit DataTransfer(QObject *parent = nullptr) : QObject(parent) {}
     ~DataTransfer() override = default;
 
-    /** @brief Taşıyıcı türü adı ("Ethernet" veya "RS232"). */
+    /** @brief Returns transport type name ("Ethernet" or "RS232"). */
     virtual QString transferType() const = 0;
 
-    /** @brief Cihaz bağlantısını başlatır. */
+    /** @brief Connects to the device. */
     virtual bool connectDevice() = 0;
 
-    /** @brief Cihaz bağlantısını sonlandırır. */
+    /** @brief Disconnects from the device. */
     virtual void disconnectDevice() = 0;
 
-    /** @brief Cihaz bağlı mı? */
+    /** @brief Checks if the device is connected. */
     virtual bool isConnected() const = 0;
 
-    /** @brief Cihaz komut almaya hazır mı? */
+    /** @brief Checks if the device is ready to receive commands. */
     virtual bool isDeviceReady() const { return isConnected(); }
 
-    /** @brief Frekans ayarlama komutu gönderir. */
+    /** @brief Sends frequency tuning command. */
     virtual void sendTune(int freqMhz, int symbolRate, const QString &polarity) = 0;
 
-    /** @brief Kilit durumu ve telemetri sorgular. */
+    /** @brief Requests lock status and live telemetry from device. */
     virtual void requestStatus() = 0;
 
-    /** @brief Cihaz bilgilerini (yazılım sürümü, seri no, MAC vb.) sorgular. */
+    /** @brief Requests device info (software version, serial, MAC, etc.). */
     virtual void requestDeviceInfo() {}
 
-    /** @brief Ham komut gönderir. */
+    /** @brief Sends raw command string. */
     virtual void sendRaw(const QString &command) = 0;
 
 signals:
-    /** @brief Cihaz bağlantısı kurulduğunda tetiklenir. */
+    /** @brief Emitted when device connection is established. */
     void deviceConnected(const QString &endpoint);
 
-    /** @brief Cihaz bağlantısı koptuğunda tetiklenir. */
+    /** @brief Emitted when device connection is lost. */
     void deviceDisconnected();
 
-    /** @brief Kilitlenme durumları alındığında tetiklenir (S, V, A, opsiyonel kanal adı). */
+    /** @brief Emitted when lock status is received (signal, video, audio, optional channel name). */
     void statusReceived(bool signalLocked, bool videoLocked, bool audioLocked, const QString &channelName = QString());
 
-    /** @brief Telemetri değerleri alındığında tetiklenir (Power, C/N, BER, opsiyonel Eb/N0). */
+    /** @brief Emitted when telemetry values are received (Power, C/N, BER, optional Eb/N0). */
     void telemetryReceived(double powerDbm, double cnDb, double ber, double ebN0Db = 0.0);
 
-    /** @brief Cihaz bilgisi anahtar-değer çifti alındığında tetiklenir. */
+    /** @brief Emitted when a device info key-value pair is received. */
     void deviceInfoReceived(const QString &key, const QString &value);
 
-    /** @brief Log veya hata iletisi üretildiğinde tetiklenir. */
+    /** @brief Emitted when a log or error message is produced. */
     void logMessage(const QString &message, bool isError);
 };
 
@@ -87,8 +86,7 @@ signals:
 // =============================================================================
 /**
  * @class Ethernet
- * @brief DataTransfer sınıfından türeyen, CAT6 Ethernet Web CGI (/cgi-bin/drx.cgi) ve
- *        ICMP Ping kontrolü sağlayan tam donanımlı veri aktarım sürücüsü.
+ * @brief Full-featured driver using CAT6 Ethernet Web CGI (/cgi-bin/drx.cgi) and ICMP Ping.
  */
 class Ethernet : public DataTransfer {
     Q_OBJECT
@@ -139,7 +137,7 @@ signals:
     void tuneCompleted(bool isOk, const QString &details);
     void rawResponseReceived(const QString &actionName, const QByteArray &rawJson);
 
-    // Genişletilmiş sinyaller (DrxWebClient uyumluluğu için)
+    // Extended signals for DrxWebClient compatibility
     void statusReceivedFull(bool signalLocked, bool videoProducing, bool audioProducing, const QString &channelName);
     void telemetryReceivedFull(double powerDbm, double cnDb, double ber, double ebN0Db);
     void deviceInfoReceivedFull(const QString &swVersion, const QString &deviceId, const QString &mac, const QString &tunerModel);
@@ -175,23 +173,22 @@ private:
 };
 
 // =============================================================================
-// RS232 (SERİ PORT UART + DAHİLİ PROTOKOL AYRIŞTIRICI)
+// RS232 (SERIAL PORT UART AND PROTOCOL PARSER)
 // =============================================================================
 /**
  * @enum DeviceReadyState
- * @brief RS232 konsolunda cihazın önyükleme ve komut hazır olma durumları.
+ * @brief Device boot and command readiness states on RS232 console.
  */
 enum class DeviceReadyState {
-    Disconnected,           ///< Seri COM portu kapalı
-    PortOpenWaitingDevice,  ///< Port açık, cihaz kalp atışı bekleniyor
-    Booting,                ///< Cihaz açılıyor / önyükleyici devrede
-    Ready                   ///< Cihaz tamamen hazır (CLI prompt tespit edildi)
+    Disconnected,           ///< Serial COM port is closed
+    PortOpenWaitingDevice,  ///< Port is open, waiting for device heartbeat
+    Booting,                ///< Device is booting / bootloader active
+    Ready                   ///< Device is ready (CLI prompt detected)
 };
 
 /**
  * @class RS232
- * @brief DataTransfer sınıfından türeyen, RS232 Seri Port (UART) üzerinden
- *        komut gönderimi ve dahili satır protokol ayrıştırması yapan sürücü.
+ * @brief Driver for RS232 serial communication and line-based protocol parsing.
  */
 class RS232 : public DataTransfer {
     Q_OBJECT
@@ -263,7 +260,7 @@ private:
 };
 
 // =============================================================================
-// TİP TAKMA ADLARI (Geriye Dönük %100 Kod Uyumluluğu)
+// TYPE ALIASES (100% Backward Compatibility)
 // =============================================================================
 using EthernetTransfer = Ethernet;
 using Rs232Transfer = RS232;

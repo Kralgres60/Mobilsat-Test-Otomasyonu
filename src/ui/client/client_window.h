@@ -34,8 +34,8 @@
  * @brief Production workstation window using CAT6 Ethernet Web CGI + ICMP Ping verification.
  *
  * Layout: Left sidebar navigation (QListWidget#sideNav) + right QStackedWidget pages.
- *   - Technician: 📡 Üretim Testi, 📈 Canlı Grafik
- *   - Engineer:   same + ⚙️ Mühendis Ayarları, 📜 Sistem Logları
+ *   - Technician: Production Test, Live Graph
+ *   - Engineer:   same + Engineer Settings, System Logs
  */
 class ClientWindow : public QMainWindow {
     Q_OBJECT

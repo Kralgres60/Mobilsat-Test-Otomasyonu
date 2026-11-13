@@ -1,6 +1,6 @@
 /**
  * @file debug_runner_window.h
- * @brief Geliştirici ve hata ayıklama konsolu (DRX Web CGI & MariaDB Kilit ve Sorgu Testi).
+ * @brief Developer debug console for DRX Web CGI, MariaDB queries, and lock testing.
  * @author Semi Eren Gökyıldız
  * @copyright Copyright (C) 2026 NETA Elektronik A.Ş.
  */
@@ -26,7 +26,7 @@
 
 /**
  * @class DbDebugWidget
- * @brief MariaDB bağlantı, şema doğrulama ve Algoritma 2 dağıtık kilit stres test bileşeni.
+ * @brief MariaDB connection check, schema validator, and Algorithm 2 stress test component.
  */
 class DbDebugWidget : public QWidget {
     Q_OBJECT

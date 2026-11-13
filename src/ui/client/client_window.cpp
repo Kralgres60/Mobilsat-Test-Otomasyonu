@@ -96,7 +96,7 @@ ClientWindow::ClientWindow(QWidget *parent)
 
     m_stateMachine->setDataTransfers(&m_dutWebClient, &m_refWebClient);
 
-    // Proaktif veritabanı bağlantısı (MariaDB veya SQLite Yedek Modu)
+    // Proactive database connection (MariaDB or SQLite fallback mode)
     if (!DbManager::instance().isConnected()) {
         AppConfig &cfg = AppConfig::instance();
         DbManager::instance().connectToDatabase(
@@ -773,7 +773,7 @@ void ClientWindow::setupEngineerSettingsPage() {
     webForm->addRow(btnSaveWeb);
     cardsGrid->addWidget(grpWeb, 0, 1);
 
-    // Anında QSettings (.ini) otomatik kayıt bağlantıları
+    // Auto-save settings to QSettings (.ini) on value changes
     auto autoSaveClientSettings = [this]() {
         AppConfig &cfg = AppConfig::instance();
         cfg.setDefaultToleranceDb(m_spinTolerance->value());
@@ -1727,12 +1727,12 @@ void ClientWindow::applyUserRoleUi() {
 
     // Sidebar items:
     // row 0: header, row 1: separator
-    // row 2: Üretim Testi (page 0)
-    // row 3: Canlı Grafik (page 1)
-    // row 4: Uydu Profilleri (page 2 - Station & Engineer access)
-    // row 5: Test Geçmişi & Rapor (page 3 - Station & Engineer access)
-    // row 6: Mühendis Ayarları (page 4 - Engineer only)
-    // row 7: Sistem Logları (page 5 - Engineer only)
+    // Row 2: Production Test (page 0)
+    // Row 3: Live Graph (page 1)
+    // Row 4: Satellite Profiles (page 2 - Station & Engineer access)
+    // Row 5: Test History & Report (page 3 - Station & Engineer access)
+    // Row 6: Engineer Settings (page 4 - Engineer only)
+    // Row 7: System Logs (page 5 - Engineer only)
     if (m_sideNav && m_pageStack) {
         if (QListWidgetItem *engItem = m_sideNav->item(6)) {
             engItem->setHidden(!isEng);

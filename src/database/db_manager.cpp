@@ -181,7 +181,7 @@ bool DbManager::isConnected() const {
 bool DbManager::initTablesIfSqlite() {
     QSqlDatabase db = QSqlDatabase::database(m_connectionName);
     QSqlQuery q(db);
-    // SQLite için temel tablolar
+    // Base tables for SQLite
     q.exec("CREATE TABLE IF NOT EXISTS system_settings (setting_key TEXT PRIMARY KEY, setting_value TEXT, description TEXT);");
     q.exec("CREATE TABLE IF NOT EXISTS satellite_profiles (id INTEGER PRIMARY KEY AUTOINCREMENT, profile_name TEXT, satellite_name TEXT, orbital_position TEXT, default_tolerance_db REAL, is_active INTEGER);");
     q.exec("CREATE TABLE IF NOT EXISTS profile_channels (id INTEGER PRIMARY KEY AUTOINCREMENT, profile_id INTEGER, channel_no INTEGER, channel_name TEXT, frequency_mhz INTEGER, symbol_rate INTEGER, polarization TEXT, tolerance_db REAL, golden_cn_db REAL DEFAULT 0.0, golden_pow_dbm REAL DEFAULT 0.0, has_golden_sample INTEGER DEFAULT 0);");
@@ -192,7 +192,7 @@ bool DbManager::initTablesIfSqlite() {
     q.exec("CREATE TABLE IF NOT EXISTS golden_frequencies (id INTEGER PRIMARY KEY AUTOINCREMENT, label TEXT DEFAULT '', frequency_mhz INTEGER NOT NULL, symbol_rate INTEGER NOT NULL, polarization TEXT NOT NULL, golden_cn_db REAL DEFAULT 0.0, golden_pow_dbm REAL DEFAULT 0.0, tolerance_db REAL DEFAULT 1.50, updated_at TEXT DEFAULT CURRENT_TIMESTAMP, UNIQUE(frequency_mhz, symbol_rate, polarization));");
     q.exec("CREATE TABLE IF NOT EXISTS audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, log_timestamp TEXT DEFAULT CURRENT_TIMESTAMP, action_type TEXT NOT NULL, details TEXT, operator_username TEXT DEFAULT '', station_id INTEGER DEFAULT 0);");
 
-    // Varsayılan profil var mı kontrol et
+    // Check if default profile exists
     q.exec("SELECT COUNT(*) FROM satellite_profiles;");
     if (q.next() && q.value(0).toInt() == 0) {
         q.exec("INSERT INTO satellite_profiles (id, profile_name, satellite_name, orbital_position, default_tolerance_db, is_active) VALUES (1, 'Türksat Standart (10 Kanal)', 'Türksat 42.0E', '42.0E', 1.50, 1);");
@@ -290,7 +290,7 @@ bool DbManager::ensureDefaultDataIfMissing() {
     QSqlDatabase db = QSqlDatabase::database(m_connectionName);
     QSqlQuery q(db);
 
-    // 1. Tabloların varlığını denetle (satellite_profiles, profile_channels, golden_frequencies)
+    // 1. Check if tables exist (satellite_profiles, profile_channels, golden_frequencies)
     bool needSchema = false;
     for (const char *tbl : {"satellite_profiles", "profile_channels", "golden_frequencies"}) {
         q.exec(QString("SHOW TABLES LIKE '%1';").arg(tbl));
@@ -304,7 +304,7 @@ bool DbManager::ensureDefaultDataIfMissing() {
         qInfo() << "[DbManager] MySQL tabloları bulunamadı, şema otomatik yükleniyor...";
         executeSqlScript(":/sql/schema_mysql.sql");
 
-        // Emniyet ağı: profile_channels veya golden_frequencies hala yoksa doğrudan SQL ile oluştur
+        // Safety net: create tables directly if missing
         q.exec("SHOW TABLES LIKE 'profile_channels';");
         if (!q.next() || q.value(0).toString().isEmpty()) {
             q.exec("CREATE TABLE IF NOT EXISTS `profile_channels` ("
@@ -341,7 +341,7 @@ bool DbManager::ensureDefaultDataIfMissing() {
         }
     }
 
-    // 2. Varsayılan profil ve kanalların varlığını denetle
+    // 2. Check default profile and channels
     bool needSeed = false;
     q.exec("SELECT COUNT(*) FROM satellite_profiles;");
     if (!q.next() || q.value(0).toInt() == 0) {
@@ -358,7 +358,7 @@ bool DbManager::ensureDefaultDataIfMissing() {
         executeSqlScript(":/sql/seed_data.sql");
     }
 
-    // 3. Sistem ayarlarını doğrula (yoksa varsayılanları ekle)
+    // 3. Verify system settings (insert defaults if missing)
     q.exec("SELECT COUNT(*) FROM system_settings;");
     if (!q.next() || q.value(0).toInt() == 0) {
         q.exec("INSERT INTO system_settings (setting_key, setting_value, description) "
@@ -378,7 +378,7 @@ bool DbManager::ensureDefaultDataIfMissing() {
                "ON DUPLICATE KEY UPDATE setting_key=setting_key;");
     }
 
-    // 4. Varsayılan iş emri var mı?
+    // 4. Check if default work order exists
     q.exec("SELECT COUNT(*) FROM work_orders;");
     if (!q.next() || q.value(0).toInt() == 0) {
         q.exec("INSERT INTO work_orders (id, order_no, customer_name, product_code, satellite_profile_id, target_quantity, status, notes) "
@@ -386,7 +386,7 @@ bool DbManager::ensureDefaultDataIfMissing() {
                "ON DUPLICATE KEY UPDATE order_no=order_no;");
     }
 
-    // 5. Algoritma 2 Dağıtık Referans Kilit Tablosu
+    // 5. Algorithm 2 Distributed Reference Lock Table
     q.exec("CREATE TABLE IF NOT EXISTS reference_lock ("
            "id INT PRIMARY KEY DEFAULT 1, "
            "locked_by_station INT NOT NULL DEFAULT 0, "
@@ -396,7 +396,7 @@ bool DbManager::ensureDefaultDataIfMissing() {
     q.exec("INSERT INTO reference_lock (id, locked_by_station, current_channel_no) VALUES (1, 0, 0) "
            "ON DUPLICATE KEY UPDATE id=id;");
 
-    // 6. Geriye uyumlu şema göçü: profile_channels tablosunda Golden Sample sütunları yoksa ekle
+    // 6. Schema migration: add Golden Sample columns to profile_channels if missing
     q.exec("SHOW COLUMNS FROM profile_channels LIKE 'golden_cn_db';");
     if (!q.next()) {
         q.exec("ALTER TABLE profile_channels "
@@ -406,7 +406,7 @@ bool DbManager::ensureDefaultDataIfMissing() {
                "ADD COLUMN golden_updated_at TIMESTAMP NULL DEFAULT NULL AFTER has_golden_sample;");
     }
 
-    // 6b. Geriye uyumlu şema göçü: test_runs tablosunda tester_name / operator_username sütunları yoksa ekle
+    // 6b. Schema migration: add tester_name / operator_username to test_runs if missing
     q.exec("SHOW COLUMNS FROM test_runs LIKE 'tester_name';");
     if (!q.next()) {
         q.exec("ALTER TABLE test_runs ADD COLUMN tester_name VARCHAR(100) NOT NULL DEFAULT '' AFTER operator_id;");
@@ -416,7 +416,7 @@ bool DbManager::ensureDefaultDataIfMissing() {
         q.exec("ALTER TABLE test_runs ADD COLUMN operator_username VARCHAR(64) NOT NULL DEFAULT '' AFTER tester_name;");
     }
 
-    // 6c. Yönetici frekans bazlı Golden Sample havuzu tablosu
+    // 6c. Host frequency-based Golden Sample pool table
     q.exec("CREATE TABLE IF NOT EXISTS golden_frequencies ("
            "id INT AUTO_INCREMENT PRIMARY KEY, "
            "label VARCHAR(64) NOT NULL DEFAULT '', "
@@ -429,7 +429,7 @@ bool DbManager::ensureDefaultDataIfMissing() {
            "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, "
            "UNIQUE KEY uk_golden_freq (frequency_mhz, symbol_rate, polarization)) ENGINE=InnoDB;");
 
-    // 6d. Sistem & Olay Denetim Kayıtları (Audit Logs) tablosu
+    // 6d. System Event & Audit Logs table
     q.exec("CREATE TABLE IF NOT EXISTS audit_logs ("
            "id BIGINT AUTO_INCREMENT PRIMARY KEY, "
            "log_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
@@ -441,12 +441,12 @@ bool DbManager::ensureDefaultDataIfMissing() {
            "INDEX idx_audit_station (station_id)"
            ") ENGINE=InnoDB;");
 
-    // Referans Modu varsayılanı yoksa ekle
+    // Insert default Reference Mode if missing
     q.exec("INSERT INTO system_settings (setting_key, setting_value, description) "
            "VALUES ('REFERENCE_MODE', 'LIVE', 'Referans kaynağı: LIVE (Canlı Anten) veya GOLDEN (Kayıtlı Golden Sample)') "
            "ON DUPLICATE KEY UPDATE setting_key=setting_key;");
 
-    // 7. Önceki latin1/mojibake oturumlardan DB'de bozuk kalmış Türkçe seed metinlerini düzelt
+    // 7. Repair any corrupted seed text from legacy sessions
     q.exec("SET NAMES 'utf8mb4'");
     q.exec("UPDATE satellite_profiles "
            "SET profile_name = 'Türksat Standart Üretim Testi (10 Kanal)', "
@@ -481,7 +481,7 @@ QVector<SatelliteProfileInfo> DbManager::getProfiles() {
         p.defaultToleranceDb = q.value(4).toDouble();
         p.isActive = q.value(5).toBool();
 
-        // Kanalları ve Golden Sample verilerini doldur
+        // Populate channels and Golden Sample baseline data
         QSqlQuery qCh(db);
         qCh.prepare("SELECT channel_no, channel_name, frequency_mhz, symbol_rate, polarization, tolerance_db, "
                     "golden_cn_db, golden_pow_dbm, has_golden_sample "
@@ -558,7 +558,7 @@ bool DbManager::saveProfile(const SatelliteProfileInfo &profile) {
         }
     }
 
-    // Mevcut kanalları temizle ve güncel listeyi ekle
+    // Clear existing channels and insert updated list
     QSqlQuery qDel(db);
     qDel.prepare("DELETE FROM profile_channels WHERE profile_id = :pid");
     qDel.bindValue(":pid", profileId);
@@ -729,7 +729,7 @@ bool DbManager::findGoldenSampleForChannel(int freqMhz, int symbolRate, const QS
     QSqlDatabase db = QSqlDatabase::database(m_connectionName);
     QSqlQuery q(db);
 
-    // 1. Öncelik: Tam frekans + sembol hızı + polarizasyon eşleşmesi
+    // 1. Priority: Exact frequency + symbol rate + polarization match
     q.prepare("SELECT golden_cn_db, golden_pow_dbm, tolerance_db FROM golden_frequencies "
               "WHERE frequency_mhz = :f AND symbol_rate = :sr AND polarization = :pol LIMIT 1");
     q.bindValue(":f", freqMhz);
@@ -742,7 +742,7 @@ bool DbManager::findGoldenSampleForChannel(int freqMhz, int symbolRate, const QS
         return (outCn > 0.1 || qAbs(outPow) > 0.1);
     }
 
-    // 2. İkincil: Frekans + polarizasyon eşleşmesi
+    // 2. Secondary: Frequency + polarization match
     q.prepare("SELECT golden_cn_db, golden_pow_dbm, tolerance_db FROM golden_frequencies "
               "WHERE frequency_mhz = :f AND polarization = :pol ORDER BY id DESC LIMIT 1");
     q.bindValue(":f", freqMhz);
@@ -995,7 +995,7 @@ qint64 DbManager::insertTestRun(const TestRunData &run) {
         }
     }
 
-    // Yabancı anahtar (Foreign Key) emniyeti: work_orders tablosunda mevcut değilse NULL ata
+    // Foreign key safety: set NULL if work order id does not exist in work_orders table
     QVariant woVal;
     if (run.workOrderId > 0) {
         QSqlQuery qWoCheck(db);
@@ -1039,7 +1039,7 @@ qint64 DbManager::insertTestRun(const TestRunData &run) {
 
     qint64 runId = q.lastInsertId().toLongLong();
 
-    // 10 Kanalı Ekle
+    // Insert channel measurement results
     for (const auto &ch : run.channels) {
         QSqlQuery qCh(db);
         qCh.prepare("INSERT INTO test_run_channels (test_run_id, channel_no, channel_name, frequency_mhz, "
@@ -1393,7 +1393,7 @@ bool DbManager::authenticateUser(const QString &username, const QString &passwor
         return false;
     }
 
-    // 1. Veritabanı bağlıysa users tablosundan kontrol et
+    // 1. If database is connected, verify against users table
     if (isConnected()) {
         QSqlDatabase db = QSqlDatabase::database(m_connectionName);
         QSqlQuery q(db);
@@ -1413,7 +1413,7 @@ bool DbManager::authenticateUser(const QString &username, const QString &passwor
         }
     }
 
-    // 2. Fabrika Varsayılan / Yedek Kimlik Doğrulama (Veritabanı kapalı olsa dahi çalışır)
+    // 2. Factory Default / Fallback Authentication (Works even if database is offline)
     if (trimmedUser.compare("admin", Qt::CaseInsensitive) == 0 && trimmedPass == "123") {
         outRole = UserRole::Engineer;
         outFullName = "Sistem Yöneticisi / Başmühendis";

@@ -20,8 +20,8 @@ QString escapeXml(const QString &in)
     return out;
 }
 
-// "C5" -> sütun harfleri "C" -> 0-index sütun (A=0, B=1, ... Z=25, AA=26, ...).
-// r attribute'u yoksa/parse edilemezse -1 döner (çağıran sıradaki sütunu kullanır).
+// "C5" -> column letters "C" -> 0-based column index (A=0, B=1, ... Z=25, AA=26).
+// Returns -1 if 'r' attribute is missing (caller uses next column).
 int columnFromCellRef(const QString &ref)
 {
     int col = 0;
@@ -84,7 +84,7 @@ QByteArray buildWorkbookRels()
 QByteArray buildWorkbookXml(const QString &sheetName)
 {
     QString safeName = sheetName.isEmpty() ? QStringLiteral("Sayfa1") : sheetName;
-    // Excel sayfa adı 31 karakterle sınırlı, birkaç karakter (: \ / ? * [ ]) yasak.
+    // Excel sheet name is limited to 31 characters. Invalid chars: : \ / ? * [ ]
     safeName.truncate(31);
     safeName.replace(QRegExp("[:\\\\/\\?\\*\\[\\]]"), "_");
     QString xml = QString(
@@ -98,9 +98,7 @@ QByteArray buildWorkbookXml(const QString &sheetName)
 
 QByteArray buildStylesXml()
 {
-    // 2 stil: index 0 = normal veri hücreleri (kalın, 13pt), index 1 = başlık satırı
-    // (kalın beyaz yazı, 13pt + koyu lacivert dolgu — uygulamanın kendi renk paletiyle
-    // tutarlı, bkz. #1E293B'nin diğer .ui dosyalarında da kullanılması).
+    // 2 styles: index 0 = normal data cells, index 1 = header row with dark background.
     return QByteArray(
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
         "<styleSheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">"
@@ -122,9 +120,7 @@ QByteArray buildStylesXml()
         "</styleSheet>");
 }
 
-// Her sütunun genişliğini içerik uzunluğuna göre hesaplar — sabit dar sütunlar yerine
-// hem başlık hem veri hücreleri arasında ferah bir mesafe bırakır (kalın 13pt yazı
-// standart 11pt'den daha geniş yer kapladığı için payı da buna göre bol tutuldu).
+// Calculates column width based on content length for clean readability.
 QString buildColsXml(const QStringList &headers, const QVector<QStringList> &rows)
 {
     if (headers.isEmpty()) return QString();
@@ -152,8 +148,7 @@ QByteArray buildSheetXml(const QStringList &headers, const QVector<QStringList> 
     QString xml = QStringLiteral(
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
         "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">"
-        // Başlık satırı (1. satır) her zaman görünür kalsın diye sabitlenir (freeze pane)
-        // — çok satırlı bir siparişte aşağı kaydırınca sütun adları kaybolmasın.
+        // Freezes the header row (row 1) so column titles stay visible when scrolling.
         "<sheetViews><sheetView workbookViewId=\"0\">"
         "<pane ySplit=\"1\" topLeftCell=\"A2\" activePane=\"bottomLeft\" state=\"frozen\"/>"
         "<selection pane=\"bottomLeft\"/>"
@@ -220,12 +215,12 @@ bool writeXlsxSheet(const QString &filePath, const QString &sheetName,
         }
     }
 
-    // Eski dosyanın üzerine temiz bir şekilde geçir
+    // Overwrite old file cleanly
     if (QFile::exists(filePath)) {
         QFile::remove(filePath);
     }
     if (!QFile::rename(tempPath, filePath)) {
-        // Rename başarısız olursa kopyala ve geçiciyi sil
+        // If rename fails, copy and remove temporary file
         QFile::remove(filePath);
         if (!QFile::copy(tempPath, filePath)) {
             if (errorOut) *errorOut = QStringLiteral("Dosya hedefe kaydedilemedi (Excel'de açık olabilir): %1").arg(filePath);
@@ -251,9 +246,7 @@ bool readXlsxSheet(const QString &filePath,
         return false;
     }
 
-    // Sayfa dosyasını bul — normalde bizim yazdığımız hep "sheet1.xml", ama dosya
-    // Excel'de açılıp tekrar kaydedilmişse farklı adlanmış/sıralanmış olabilir;
-    // ilk bulunan xl/worksheets/*.xml sayfasını kullan (bu araç tek sayfalık).
+    // Find worksheet XML file (uses first xl/worksheets/*.xml found in archive).
     QString sheetPart;
     const auto entries = zip.fileInfoList();
     for (const auto &info : entries) {
@@ -267,8 +260,7 @@ bool readXlsxSheet(const QString &filePath,
         return false;
     }
 
-    // Paylaşımlı string tablosu varsa (Excel dosyayı elle düzenleyip kaydettiyse
-    // inlineStr yerine bunu kullanmış olabilir) — okuma uyumluluğu için destekleniyor.
+    // Supports shared string table (xl/sharedStrings.xml) for reading compatibility.
     QStringList sharedStrings;
     QByteArray sharedXml = zip.fileData(QStringLiteral("xl/sharedStrings.xml"));
     if (!sharedXml.isEmpty()) {
@@ -284,7 +276,7 @@ bool readXlsxSheet(const QString &filePath,
                 inSi = false;
                 sharedStrings << currentText;
             } else if (inSi && xr.isCharacters()) {
-                // <t xml:space="preserve"> içindeki boşluklar da anlamlı olabilir, atlanmıyor.
+                // Preserves meaningful whitespace inside <t xml:space="preserve"> tags.
                 currentText += xr.text().toString();
             }
         }

@@ -1,6 +1,6 @@
 /**
  * @file test_history_widget.cpp
- * @brief Ortak Test Geçmişi & Veritabanı Tablo Tarayıcısı uygulaması.
+ * @brief Implementation of Test History, Database Table Viewer, and Audit Logs.
  * @author Semi Eren Gökyıldız
  * @copyright Copyright (C) 2026 NETA Elektronik A.Ş.
  */
@@ -377,7 +377,7 @@ void TestHistoryWidget::onImportExcelClicked() {
 }
 
 // =============================================================================
-// VERİTABANI TABLO TARAYICISI (TAB 2)
+// DATABASE TABLE BROWSER (TAB 2)
 // =============================================================================
 void TestHistoryWidget::refreshDbTables() {
     DbManager &mgr = DbManager::instance();

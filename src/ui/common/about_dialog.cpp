@@ -26,7 +26,7 @@ void AboutDialog::setupUi()
     mainLayout->setContentsMargins(28, 24, 28, 20);
     mainLayout->setSpacing(14);
 
-    // --- 1. ÜST LOGO & BAŞLIK ALANI ---
+    // --- 1. TOP LOGO AND TITLE AREA ---
     QHBoxLayout *headerLayout = new QHBoxLayout();
     QLabel *lblLogo = new QLabel(this);
     lblLogo->setStyleSheet("background-color: #FFFFFF; border-radius: 6px; padding: 4px 10px;");
@@ -55,13 +55,13 @@ void AboutDialog::setupUi()
     headerLayout->addStretch();
     mainLayout->addLayout(headerLayout);
 
-    // İnce ayırıcı çizgi
+    // Thin separator line
     QFrame *line1 = new QFrame(this);
     line1->setFrameShape(QFrame::HLine);
     line1->setStyleSheet("color: #1A3D2B; background-color: #1A3D2B; max-height: 1px;");
     mainLayout->addWidget(line1);
 
-    // --- 2. BİLGİ KART TABLOSU ---
+    // --- 2. INFO CARD TABLE ---
     QFrame *infoCard = new QFrame(this);
     infoCard->setStyleSheet("background-color: #0A1F17; border: 1px solid #1A3D2B; border-radius: 8px; padding: 12px;");
     QVBoxLayout *cardLayout = new QVBoxLayout(infoCard);
@@ -91,7 +91,7 @@ void AboutDialog::setupUi()
 
     mainLayout->addWidget(infoCard);
 
-    // --- 3. İTAFEN & MİMARİ AÇIKLAMA METNİ ---
+    // --- 3. DEDICATION AND ARCHITECTURE TEXT ---
     QLabel *lblDedication = new QLabel(this);
     lblDedication->setWordWrap(true);
     lblDedication->setStyleSheet(
