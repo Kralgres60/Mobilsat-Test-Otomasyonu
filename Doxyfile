@@ -15,6 +15,7 @@ DOXYFILE_ENCODING      = UTF-8
 
 # Girdi Kaynakları
 INPUT                  = README.md \
+                         docs \
                          src \
                          sql
 USE_MDFILE_AS_MAINPAGE = README.md
@@ -33,7 +34,8 @@ EXCLUDE_PATTERNS       = */build/* \
                          */dist/* \
                          */OUTPUT/* \
                          */SETUP_OUTPUT/* \
-                         */temp_build/*
+                         */temp_build/* \
+                         */docs/doxygen/*
 
 # Ayrıştırma ve Görünüm Seçenekleri
 EXTRACT_ALL            = YES

@@ -107,9 +107,15 @@ DRX-Antenna-Test/
 ├── resources.qrc                    # Dahili logo, ikon ve SQL şemaları
 ├── LICENSE                          # Kurumsal telif hakkı ve lisans sözleşmesi
 │
-├── docs/                            # Detaylı sistem mimarisi dokümantasyonu
-│   ├── SISTEM_MIMARISI.md
-│   └── İş Akış Şeması.png
+├── docs/                            # Detaylı mimari ve API dokümantasyonu
+│   ├── CODE_ARCHITECTURE_AND_API_GUIDE.md # Kod mimarisi ve API başvuru kılavuzu
+│   ├── DRX9000_REST_WEB_API_GUIDE.md       # DRX9000 Web CGI REST API kılavuzu
+│   ├── MARIADB_DATABASE_ARCHITECTURE.md    # MariaDB veritabanı ve kilit mimarisi
+│   ├── DRX_Algorithm_1_Flowchart.png       # 4 PC Mimarisi akış şeması
+│   ├── DRX_Algorithm_2_Flowchart.png       # 3 PC Mimarisi akış şeması
+│   ├── DRX_System_Architecture_Algorithm_1.png
+│   ├── DRX_System_Architecture_Algorithm_2.png
+│   └── screenshots/                        # Üretim arayüzü ekran görüntüleri
 │
 ├── resources/                       # Görsel kaynaklar
 │   └── images/                      # logo.png, neta_app.ico, neta_app.png
