@@ -1,4 +1,4 @@
-# ==============================================================================
+﻿# ==============================================================================
 # NETA DRX9000 ANTENNA TEST - project.ini Okuyucu ve Senkronizasyon Betigi
 # ==============================================================================
 # Bu betik root dizindeki 'project.ini' dosyasini okur ve tum bagimli dosyalara:
@@ -60,7 +60,7 @@ $iniData = Parse-Ini $iniPath
 $appName         = if ($iniData.ContainsKey("AppName")) { $iniData["AppName"] } else { "NETA DRX9000 ANTENNA TEST AUTOMATION" }
 $appTitle        = if ($iniData.ContainsKey("AppTitle")) { $iniData["AppTitle"] } else { "NETA DRX9000 ANTENNA TEST" }
 $currentVersion  = if ($iniData.ContainsKey("Version")) { $iniData["Version"] } else { "1.0.0" }
-$developer       = if ($iniData.ContainsKey("Developer")) { $iniData["Developer"] } else { "Semi Eren Gökyıldız" }
+$developer       = "Semi Eren Gökyıldız" # Sabit gomulu gelistirici (Hardcoded / Embedded Developer)
 $company         = if ($iniData.ContainsKey("Company")) { $iniData["Company"] } else { "NETA Elektronik A.S." }
 $domain          = if ($iniData.ContainsKey("Domain")) { $iniData["Domain"] } else { "neta.com.tr" }
 $website         = if ($iniData.ContainsKey("Website")) { $iniData["Website"] } else { "https://www.neta.com.tr" }
