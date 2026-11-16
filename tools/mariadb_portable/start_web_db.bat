@@ -15,7 +15,7 @@ if %errorlevel% neq 0 (
         echo [BILGI] Ilk calistirma: Veritabani tablolari olusturuluyor...
         "%~dp0bin\mysql_install_db.exe" --datadir="%~dp0data" --password="neta123" --allow-remote-root-access --port=3306 --silent
     )
-    start "NETA MariaDB Engine" /b "%~dp0bin\mysqld.exe" --defaults-file="%~dp0my.ini" --datadir="%~dp0data"
+    start "NETA MariaDB Engine" /min "%~dp0bin\mysqld.exe" --defaults-file="%~dp0my.ini" --datadir="%~dp0data"
     timeout /t 3 /nobreak >nul
 ) else (
     echo [1/3] MariaDB Port 3306 uzerinde zaten aktif!

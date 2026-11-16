@@ -14,6 +14,7 @@ import json
 import subprocess
 import csv
 import io
+import socket
 import time
 import uuid
 import urllib.parse
@@ -61,8 +62,66 @@ def get_session_user(handler):
         pass
     return None
 
+def is_mariadb_alive(host=DB_HOST, port=DB_PORT, timeout=0.8):
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(timeout)
+        s.connect((host, int(port)))
+        s.close()
+        return True
+    except Exception:
+        return False
+
+def ensure_mariadb_alive():
+    """Auto-starts portable MariaDB engine in background if port 3306 is not open"""
+    if DB_HOST not in ("127.0.0.1", "localhost"):
+        return True
+    if is_mariadb_alive():
+        return True
+
+    mysqld_exe = os.path.join(PORTABLE_DIR, "bin", "mysqld.exe")
+    my_ini = os.path.join(PORTABLE_DIR, "my.ini")
+    data_dir = os.path.join(PORTABLE_DIR, "data")
+
+    if not os.path.exists(mysqld_exe):
+        return False
+
+    print(f"[BILGI] MariaDB portu ({DB_PORT}) kapali, tasinabilir motor arka planda baslatiliyor...")
+
+    # First run: init db if needed
+    if not os.path.exists(os.path.join(data_dir, "mysql")):
+        init_bin = os.path.join(PORTABLE_DIR, "bin", "mysql_install_db.exe")
+        if os.path.exists(init_bin):
+            subprocess.run(
+                [init_bin, f"--datadir={data_dir}", "--password=neta123", "--allow-remote-root-access", f"--port={DB_PORT}", "--silent"],
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+            )
+
+    cmd = [mysqld_exe, f"--defaults-file={my_ini}", f"--datadir={data_dir}"]
+    flags = 0
+    if os.name == 'nt':
+        flags = subprocess.CREATE_NO_WINDOW | getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
+
+    try:
+        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags)
+    except Exception as e:
+        print(f"[HATA] mysqld baslatilamadi: {e}")
+        return False
+
+    # Wait up to 10 seconds for it to open
+    for _ in range(20):
+        time.sleep(0.5)
+        if is_mariadb_alive():
+            print("[BASARILI] MariaDB motoru arka planda aktif oldu ve port dinleniyor!")
+            return True
+
+    return False
+
 def run_sql(query, database=DB_NAME):
     """Executes an SQL query via mysql.exe and returns (columns, rows, error)"""
+    if DB_HOST in ("127.0.0.1", "localhost") and not is_mariadb_alive():
+        ensure_mariadb_alive()
+
     cmd = [
         MYSQL_BIN,
         f"-h{DB_HOST}",
@@ -212,6 +271,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; script-src * 'unsafe-inline' 'unsafe-eval'; style-src * 'unsafe-inline';">
     <title>NETA DRX9000 - Kurumsal Test ve Filo Yönetim Paneli</title>
     <style>
         :root {
@@ -688,7 +748,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
                 <div class="login-sub">Güvenli Oturum Açma</div>
             </div>
             <div id="loginError" class="login-error"></div>
-            <form onsubmit="handleLogin(event)" style="display:flex; flex-direction:column; gap:14px;">
+            <form id="loginForm" onsubmit="event.preventDefault(); handleLogin(event);" style="display:flex; flex-direction:column; gap:14px;">
                 <div class="form-group">
                     <label>Kullanıcı Adı</label>
                     <input type="text" id="loginUsername" class="form-control" placeholder="Örn: admin" required autofocus>
@@ -697,7 +757,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
                     <label>Şifre</label>
                     <input type="password" id="loginPassword" class="form-control" placeholder="••••" required>
                 </div>
-                <button type="submit" class="login-btn">🔑 Giriş Yap</button>
+                <button type="button" id="loginBtn" class="login-btn" onclick="handleLogin(event)">🔑 Giriş Yap</button>
             </form>
             <div class="login-hint">
                 Masaüstü uygulaması ile ortak kullanıcı veri tabanı (<code>users</code>) kullanılmaktadır.<br/>
@@ -1305,6 +1365,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
         </div>
     </div>
 
+    <script>
         let currentUser = null;
         let currentPage = 'dashboard';
         let currentRawTable = 'test_runs';
@@ -1344,11 +1405,27 @@ HTML_PAGE = r"""<!DOCTYPE html>
         }
 
         async function handleLogin(e) {
-            e.preventDefault();
-            const u = document.getElementById('loginUsername').value.trim();
-            const p = document.getElementById('loginPassword').value.trim();
+            if (e && e.preventDefault) e.preventDefault();
+            const uInput = document.getElementById('loginUsername');
+            const pInput = document.getElementById('loginPassword');
+            const u = uInput ? uInput.value.trim() : '';
+            const p = pInput ? pInput.value.trim() : '';
             const errDiv = document.getElementById('loginError');
-            errDiv.style.display = 'none';
+            if (errDiv) errDiv.style.display = 'none';
+
+            if (!u || !p) {
+                if (errDiv) {
+                    errDiv.textContent = 'Lütfen kullanıcı adı ve şifre giriniz!';
+                    errDiv.style.display = 'block';
+                }
+                return;
+            }
+
+            const submitBtn = document.getElementById('loginBtn');
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.textContent = '⏳ Giriş yapılıyor...';
+            }
 
             try {
                 const res = await fetch('/api/login', {
@@ -1361,12 +1438,21 @@ HTML_PAGE = r"""<!DOCTYPE html>
                     currentUser = data.user;
                     onLoginSuccess(currentUser);
                 } else {
-                    errDiv.textContent = data.error || 'Giriş başarısız!';
-                    errDiv.style.display = 'block';
+                    if (errDiv) {
+                        errDiv.textContent = data.error || 'Giriş başarısız!';
+                        errDiv.style.display = 'block';
+                    }
                 }
             } catch (err) {
-                errDiv.textContent = 'Bağlantı hatası: ' + err.message;
-                errDiv.style.display = 'block';
+                if (errDiv) {
+                    errDiv.textContent = 'Bağlantı hatası: ' + err.message;
+                    errDiv.style.display = 'block';
+                }
+            } finally {
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = '🔑 Giriş Yap';
+                }
             }
         }
 
@@ -2174,7 +2260,13 @@ HTML_PAGE = r"""<!DOCTYPE html>
             window.location.href = `/api/export?table=${encodeURIComponent(tableToExport)}`;
         }
 
-        // Boot
+        // Boot & Event Listeners
+        window.addEventListener('DOMContentLoaded', () => {
+            const pInput = document.getElementById('loginPassword');
+            if (pInput) pInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') handleLogin(e); });
+            const uInput = document.getElementById('loginUsername');
+            if (uInput) uInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') handleLogin(e); });
+        });
         checkAuth();
     </script>
 </body>
@@ -2191,6 +2283,10 @@ class NetaWebHandler(BaseHTTPRequestHandler):
         if path == "/" or path == "/index.html":
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
+            self.send_header("Content-Security-Policy", "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; script-src * 'unsafe-inline' 'unsafe-eval'; style-src * 'unsafe-inline';")
             self.end_headers()
             self.wfile.write(HTML_PAGE.encode("utf-8"))
             return
@@ -2695,6 +2791,7 @@ def main():
     print("Kimlik Dogrulama : AKTIF (users tablosu ile entegre)")
     print("=" * 65)
 
+    ensure_mariadb_alive()
     ensure_database()
 
     print("\nDurdurmak icin Ctrl + C tuslarina basiniz.\n")

@@ -20,7 +20,7 @@ if not exist "%~dp0data\mysql" (
 )
 
 echo [1/2] MariaDB motoru baslatiliyor...
-start "" /b "%~dp0bin\mysqld.exe" --defaults-file="%~dp0my.ini" --datadir="%~dp0data"
+start "NETA MariaDB Engine" /min "%~dp0bin\mysqld.exe" --defaults-file="%~dp0my.ini" --datadir="%~dp0data"
 
 timeout /t 2 /nobreak >nul
 
