@@ -421,16 +421,12 @@ void Ethernet::handleAlarmStatusResponse(const QJsonObject &root) {
         cn = DrxProtocolConfig::instance().extractCn(root, 0.0);
         ber = DrxProtocolConfig::instance().extractBer(root, 1.0e-7);
         ebn0 = DrxProtocolConfig::instance().extractEbN0(root, 0.0);
-    }
 
-        if (root.contains("audioLock")) aud = root.value("audioLock").toBool(false);
-        else if (root.contains("aLock")) aud = (root.value("aLock").toInt(0) == 1);
-
-        chName = root.value("channelName").toString();
-        pwr = root.value("powerDbm").toDouble(root.value("pow").toDouble(-99.0));
-        cn = root.value("cnDb").toDouble(root.value("cn").toDouble(0.0));
-        ber = root.value("ber").toDouble(1.0e-7);
-        ebn0 = root.value("ebN0Db").toDouble(root.value("ebn0").toDouble(0.0));
+        // Backward compatibility for legacy flat keys if not caught by config
+        if (root.contains("signalLock")) sig = root.value("signalLock").toBool(sig);
+        if (root.contains("videoLock")) vid = root.value("videoLock").toBool(vid);
+        if (root.contains("audioLock")) aud = root.value("audioLock").toBool(aud);
+        if (chName.isEmpty() && root.contains("channelName")) chName = root.value("channelName").toString();
     }
 
     emit statusReceived(sig, vid, aud, chName);
