@@ -129,6 +129,8 @@ void DebugRunnerWindow::setupUi() {
     hConn->addWidget(m_btnPing);
     hConn->addWidget(m_lblSessionBadge);
     hConn->addStretch();
+    m_topClockBadge = new DrxClockBadge(grpConn);
+    hConn->addWidget(m_topClockBadge);
     hConn->addWidget(m_btnOpenDbTool);
 
     mainLayout->addWidget(grpConn);
@@ -486,6 +488,9 @@ void DebugRunnerWindow::onSamplingFinished() {
 
 void DebugRunnerWindow::onSessionKeyReceived(int sessionKey) {
     updateSessionBadge(sessionKey);
+    if (m_topClockBadge) {
+        m_topClockBadge->setConnected(sessionKey > 0);
+    }
     appendLog(QString("✔ Cihaz girişi başarılı! Oturum anahtarı: %1").arg(sessionKey), "#34D399");
 
     if (m_txtCustomPayload) {
@@ -505,6 +510,9 @@ void DebugRunnerWindow::onSessionKeyReceived(int sessionKey) {
 
 void DebugRunnerWindow::onLoginFailed(const QString &reason) {
     updateSessionBadge(-1);
+    if (m_topClockBadge) {
+        m_topClockBadge->setConnected(false);
+    }
     appendLog(QString("❌ Cihaz girişi başarısız: %1").arg(reason), "#EF4444");
 }
 
@@ -576,6 +584,9 @@ void DebugRunnerWindow::onStatusReceived(bool signalLocked, bool videoLocked, bo
 }
 
 void DebugRunnerWindow::onTimestampReceived(const QDateTime &deviceTime, const QDateTime &hostTime, const QString &rawTimeStr) {
+    if (m_topClockBadge) {
+        m_topClockBadge->updateTime(deviceTime, hostTime, rawTimeStr);
+    }
     if (m_lblDeviceTime) {
         m_lblDeviceTime->setText(QString("Cihaz Saati: %1").arg(rawTimeStr.isEmpty() ? "--" : rawTimeStr));
     }

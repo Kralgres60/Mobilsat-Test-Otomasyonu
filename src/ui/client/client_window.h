@@ -27,6 +27,7 @@
 #include "ui/common/qcustomplot.h"
 #include "ui/common/profile_manager_widget.h"
 #include "ui/common/test_history_widget.h"
+#include "ui/common/drx_clock_badge.h"
 #include "hardware/data_transfer.h"
 
 /**
@@ -207,6 +208,7 @@ private:
 
     // Status bar label
     QLabel *m_statusLabel = nullptr;
+    DrxClockBadge *m_topDrxClockBadge = nullptr;
 
     QString m_activeAntennaSn;
     QVector<WorkOrderInfo> m_workOrders;

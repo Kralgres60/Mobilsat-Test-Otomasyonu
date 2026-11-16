@@ -80,6 +80,24 @@ HostWindow::HostWindow(QWidget *parent)
         m_lblRefTelemetry->setText(QString("📡 Ref Canlı: C/N=%1 dB | POW=%2 dBm").arg(cnDb, 0, 'f', 1).arg(powDbm, 0, 'f', 1));
         m_lblRefTelemetry->setStyleSheet(StyleHelper::getPastelBlueStyle());
     });
+    connect(&m_refWebClient, &DrxWebClient::timestampReceived, this,
+            [this](const QDateTime &devTime, const QDateTime &hTime, const QString &rawStr) {
+        if (m_topDrxClockBadge) {
+            m_topDrxClockBadge->updateTime(devTime, hTime, rawStr);
+        }
+    });
+    connect(&m_refWebClient, &DrxWebClient::loginSucceeded, this,
+            [this](int) {
+        if (m_topDrxClockBadge) {
+            m_topDrxClockBadge->setConnected(true);
+        }
+    });
+    connect(&m_refWebClient, &DrxWebClient::loginFailed, this,
+            [this](const QString &) {
+        if (m_topDrxClockBadge) {
+            m_topDrxClockBadge->setConnected(false);
+        }
+    });
 
     // Network & Arbiter Signal Wiring
     connect(&m_tcpServer, &TcpServer::stationConnected, this, &HostWindow::onStationConnected);
@@ -221,6 +239,10 @@ void HostWindow::setupMenuBar() {
     QAction *actAbout = menuAyarlar->addAction("Hakkında");
     actAbout->setShortcut(QKeySequence("Alt+A"));
     connect(actAbout, &QAction::triggered, this, &HostWindow::onAboutClicked);
+
+    // Top-right corner: Live Animated Reference DRX Clock Badge
+    m_topDrxClockBadge = new DrxClockBadge(this);
+    menuBar()->setCornerWidget(m_topDrxClockBadge, Qt::TopRightCorner);
 }
 
 void HostWindow::setupUi() {

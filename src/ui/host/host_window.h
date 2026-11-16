@@ -28,6 +28,7 @@
 #include "core/lock_arbiter.h"
 #include "core/xlsxutil.h"
 #include "ui/common/test_history_widget.h"
+#include "ui/common/drx_clock_badge.h"
 #include "ui/host/golden_reference_widget.h"
 #include "ui/host/user_manager_widget.h"
 
@@ -189,6 +190,7 @@ private:
     // System Logs & Status Bar
     QTextEdit *m_txtLog = nullptr;
     QLabel *m_statusLabel = nullptr;
+    DrxClockBadge *m_topDrxClockBadge = nullptr;
 };
 
 #endif // HOST_WINDOW_H

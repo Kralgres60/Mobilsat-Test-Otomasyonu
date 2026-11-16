@@ -49,6 +49,7 @@ SOURCES += \
     src/ui/common/profile_manager_widget.cpp \
     src/ui/common/test_history_widget.cpp \
     src/ui/common/dependency_install_dialog.cpp \
+    src/ui/common/drx_clock_badge.cpp \
     src/ui/common/qcustomplot.cpp \
     src/ui/client/channel_card_widget.cpp \
     src/ui/client/client_window.cpp \
@@ -83,6 +84,7 @@ HEADERS += \
     src/ui/common/profile_manager_widget.h \
     src/ui/common/test_history_widget.h \
     src/ui/common/dependency_install_dialog.h \
+    src/ui/common/drx_clock_badge.h \
     src/ui/common/qcustomplot.h \
     src/ui/client/channel_card_widget.h \
     src/ui/client/client_window.h \

@@ -18,6 +18,7 @@
 #include <QTimer>
 #include <QVector>
 #include "hardware/data_transfer.h"
+#include "ui/common/drx_clock_badge.h"
 
 /**
  * @class DebugRunnerWindow
@@ -67,6 +68,7 @@ private:
     QPushButton *m_btnConnect = nullptr;
     QPushButton *m_btnPing = nullptr;
     QLabel *m_lblSessionBadge = nullptr;
+    DrxClockBadge *m_topClockBadge = nullptr;
     QPushButton *m_btnOpenDbTool = nullptr;
 
     // Frequency Tuning (Tune)

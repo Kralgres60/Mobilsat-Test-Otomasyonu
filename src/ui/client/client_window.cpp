@@ -87,6 +87,24 @@ ClientWindow::ClientWindow(QWidget *parent)
         if (m_lblLiveDutCn) m_lblLiveDutCn->setText(QString("📊 DUT C/N: %1 dB").arg(cnDb, 0, 'f', 1));
         if (m_lblLivePower) m_lblLivePower->setText(QString("📶 POW: %1 dBm").arg(powDbm, 0, 'f', 1));
     });
+    connect(&m_dutWebClient, &DrxWebClient::timestampReceived, this,
+            [this](const QDateTime &devTime, const QDateTime &hTime, const QString &rawStr) {
+        if (m_topDrxClockBadge) {
+            m_topDrxClockBadge->updateTime(devTime, hTime, rawStr);
+        }
+    });
+    connect(&m_dutWebClient, &DrxWebClient::loginSucceeded, this,
+            [this](int) {
+        if (m_topDrxClockBadge) {
+            m_topDrxClockBadge->setConnected(true);
+        }
+    });
+    connect(&m_dutWebClient, &DrxWebClient::loginFailed, this,
+            [this](const QString &) {
+        if (m_topDrxClockBadge) {
+            m_topDrxClockBadge->setConnected(false);
+        }
+    });
 
     // Reference Receiver Web CGI Client (used directly in Algorithm 2)
     m_refWebClient.setHost(AppConfig::instance().refDrxHost(), AppConfig::instance().refDrxPort());
@@ -265,16 +283,26 @@ void ClientWindow::setupMenuBar() {
     actAbout->setShortcut(QKeySequence("Alt+A"));
     connect(actAbout, &QAction::triggered, this, &ClientWindow::onAboutClicked);
 
-    // Top-right quick Simulator launcher button (always accessible across all tabs)
-    auto *btnLaunchSim = new QPushButton("🧪 Simülatörü Aç", this);
+    // Top-right corner: Live Animated DRX Clock Badge + Quick Simulator launcher button
+    QWidget *cornerWidget = new QWidget(this);
+    QHBoxLayout *cornerLay = new QHBoxLayout(cornerWidget);
+    cornerLay->setContentsMargins(0, 0, 6, 0);
+    cornerLay->setSpacing(8);
+
+    m_topDrxClockBadge = new DrxClockBadge(cornerWidget);
+    cornerLay->addWidget(m_topDrxClockBadge);
+
+    auto *btnLaunchSim = new QPushButton("🧪 Simülatörü Aç", cornerWidget);
     btnLaunchSim->setCursor(Qt::PointingHandCursor);
     btnLaunchSim->setToolTip("NETA DRX9000 TCP Simülatörünü başlat");
     btnLaunchSim->setStyleSheet(
         "QPushButton { background-color: #1D4ED8; color: #FFFFFF; border: none; border-radius: 4px; "
-        "padding: 4px 12px; margin: 2px 6px; font-weight: bold; }"
+        "padding: 4px 12px; margin: 2px 0px; font-weight: bold; }"
         "QPushButton:hover { background-color: #2563EB; }");
     connect(btnLaunchSim, &QPushButton::clicked, this, [this]() { AppConfig::launchSimulator(this); });
-    menuBar()->setCornerWidget(btnLaunchSim, Qt::TopRightCorner);
+    cornerLay->addWidget(btnLaunchSim);
+
+    menuBar()->setCornerWidget(cornerWidget, Qt::TopRightCorner);
 }
 
 void ClientWindow::setupUi() {
