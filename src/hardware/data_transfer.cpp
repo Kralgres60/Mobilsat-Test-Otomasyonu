@@ -33,6 +33,33 @@ static double parseDrxNumeric(QString str) {
     return 0.0;
 }
 
+static QDateTime parseDrxDateTime(const QString &rawStr) {
+    QString s = rawStr.trimmed();
+    if (s.isEmpty() || s == "?" || s == "-") return QDateTime();
+
+    // Standard DRX format: "09:11:45 - 22/09/2026"
+    QDateTime dt = QDateTime::fromString(s, "hh:mm:ss - dd/MM/yyyy");
+    if (dt.isValid()) return dt;
+
+    dt = QDateTime::fromString(s, "HH:mm:ss - dd/MM/yyyy");
+    if (dt.isValid()) return dt;
+
+    dt = QDateTime::fromString(s, "hh:mm:ss dd/MM/yyyy");
+    if (dt.isValid()) return dt;
+
+    dt = QDateTime::fromString(s, "yyyy-MM-dd HH:mm:ss");
+    if (dt.isValid()) return dt;
+
+    dt = QDateTime::fromString(s, "dd.MM.yyyy HH:mm:ss");
+    if (dt.isValid()) return dt;
+
+    QTime t = QTime::fromString(s, "hh:mm:ss");
+    if (t.isValid()) {
+        return QDateTime(QDate::currentDate(), t);
+    }
+    return QDateTime();
+}
+
 static bool isDrxLockPositive(QString str) {
     str = str.trimmed().toLower();
     if (str.isEmpty() || str == "cross" || str == "?" || str == "0" || str == "false" || str == "no" || str == "unlocked") {
@@ -268,8 +295,20 @@ void Ethernet::sendTune(int freqMHz, int symbolRate, const QString &polarity) {
 }
 
 void Ethernet::sendRaw(const QString &command) {
-    QByteArray postData = DrxProtocolConfig::instance().formatCgiRawQuery(command.trimmed(), m_sessionKey);
-    sendCgiRequest("raw", postData);
+    QString cmd = command.trimmed();
+    QString action = "raw";
+    if (cmd.contains("alarmStatus", Qt::CaseInsensitive)) {
+        action = "alarmStatus";
+    } else if (cmd.contains("deviceInfo", Qt::CaseInsensitive)) {
+        action = "deviceInfo";
+    } else if (cmd.contains("ResponseTo=freq", Qt::CaseInsensitive) || cmd.contains("fr_frequency", Qt::CaseInsensitive)) {
+        action = "freq";
+    } else if (cmd.contains("ResponseTo=login", Qt::CaseInsensitive)) {
+        action = "login";
+    }
+
+    QByteArray postData = DrxProtocolConfig::instance().formatCgiRawQuery(cmd, m_sessionKey);
+    sendCgiRequest(action, postData);
 }
 
 void Ethernet::sendCgiRequest(const QString &actionType, const QByteArray &postData) {
@@ -310,6 +349,9 @@ void Ethernet::onReplyFinished(QNetworkReply *reply) {
     if (err != QNetworkReply::NoError) {
         QString errStr = reply->errorString();
         emit logMessage(QString("[CGI Hata %1] %2").arg(actionType, errStr), true);
+        // Expose response body or network error to debug observers
+        QByteArray errPayload = !payload.isEmpty() ? payload : QString("{\"error\": \"%1\", \"action\": \"%2\"}").arg(errStr, actionType).toUtf8();
+        emit rawResponseReceived(actionType, errPayload);
         if (actionType == "login") {
             emit loginFailed(errStr);
         }
@@ -336,11 +378,32 @@ void Ethernet::parseCgiResponse(const QString &actionType, const QByteArray &pay
         handleDeviceInfoResponse(root);
     } else if (actionType == "freq" || actionType == "TUNE") {
         handleTuneResponse(root);
+    } else {
+        // Auto-detect payload in raw custom requests
+        if (root.contains("sessionkey") || root.contains("sessionKey")) {
+            handleLoginResponse(root);
+        }
+        if (root.contains("sections") || root.contains("signalLock") || root.contains("cn") || root.contains("power")) {
+            handleAlarmStatusResponse(root);
+        }
     }
 }
 
 void Ethernet::handleLoginResponse(const QJsonObject &root) {
     int key = DrxProtocolConfig::instance().extractSessionKey(root);
+
+    // Direct fallback if config extraction returned <= 0
+    if (key <= 0) {
+        if (root.contains("sessionkey")) {
+            key = root.value("sessionkey").toInt(-1);
+            if (key <= 0) key = root.value("sessionkey").toString().toInt();
+        } else if (root.contains("sessionKey")) {
+            key = root.value("sessionKey").toInt(-1);
+            if (key <= 0) key = root.value("sessionKey").toString().toInt();
+        } else if (root.contains("key")) {
+            key = root.value("key").toInt(-1);
+        }
+    }
 
     if (key > 0) {
         m_sessionKey = key;
@@ -380,6 +443,7 @@ void Ethernet::handleAlarmStatusResponse(const QJsonObject &root) {
     bool vid = false;
     bool aud = false;
     QString chName;
+    QString rawTimeStr;
     double pwr = 0.0;
     double cn = 0.0;
     double ber = 0.0;
@@ -393,7 +457,9 @@ void Ethernet::handleAlarmStatusResponse(const QJsonObject &root) {
             QString caption = elem.value("caption").toString().trimmed().toLower();
             QString strVal = elem.value("value").toString().trimmed();
 
-            if (domid == "st_channel" || caption.contains("kanal") || caption.contains("channel")) {
+            if (domid == "st_current_time" || domid == "current_time" || caption.contains("saat") || caption.contains("time")) {
+                rawTimeStr = strVal;
+            } else if (domid == "st_channel" || caption.contains("kanal") || caption.contains("channel")) {
                 chName = strVal;
             } else if (domid == "st_signal" || caption == "sinyal" || caption == "signal") {
                 sig = isDrxLockPositive(strVal);
@@ -427,8 +493,21 @@ void Ethernet::handleAlarmStatusResponse(const QJsonObject &root) {
         if (root.contains("videoLock")) vid = root.value("videoLock").toBool(vid);
         if (root.contains("audioLock")) aud = root.value("audioLock").toBool(aud);
         if (chName.isEmpty() && root.contains("channelName")) chName = root.value("channelName").toString();
+        if (root.contains("current_time")) rawTimeStr = root.value("current_time").toString();
+        else if (root.contains("st_current_time")) rawTimeStr = root.value("st_current_time").toString();
     }
 
+    // Process device vs host timestamps and delta time (dt)
+    m_lastHostTime = QDateTime::currentDateTime();
+    m_lastDeviceTimeStr = rawTimeStr;
+    m_lastDeviceTime = parseDrxDateTime(rawTimeStr);
+    if (m_lastDeviceTime.isValid()) {
+        m_lastDeltaTimeMs = m_lastHostTime.toMSecsSinceEpoch() - m_lastDeviceTime.toMSecsSinceEpoch();
+    } else {
+        m_lastDeltaTimeMs = 0;
+    }
+
+    emit timestampReceived(m_lastDeviceTime, m_lastHostTime, m_lastDeviceTimeStr);
     emit statusReceived(sig, vid, aud, chName);
     emit statusReceivedFull(sig, vid, aud, chName);
 

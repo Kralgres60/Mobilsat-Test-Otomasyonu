@@ -1,75 +1,55 @@
 ﻿/**
  * @file debug_runner_window.cpp
- * @brief Implementation of the interactive Developer and Debug Test Console.
+ * @brief Streamlined developer debug console focused on DRX REST API requests and JSON outputs.
  * @author Semi Eren Gökyıldız
  * @copyright Copyright (C) 2026 NETA Elektronik A.Ş.
  */
 
 #include "debug_runner_window.h"
+#include "db_debug_window.h"
+#include "hardware/drx_protocol_config.h"
+#include "core/app_config.h"
 #include "ui/common/style_helper.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGridLayout>
 #include <QGroupBox>
+#include <QSplitter>
 #include <QDateTime>
 #include <QClipboard>
 #include <QApplication>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <numeric>
 
 DebugRunnerWindow::DebugRunnerWindow(QWidget *parent)
-    : QMainWindow(parent), m_webClient(new DrxWebClient(this)) {
+    : QMainWindow(parent), m_webClient(new Ethernet(this)) {
     setupUi();
-
-    // Sinyal / Slot bağlantıları
-    connect(m_connectBtn, &QPushButton::clicked, this, &DebugRunnerWindow::onConnectClicked);
-    connect(m_tuneBtn, &QPushButton::clicked, this, &DebugRunnerWindow::onTuneClicked);
-    connect(m_pollBtn, &QPushButton::clicked, this, &DebugRunnerWindow::onPollTelemetryClicked);
-    connect(m_startSampleBtn, &QPushButton::clicked, this, &DebugRunnerWindow::onStartSamplingClicked);
-    connect(m_scanAllBtn, &QPushButton::clicked, this, &DebugRunnerWindow::onScanAllClicked);
-    connect(m_copyRawBtn, &QPushButton::clicked, this, &DebugRunnerWindow::onCopyRawClicked);
 
     connect(&m_sampleTickTimer, &QTimer::timeout, this, &DebugRunnerWindow::onSampleTimerTick);
     connect(&m_sampleDurationTimer, &QTimer::timeout, this, &DebugRunnerWindow::onSamplingFinished);
     m_sampleDurationTimer.setSingleShot(true);
 
-    connect(m_webClient, &DrxWebClient::loginSucceeded, this, [this](int key) {
-        onSessionKeyReceived(QString::number(key));
-    });
-    connect(m_webClient, &DrxWebClient::loginFailed, this, [this](const QString &reason) {
-        onErrorOccurred("Login Hatası: " + reason);
-    });
-    connect(m_webClient, &DrxWebClient::tuneCompleted, this, &DebugRunnerWindow::onTuneFinished);
-    connect(m_webClient, &DrxWebClient::statusReceived, this, [this](bool s, bool v, bool a, const QString &ch) {
-        m_carrierLabel->setText(QString("Taşıyıcı (S): %1").arg(s ? "<font color='#4CAF50'><b>KİLİTLİ (S:+)</b></font>" : "<font color='#F44336'>KİLİTSİZ (S:-)</font>"));
-        m_videoLabel->setText(QString("Video (V): %1").arg(v ? "<font color='#4CAF50'><b>VAR (V:+)</b></font>" : "<font color='#F44336'>YOK (V:-)</font>"));
-        m_audioLabel->setText(QString("Ses (A): %1").arg(a ? "<font color='#4CAF50'><b>VAR (A:+)</b></font>" : "<font color='#F44336'>YOK (A:-)</font>"));
-        if (!ch.isEmpty()) {
-            m_statusLabel->setText(QString("<b>Kanal:</b> <font color='#81D4FA'>%1</font>").arg(ch));
+    // Wire Ethernet Web CGI Signals
+    connect(m_webClient, &Ethernet::loginSucceeded, this, &DebugRunnerWindow::onSessionKeyReceived);
+    connect(m_webClient, &Ethernet::loginFailed, this, &DebugRunnerWindow::onLoginFailed);
+    connect(m_webClient, &Ethernet::tuneCompleted, this, &DebugRunnerWindow::onTuneFinished);
+    connect(m_webClient, &Ethernet::rawResponseReceived, this, &DebugRunnerWindow::onRawResponseReceived);
+    connect(m_webClient, &Ethernet::telemetryReceived, this, &DebugRunnerWindow::onTelemetryReceived);
+    connect(m_webClient, &Ethernet::statusReceived, this, &DebugRunnerWindow::onStatusReceived);
+    connect(m_webClient, &Ethernet::timestampReceived, this, &DebugRunnerWindow::onTimestampReceived);
+    connect(m_webClient, &Ethernet::pingFinished, this, [this](bool reachable, int latencyMs, const QString &host) {
+        if (reachable) {
+            appendLog(QString("✔ Ping başarılı: %1 (%2 ms)").arg(host).arg(latencyMs), "#34D399");
+        } else {
+            appendLog(QString("❌ Ping yanıt vermiyor: %1").arg(host), "#EF4444");
         }
     });
-    connect(m_webClient, &DrxWebClient::telemetryReceived, this, [this](double powDbm, double cnDb, double ber, double ebN0) {
-        m_liveCnLabel->setText(QString("<b>C/N:</b> %1 dB").arg(QString::number(cnDb, 'f', 2)));
-        m_livePowLabel->setText(QString("<b>Güç:</b> %1 dBm").arg(QString::number(powDbm, 'f', 2)));
-        m_liveEbN0Label->setText(QString("<b>Eb/N0:</b> %1 dB").arg(QString::number(ebN0, 'f', 2)));
-        m_liveBerLabel->setText(QString("<b>BER:</b> %1").arg(ber > 0 ? QString::number(ber, 'e', 1) : "-"));
-
-        if (m_isSampling) {
-            m_cnSamples.append(cnDb);
-            m_powSamples.append(powDbm);
-            appendLog(QString("[Örnek #%1] C/N: %2 dB | Güç: %3 dBm | Eb/N0: %4 dB | BER: %5")
-                          .arg(m_cnSamples.size())
-                          .arg(QString::number(cnDb, 'f', 2))
-                          .arg(QString::number(powDbm, 'f', 2))
-                          .arg(QString::number(ebN0, 'f', 2))
-                          .arg(ber > 0 ? QString::number(ber, 'e', 1) : "0"), "#81D4FA");
-        }
-    });
-    connect(m_webClient, &DrxWebClient::rawResponseReceived, this, &DebugRunnerWindow::onRawResponseReceived);
-    connect(m_webClient, &DrxWebClient::logMessage, this, [this](const QString &msg, bool isErr) {
-        appendLog(msg, isErr ? "#EF5350" : "#B0BEC5");
+    connect(m_webClient, &Ethernet::logMessage, this, [this](const QString &msg, bool isErr) {
+        appendLog(msg, isErr ? "#EF4444" : "#94A3B8");
     });
 
-    appendLog("🚀 DEBUG TEST MODU Başlatıldı. Cihaz IP'sini belirleyip 'Bağlan & Login' butonuna basınız.", "#4CAF50");
+    appendLog("🚀 DRX REST API Debug Konsolu hazır. Cihaz IP'si ile bağlanıp test yapabilirsiniz.", "#34D399");
 }
 
 DebugRunnerWindow::~DebugRunnerWindow() {
@@ -78,182 +58,408 @@ DebugRunnerWindow::~DebugRunnerWindow() {
 }
 
 void DebugRunnerWindow::setupUi() {
-    setWindowTitle("NETA DRX9000 - Geliştirici & REST API Debug Test Konsolu");
-    resize(1020, 750);
-    setStyleSheet(StyleHelper::getAppStyle());
+    setWindowTitle("NETA DRX9000 - REST API & Donanım Debug Konsolu");
+    resize(1080, 720);
+    setStyleSheet("background-color: #1E1E2E; color: #E0E0E0; font-family: 'Segoe UI', Arial, sans-serif;");
 
     QWidget *central = new QWidget(this);
     setCentralWidget(central);
     QVBoxLayout *mainLayout = new QVBoxLayout(central);
-    mainLayout->setSpacing(10);
-    mainLayout->setContentsMargins(14, 14, 14, 14);
+    mainLayout->setContentsMargins(10, 10, 10, 10);
+    mainLayout->setSpacing(8);
 
-    // 1. ÜST PANEL: Cihaz ve Login Bilgileri
-    QGroupBox *connGroup = new QGroupBox("1. DRX Web Sunucusu Bağlantı ve Giriş Bilgileri", this);
-    QHBoxLayout *connLayout = new QHBoxLayout(connGroup);
-    m_ipEdit = new QLineEdit("192.168.0.167", this);
-    m_userEdit = new QLineEdit("admin", this);
-    m_passEdit = new QLineEdit("1234", this);
-    m_passEdit->setEchoMode(QLineEdit::Password);
-    m_connectBtn = new QPushButton("🔑 Bağlan & Login (SessionKey Al)", this);
-    m_connectBtn->setStyleSheet("background-color: #1976D2; color: white; font-weight: bold; padding: 6px 12px;");
+    // =========================================================================
+    // 1. Top Connection Bar
+    // =========================================================================
+    QGroupBox *grpConn = new QGroupBox("🌐 DRX Web Server (REST CGI / Ethernet Bağlantısı)", central);
+    grpConn->setStyleSheet("QGroupBox { font-weight: bold; color: #89DCEB; border: 1px solid #45475A; "
+                           "border-radius: 6px; margin-top: 6px; padding-top: 10px; } "
+                           "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }");
+    QHBoxLayout *hConn = new QHBoxLayout(grpConn);
+    hConn->setContentsMargins(10, 8, 10, 8);
+    hConn->setSpacing(8);
 
-    m_scanAllBtn = new QPushButton("🔍 Tüm Sayfaları Tara (Tüm Bilgileri Getir)", this);
-    m_scanAllBtn->setStyleSheet("background-color: #0288D1; color: white; font-weight: bold; padding: 6px 12px;");
+    const AppConfig &cfg = AppConfig::instance();
 
-    connLayout->addWidget(new QLabel("IP:", this));
-    connLayout->addWidget(m_ipEdit);
-    connLayout->addWidget(new QLabel("Kullanıcı:", this));
-    connLayout->addWidget(m_userEdit);
-    connLayout->addWidget(new QLabel("Şifre:", this));
-    connLayout->addWidget(m_passEdit);
-    connLayout->addWidget(m_connectBtn);
-    connLayout->addWidget(m_scanAllBtn);
-    mainLayout->addWidget(connGroup);
+    m_txtIp = new QLineEdit(cfg.stationDrxHost(), grpConn);
+    m_txtIp->setPlaceholderText("IP (192.168.0.167)");
+    m_txtIp->setFixedWidth(130);
 
-    // 2. ORTA PANEL: Frekans Zıplama & Örnekleme Parametreleri
-    QGroupBox *testGroup = new QGroupBox("2. Frekans Ayarlama ve Örnekleme Testi", this);
-    QGridLayout *testLayout = new QGridLayout(testGroup);
+    m_spinPort = new QSpinBox(grpConn);
+    m_spinPort->setRange(1, 65535);
+    m_spinPort->setValue(cfg.stationDrxPort() > 0 ? cfg.stationDrxPort() : 80);
+    m_spinPort->setFixedWidth(70);
 
-    m_freqSpin = new QSpinBox(this);
-    m_freqSpin->setRange(950, 21500);
-    m_freqSpin->setValue(12207);
-    m_freqSpin->setSuffix(" MHz");
+    m_txtUser = new QLineEdit(cfg.drxUsername(), grpConn);
+    m_txtUser->setPlaceholderText("Kullanıcı");
+    m_txtUser->setFixedWidth(90);
 
-    m_srSpin = new QSpinBox(this);
-    m_srSpin->setRange(1000, 45000);
-    m_srSpin->setValue(27500);
-    m_srSpin->setSuffix(" kS/s");
+    m_txtPass = new QLineEdit(cfg.drxPassword(), grpConn);
+    m_txtPass->setEchoMode(QLineEdit::Password);
+    m_txtPass->setPlaceholderText("Şifre");
+    m_txtPass->setFixedWidth(90);
 
-    m_polCombo = new QComboBox(this);
-    m_polCombo->addItems(QStringList() << "V" << "H");
+    m_btnConnect = new QPushButton("🔌 Bağlan & Login", grpConn);
+    m_btnConnect->setStyleSheet(StyleHelper::getPastelGreenStyle());
+    m_btnConnect->setCursor(Qt::PointingHandCursor);
+    connect(m_btnConnect, &QPushButton::clicked, this, &DebugRunnerWindow::onConnectClicked);
 
-    m_sampleDurationSpin = new QSpinBox(this);
-    m_sampleDurationSpin->setRange(1, 30);
-    m_sampleDurationSpin->setValue(5);
-    m_sampleDurationSpin->setSuffix(" sn");
+    m_btnPing = new QPushButton("📶 Ping", grpConn);
+    m_btnPing->setStyleSheet(StyleHelper::getPastelBlueStyle());
+    m_btnPing->setCursor(Qt::PointingHandCursor);
+    connect(m_btnPing, &QPushButton::clicked, this, &DebugRunnerWindow::onPingClicked);
 
-    m_tuneBtn = new QPushButton("🎯 Frekansa Zıpla (ResponseTo=freq)", this);
-    m_tuneBtn->setStyleSheet("background-color: #00897B; color: white; font-weight: bold; padding: 6px 10px;");
+    m_lblSessionBadge = new QLabel("🔑 Oturum: Yok", grpConn);
+    m_lblSessionBadge->setStyleSheet("background-color: #313244; color: #CDD6F4; padding: 4px 10px; border-radius: 4px; font-weight: bold;");
 
-    m_pollBtn = new QPushButton("📡 Tek Seferlik Telemetri Oku (alarmStatus)", this);
-    m_pollBtn->setStyleSheet("background-color: #5E35B1; color: white; padding: 6px 10px;");
+    m_btnOpenDbTool = new QPushButton("🗄️ Veritabanı Aracı", grpConn);
+    m_btnOpenDbTool->setStyleSheet(StyleHelper::getPastelAmberStyle());
+    m_btnOpenDbTool->setCursor(Qt::PointingHandCursor);
+    connect(m_btnOpenDbTool, &QPushButton::clicked, this, &DebugRunnerWindow::onOpenDbToolClicked);
 
-    m_startSampleBtn = new QPushButton("⏱️ 5 sn Örnekle & Ortalama C/N Hesapla", this);
-    m_startSampleBtn->setStyleSheet("background-color: #E65100; color: white; font-weight: bold; padding: 8px 12px; font-size: 13px;");
+    hConn->addWidget(new QLabel("IP:", grpConn));
+    hConn->addWidget(m_txtIp);
+    hConn->addWidget(new QLabel("Port:", grpConn));
+    hConn->addWidget(m_spinPort);
+    hConn->addWidget(new QLabel("Kullanıcı:", grpConn));
+    hConn->addWidget(m_txtUser);
+    hConn->addWidget(new QLabel("Şifre:", grpConn));
+    hConn->addWidget(m_txtPass);
+    hConn->addWidget(m_btnConnect);
+    hConn->addWidget(m_btnPing);
+    hConn->addWidget(m_lblSessionBadge);
+    hConn->addStretch();
+    hConn->addWidget(m_btnOpenDbTool);
 
-    testLayout->addWidget(new QLabel("Frekans:", this), 0, 0);
-    testLayout->addWidget(m_freqSpin, 0, 1);
-    testLayout->addWidget(new QLabel("Sembol Oranı:", this), 0, 2);
-    testLayout->addWidget(m_srSpin, 0, 3);
-    testLayout->addWidget(new QLabel("Polarizasyon:", this), 0, 4);
-    testLayout->addWidget(m_polCombo, 0, 5);
+    mainLayout->addWidget(grpConn);
 
-    testLayout->addWidget(m_tuneBtn, 1, 0, 1, 2);
-    testLayout->addWidget(m_pollBtn, 1, 2, 1, 2);
-    testLayout->addWidget(new QLabel("Örnekleme Süresi:", this), 1, 4);
-    testLayout->addWidget(m_sampleDurationSpin, 1, 5);
+    // =========================================================================
+    // 2. Main Middle Area: Splitter (Left: Requests & Controls | Right: Output)
+    // =========================================================================
+    QSplitter *splitter = new QSplitter(Qt::Horizontal, central);
+    splitter->setHandleWidth(4);
 
-    testLayout->addWidget(m_startSampleBtn, 2, 0, 1, 6);
-    mainLayout->addWidget(testGroup);
+    // -------------------------------------------------------------------------
+    // Left Widget: Requests, Tuning, Telemetry Controls
+    // -------------------------------------------------------------------------
+    QWidget *wLeft = new QWidget(splitter);
+    QVBoxLayout *vLeft = new QVBoxLayout(wLeft);
+    vLeft->setContentsMargins(0, 0, 4, 0);
+    vLeft->setSpacing(8);
 
-    // 3. CANLI TELEMETRİ VE ORTALAMA SONUÇ PANELİ
-    QGroupBox *statusGroup = new QGroupBox("3. Canlı Telemetri ve Ortalama Göstergeleri", this);
-    QHBoxLayout *statusLayout = new QHBoxLayout(statusGroup);
+    // Group: Frequency Tuning
+    QGroupBox *grpTune = new QGroupBox("📡 Transponder / Frekans Ayarlama (POST freq)", wLeft);
+    grpTune->setStyleSheet("QGroupBox { font-weight: bold; color: #FAB387; border: 1px solid #45475A; "
+                           "border-radius: 6px; margin-top: 6px; padding: 8px; }");
+    QGridLayout *gridTune = new QGridLayout(grpTune);
+    gridTune->setContentsMargins(8, 8, 8, 8);
+    gridTune->setSpacing(6);
 
-    m_statusLabel = new QLabel("<b>Kanal:</b> -", this);
-    m_carrierLabel = new QLabel("Taşıyıcı (S): -", this);
-    m_videoLabel = new QLabel("Video (V): -", this);
-    m_audioLabel = new QLabel("Ses (A): -", this);
-    m_liveCnLabel = new QLabel("<b>C/N:</b> - dB", this);
-    m_livePowLabel = new QLabel("<b>Güç:</b> - dBm", this);
-    m_liveEbN0Label = new QLabel("<b>Eb/N0:</b> - dB", this);
-    m_liveBerLabel = new QLabel("<b>BER:</b> -", this);
-    m_avgResultLabel = new QLabel("<b>[ORTALAMA]:</b> Henüz hesaplanmadı", this);
-    m_avgResultLabel->setStyleSheet("background-color: #263238; color: #FFEB3B; padding: 6px 12px; border-radius: 4px; font-size: 13px;");
+    m_spinFreq = new QSpinBox(grpTune);
+    m_spinFreq->setRange(950, 21500);
+    m_spinFreq->setValue(11054);
+    m_spinFreq->setSuffix(" MHz");
 
-    statusLayout->addWidget(m_statusLabel);
-    statusLayout->addWidget(m_carrierLabel);
-    statusLayout->addWidget(m_videoLabel);
-    statusLayout->addWidget(m_audioLabel);
-    statusLayout->addWidget(m_liveCnLabel);
-    statusLayout->addWidget(m_livePowLabel);
-    statusLayout->addWidget(m_liveEbN0Label);
-    statusLayout->addWidget(m_liveBerLabel);
-    statusLayout->addWidget(m_avgResultLabel);
-    mainLayout->addWidget(statusGroup);
+    m_spinSymbolRate = new QSpinBox(grpTune);
+    m_spinSymbolRate->setRange(1000, 45000);
+    m_spinSymbolRate->setValue(30000);
+    m_spinSymbolRate->setSuffix(" kS/s");
 
-    // 4. TAB PANEL: DETAYLI LOGLAR & HAM JSON ÇIKTISI
-    m_tabWidget = new QTabWidget(this);
+    m_comboPol = new QComboBox(grpTune);
+    m_comboPol->addItems({"Dikey (V) / 13V", "Yatay (H) / 18V"});
 
-    // Tab 1: Geliştirici Konsol Logları
-    QWidget *tabLog = new QWidget(this);
-    QVBoxLayout *tabLogLayout = new QVBoxLayout(tabLog);
-    m_logEdit = new QTextEdit(this);
-    m_logEdit->setReadOnly(true);
-    m_logEdit->setStyleSheet("background-color: #121212; color: #E0E0E0; font-family: Consolas, monospace; font-size: 11px;");
-    tabLogLayout->addWidget(m_logEdit);
-    m_tabWidget->addTab(tabLog, "📕 Ayrıştırılmış Geliştirici Logları");
+    m_btnTune = new QPushButton("🚀 Frekansı Cihaza Bas", grpTune);
+    m_btnTune->setStyleSheet(StyleHelper::getPastelGreenStyle());
+    m_btnTune->setCursor(Qt::PointingHandCursor);
+    connect(m_btnTune, &QPushButton::clicked, this, &DebugRunnerWindow::onTuneClicked);
 
-    // Tab 2: Ham Web Yanıtı (Raw JSON)
-    QWidget *tabRaw = new QWidget(this);
-    QVBoxLayout *tabRawLayout = new QVBoxLayout(tabRaw);
-    QHBoxLayout *rawTopBar = new QHBoxLayout();
-    m_copyRawBtn = new QPushButton("📋 Ham JSON'ı Panoya Kopyala", this);
-    m_copyRawBtn->setStyleSheet("background-color: #37474F; color: white; font-weight: bold; padding: 4px 10px;");
-    QPushButton *clearRawBtn = new QPushButton("🧹 Temizle", this);
-    connect(clearRawBtn, &QPushButton::clicked, this, [this]() { m_rawJsonEdit->clear(); });
+    gridTune->addWidget(new QLabel("Frekans:", grpTune), 0, 0);
+    gridTune->addWidget(m_spinFreq, 0, 1);
+    gridTune->addWidget(new QLabel("Sembol Oranı:", grpTune), 0, 2);
+    gridTune->addWidget(m_spinSymbolRate, 0, 3);
+    gridTune->addWidget(new QLabel("Polarizasyon:", grpTune), 1, 0);
+    gridTune->addWidget(m_comboPol, 1, 1);
+    gridTune->addWidget(m_btnTune, 1, 2, 1, 2);
+    vLeft->addWidget(grpTune);
 
-    rawTopBar->addWidget(new QLabel("<b>DRX Web Sunucusundan Gelen Ham JSON / Metin Yanıtı:</b>", this));
-    rawTopBar->addStretch();
-    rawTopBar->addWidget(m_copyRawBtn);
-    rawTopBar->addWidget(clearRawBtn);
-    tabRawLayout->addLayout(rawTopBar);
+    // Group: Live Telemetry Badges & Queries
+    QGroupBox *grpTele = new QGroupBox("📊 Telemetri ve Durum Sorgulama (alarmStatus)", wLeft);
+    grpTele->setStyleSheet("QGroupBox { font-weight: bold; color: #A6E3A1; border: 1px solid #45475A; "
+                           "border-radius: 6px; margin-top: 6px; padding: 8px; }");
+    QVBoxLayout *vTele = new QVBoxLayout(grpTele);
+    vTele->setContentsMargins(8, 8, 8, 8);
+    vTele->setSpacing(6);
 
-    m_rawJsonEdit = new QTextEdit(this);
-    m_rawJsonEdit->setReadOnly(true);
-    m_rawJsonEdit->setStyleSheet("background-color: #0D1117; color: #58A6FF; font-family: Consolas, monospace; font-size: 12px;");
-    tabRawLayout->addWidget(m_rawJsonEdit);
-    m_tabWidget->addTab(tabRaw, "📋 DRX Ham JSON Yanıtı (Raw Payload)");
+    QHBoxLayout *hTeleBtns = new QHBoxLayout();
+    m_btnAlarmStatus = new QPushButton("🔍 alarmStatus Sorgula", grpTele);
+    m_btnAlarmStatus->setStyleSheet(StyleHelper::getPastelBlueStyle());
+    connect(m_btnAlarmStatus, &QPushButton::clicked, this, &DebugRunnerWindow::onPollAlarmStatusClicked);
 
-    // Tab 3: MariaDB ve Dağıtık Kilit (Algoritma 2) Konsolu
-    m_dbDebugWidget = new DbDebugWidget(this);
-    m_tabWidget->addTab(m_dbDebugWidget, "🗄️ï¸ MariaDB & Dağıtık Kilit (Algoritma 2)");
+    m_btnDeviceInfo = new QPushButton("ℹ️ deviceInfo Sorgula", grpTele);
+    m_btnDeviceInfo->setStyleSheet(StyleHelper::getPastelBlueStyle());
+    connect(m_btnDeviceInfo, &QPushButton::clicked, this, &DebugRunnerWindow::onPollDeviceInfoClicked);
 
-    mainLayout->addWidget(m_tabWidget);
+    m_spinSampleSec = new QSpinBox(grpTele);
+    m_spinSampleSec->setRange(1, 60);
+    m_spinSampleSec->setValue(5);
+    m_spinSampleSec->setSuffix(" sn");
+
+    m_btnStartSample = new QPushButton("⏱️ Örnekleme Başlat", grpTele);
+    m_btnStartSample->setStyleSheet(StyleHelper::getPastelAmberStyle());
+    connect(m_btnStartSample, &QPushButton::clicked, this, &DebugRunnerWindow::onStartSamplingClicked);
+
+    hTeleBtns->addWidget(m_btnAlarmStatus);
+    hTeleBtns->addWidget(m_btnDeviceInfo);
+    hTeleBtns->addWidget(m_spinSampleSec);
+    hTeleBtns->addWidget(m_btnStartSample);
+    vTele->addLayout(hTeleBtns);
+
+    // Live Indicators Grid
+    QGridLayout *gridBadges = new QGridLayout();
+    gridBadges->setSpacing(6);
+
+    auto makeBadge = [](const QString &text, const QString &bg) {
+        QLabel *l = new QLabel(text);
+        l->setAlignment(Qt::AlignCenter);
+        l->setStyleSheet(QString("background-color: %1; color: #CDD6F4; padding: 6px; border-radius: 4px; font-weight: bold;").arg(bg));
+        return l;
+    };
+
+    m_lblCarrier = makeBadge("Taşıyıcı: Beklemede", "#313244");
+    m_lblVideo = makeBadge("Video: Beklemede", "#313244");
+    m_lblAudio = makeBadge("Audio: Beklemede", "#313244");
+    m_lblChannelName = makeBadge("Kanal: -", "#1E1E2E");
+    m_lblCn = makeBadge("C/N: -- dB", "#181825");
+    m_lblPower = makeBadge("Güç: -- dBm", "#181825");
+    m_lblBer = makeBadge("BER: --", "#181825");
+    m_lblEbN0 = makeBadge("Eb/N0: -- dB", "#181825");
+    m_lblDeviceTime = makeBadge("Cihaz Saati: --", "#1E1E2E");
+    m_lblDeltaTime = makeBadge("Δt (Gecikme): -- ms", "#1E1E2E");
+
+    gridBadges->addWidget(m_lblCarrier, 0, 0);
+    gridBadges->addWidget(m_lblVideo, 0, 1);
+    gridBadges->addWidget(m_lblAudio, 0, 2);
+    gridBadges->addWidget(m_lblChannelName, 0, 3);
+    gridBadges->addWidget(m_lblCn, 1, 0);
+    gridBadges->addWidget(m_lblPower, 1, 1);
+    gridBadges->addWidget(m_lblBer, 1, 2);
+    gridBadges->addWidget(m_lblEbN0, 1, 3);
+    gridBadges->addWidget(m_lblDeviceTime, 2, 0, 1, 2);
+    gridBadges->addWidget(m_lblDeltaTime, 2, 2, 1, 2);
+    vTele->addLayout(gridBadges);
+    vLeft->addWidget(grpTele);
+
+    // Group: Custom CGI POST Sender
+    QGroupBox *grpCustom = new QGroupBox("🛠️ Özel REST CGI POST Gönderici (/cgi-bin/drx.cgi)", wLeft);
+    grpCustom->setStyleSheet("QGroupBox { font-weight: bold; color: #CBA6F7; border: 1px solid #45475A; "
+                            "border-radius: 6px; margin-top: 6px; padding: 8px; }");
+    QVBoxLayout *vCustom = new QVBoxLayout(grpCustom);
+    vCustom->setContentsMargins(8, 8, 8, 8);
+    vCustom->setSpacing(6);
+
+    QHBoxLayout *hCustomHead = new QHBoxLayout();
+    m_comboCgiAction = new QComboBox(grpCustom);
+    m_comboCgiAction->addItems({"alarmStatus", "deviceInfo", "freq", "login", "raw"});
+    connect(m_comboCgiAction, QOverload<const QString &>::of(&QComboBox::currentTextChanged), this, &DebugRunnerWindow::setPresetPayloadForAction);
+
+    m_btnSendCustom = new QPushButton("📤 İsteği Gönder (POST)", grpCustom);
+    m_btnSendCustom->setStyleSheet(StyleHelper::getPastelGreenStyle());
+    connect(m_btnSendCustom, &QPushButton::clicked, this, &DebugRunnerWindow::onSendCustomPostClicked);
+
+    hCustomHead->addWidget(new QLabel("İstek Şablonu:", grpCustom));
+    hCustomHead->addWidget(m_comboCgiAction);
+    hCustomHead->addStretch();
+    hCustomHead->addWidget(m_btnSendCustom);
+    vCustom->addLayout(hCustomHead);
+
+    m_txtCustomPayload = new QTextEdit(grpCustom);
+    m_txtCustomPayload->setFixedHeight(80);
+    m_txtCustomPayload->setStyleSheet("background-color: #11111B; border: 1px solid #313244; color: #CDD6F4; "
+                                     "font-family: 'Consolas', monospace; font-size: 11px;");
+    vCustom->addWidget(m_txtCustomPayload);
+    vLeft->addWidget(grpCustom);
+
+    setPresetPayloadForAction("alarmStatus");
+    splitter->addWidget(wLeft);
+
+    // -------------------------------------------------------------------------
+    // Right Widget: Raw Output Panel (Core Focus)
+    // -------------------------------------------------------------------------
+    QWidget *wRight = new QWidget(splitter);
+    QVBoxLayout *vRight = new QVBoxLayout(wRight);
+    vRight->setContentsMargins(4, 0, 0, 0);
+    vRight->setSpacing(8);
+
+    QGroupBox *grpOutput = new QGroupBox("📥 DRX REST API Yanıt Çıktısı (JSON / Raw Response)", wRight);
+    grpOutput->setStyleSheet("QGroupBox { font-weight: bold; color: #89B4FA; border: 1px solid #45475A; "
+                            "border-radius: 6px; margin-top: 6px; padding: 8px; }");
+    QVBoxLayout *vOut = new QVBoxLayout(grpOutput);
+    vOut->setContentsMargins(8, 8, 8, 8);
+    vOut->setSpacing(6);
+
+    QHBoxLayout *hOutBar = new QHBoxLayout();
+    m_lblResponseStatus = new QLabel("HTTP Durum: Bekleniyor...", grpOutput);
+    m_lblResponseStatus->setStyleSheet("background-color: #313244; color: #CDD6F4; padding: 4px 8px; border-radius: 4px; font-weight: bold;");
+
+    m_lblResponseLatency = new QLabel("Gecikme: -- ms", grpOutput);
+    m_lblResponseLatency->setStyleSheet("background-color: #181825; color: #89DCEB; padding: 4px 8px; border-radius: 4px;");
+
+    m_btnCopyRaw = new QPushButton("📋 JSON Kopyala", grpOutput);
+    m_btnCopyRaw->setStyleSheet(StyleHelper::getPastelBlueStyle());
+    connect(m_btnCopyRaw, &QPushButton::clicked, this, &DebugRunnerWindow::onCopyRawClicked);
+
+    m_btnClearOutput = new QPushButton("🧹 Çıktıyı Temizle", grpOutput);
+    m_btnClearOutput->setStyleSheet(StyleHelper::getPastelSlateStyle());
+    connect(m_btnClearOutput, &QPushButton::clicked, this, &DebugRunnerWindow::onClearOutputClicked);
+
+    hOutBar->addWidget(m_lblResponseStatus);
+    hOutBar->addWidget(m_lblResponseLatency);
+    hOutBar->addStretch();
+    hOutBar->addWidget(m_btnCopyRaw);
+    hOutBar->addWidget(m_btnClearOutput);
+    vOut->addLayout(hOutBar);
+
+    m_txtRawOutput = new QTextEdit(grpOutput);
+    m_txtRawOutput->setReadOnly(true);
+    m_txtRawOutput->setStyleSheet("background-color: #0D0E15; border: 1px solid #313244; color: #50FA7B; "
+                                 "font-family: 'Consolas', 'Courier New', monospace; font-size: 12px; line-height: 1.4;");
+    m_txtRawOutput->setPlaceholderText("Cihazdan dönen ham JSON veya HTTP yanıtı burada görüntülenecektir...");
+    vOut->addWidget(m_txtRawOutput);
+
+    vRight->addWidget(grpOutput);
+    splitter->addWidget(wRight);
+
+    splitter->setStretchFactor(0, 1);
+    splitter->setStretchFactor(1, 1);
+    mainLayout->addWidget(splitter, 1);
+
+    // =========================================================================
+    // 3. Bottom Log Console
+    // =========================================================================
+    m_txtLogs = new QTextEdit(central);
+    m_txtLogs->setReadOnly(true);
+    m_txtLogs->setFixedHeight(95);
+    m_txtLogs->setStyleSheet("background-color: #11111B; border: 1px solid #313244; color: #A6ADC8; "
+                            "font-family: 'Consolas', monospace; font-size: 11px;");
+    mainLayout->addWidget(m_txtLogs);
+}
+
+void DebugRunnerWindow::appendLog(const QString &msg, const QString &color) {
+    if (!m_txtLogs) return;
+    QString timeStr = QDateTime::currentDateTime().toString("HH:mm:ss.zzz");
+    m_txtLogs->append(QString("<span style='color:#6C7086;'>[%1]</span> <span style='color:%2;'>%3</span>")
+                          .arg(timeStr, color, msg.toHtmlEscaped()));
+}
+
+void DebugRunnerWindow::updateSessionBadge(int sessionKey) {
+    if (!m_lblSessionBadge) return;
+    if (sessionKey > 0) {
+        m_lblSessionBadge->setText(QString("🔑 SessionKey: %1").arg(sessionKey));
+        m_lblSessionBadge->setStyleSheet("background-color: #064E3B; border: 1px solid #10B981; color: #34D399; padding: 4px 10px; border-radius: 4px; font-weight: bold;");
+    } else {
+        m_lblSessionBadge->setText("🔑 Oturum: Yok");
+        m_lblSessionBadge->setStyleSheet("background-color: #450A0A; border: 1px solid #EF4444; color: #F87171; padding: 4px 10px; border-radius: 4px; font-weight: bold;");
+    }
+}
+
+void DebugRunnerWindow::syncEndpointSettings() {
+    if (!m_webClient) return;
+    QString host = m_txtIp ? m_txtIp->text().trimmed() : "192.168.0.167";
+    int port = m_spinPort ? m_spinPort->value() : 80;
+    QString user = m_txtUser ? m_txtUser->text().trimmed() : "admin";
+    QString pass = m_txtPass ? m_txtPass->text() : "1234";
+
+    m_webClient->setHost(host, port);
+    m_webClient->setCredentials(user, pass);
+}
+
+void DebugRunnerWindow::setPresetPayloadForAction(const QString &action) {
+    if (!m_txtCustomPayload) return;
+    int sk = m_webClient ? m_webClient->sessionKey() : 0;
+    QString skStr = (sk > 0) ? QString::number(sk) : "{sessionKey}";
+
+    if (action == "alarmStatus") {
+        m_txtCustomPayload->setPlainText(QString("query=alarmStatus\nsessionKey=%1\n").arg(skStr));
+    } else if (action == "deviceInfo") {
+        m_txtCustomPayload->setPlainText(QString("query=deviceInfo\nsessionKey=%1\n").arg(skStr));
+    } else if (action == "freq") {
+        m_txtCustomPayload->setPlainText(QString("ResponseTo=freq\nsessionKey=%1\nfr_frequency=11054000\nfr_srate=30000000\nfr_pol=0\n").arg(skStr));
+    } else if (action == "login") {
+        QString user = m_txtUser ? m_txtUser->text().trimmed() : "admin";
+        QString pass = m_txtPass ? m_txtPass->text() : "1234";
+        m_txtCustomPayload->setPlainText(QString("ResponseTo=login\nsessionKey=\nlg_username=%1\nlg_password=%2\n").arg(user, pass));
+    } else {
+        m_txtCustomPayload->setPlainText(QString("query=alarmStatus\nsessionKey=%1\n").arg(skStr));
+    }
 }
 
 void DebugRunnerWindow::onConnectClicked() {
-    m_webClient->setHost(m_ipEdit->text().trimmed());
-    m_webClient->setCredentials(m_userEdit->text().trimmed(), m_passEdit->text().trimmed());
-    appendLog(QString("🔌 %1 cihazına bağlanılıyor...").arg(m_ipEdit->text()), "#FFD54F");
+    syncEndpointSettings();
+    appendLog(QString("Cihaza bağlanılıyor ve giriş yapılıyor: %1@%2:%3").arg(m_webClient->username(), m_webClient->host()).arg(m_webClient->port()), "#89DCEB");
     m_webClient->login();
 }
 
-void DebugRunnerWindow::onTuneClicked() {
-    appendLog(QString("🎯 Frekansa Zıplanıyor -> %1 MHz, SR: %2, Pol: %3")
-                  .arg(m_freqSpin->value())
-                  .arg(m_srSpin->value())
-                  .arg(m_polCombo->currentText()), "#4DD0E1");
-    m_webClient->sendTune(m_freqSpin->value(), m_srSpin->value(), m_polCombo->currentText());
+void DebugRunnerWindow::onPingClicked() {
+    syncEndpointSettings();
+    appendLog(QString("Host ping ediliyor: %1...").arg(m_webClient->host()), "#89DCEB");
+    m_webClient->pingHost(1000);
 }
 
-void DebugRunnerWindow::onPollTelemetryClicked() {
+void DebugRunnerWindow::onTuneClicked() {
+    syncEndpointSettings();
+    int freq = m_spinFreq->value();
+    int sr = m_spinSymbolRate->value();
+    QString pol = (m_comboPol->currentIndex() == 1) ? "H" : "V";
+
+    appendLog(QString("Frekans gönderiliyor: %1 MHz, %2 kS/s, %3").arg(freq).arg(sr).arg(pol), "#FAB387");
+    m_webClient->sendTune(freq, sr, pol);
+}
+
+void DebugRunnerWindow::onPollAlarmStatusClicked() {
+    syncEndpointSettings();
+    appendLog("alarmStatus telemetri sorgusu gönderiliyor...", "#89DCEB");
     m_webClient->requestStatus();
 }
 
+void DebugRunnerWindow::onPollDeviceInfoClicked() {
+    syncEndpointSettings();
+    appendLog("deviceInfo cihaz bilgisi sorgusu gönderiliyor...", "#89DCEB");
+    m_webClient->requestDeviceInfo();
+}
+
+void DebugRunnerWindow::onSendCustomPostClicked() {
+    syncEndpointSettings();
+    QString raw = m_txtCustomPayload->toPlainText();
+    int sk = m_webClient->sessionKey();
+    if (sk > 0 && raw.contains("{sessionKey}")) {
+        raw.replace("{sessionKey}", QString::number(sk));
+        m_txtCustomPayload->setPlainText(raw);
+    }
+    appendLog("Özel CGI POST payload gönderiliyor...", "#CBA6F7");
+    m_webClient->sendRaw(raw);
+}
+
 void DebugRunnerWindow::onStartSamplingClicked() {
-    m_cnSamples.clear();
+    if (m_isSampling) {
+        m_sampleTickTimer.stop();
+        m_sampleDurationTimer.stop();
+        m_isSampling = false;
+        m_btnStartSample->setText("⏱️ Örnekleme Başlat");
+        m_btnStartSample->setStyleSheet(StyleHelper::getPastelAmberStyle());
+        appendLog("Örnekleme kullanıcı tarafından durduruldu.", "#FAB387");
+        return;
+    }
+
     m_powSamples.clear();
+    m_cnSamples.clear();
     m_isSampling = true;
+    m_btnStartSample->setText("⏹️ Durdur");
+    m_btnStartSample->setStyleSheet(StyleHelper::getPastelRedStyle());
 
-    int durationSec = m_sampleDurationSpin->value();
+    int durationSec = m_spinSampleSec->value();
+    m_sampleTickTimer.start(500);
     m_sampleDurationTimer.start(durationSec * 1000);
-    m_sampleTickTimer.start(250); // 250ms periyot
-
-    m_startSampleBtn->setEnabled(false);
-    m_avgResultLabel->setText("⏳ Örnekleme yapılıyor, bekleniyor...");
-    appendLog(QString("⏱️ %1 saniyelik çoklu veri örneklemesi başladı (250 ms aralıkla)...").arg(durationSec), "#FFA726");
+    appendLog(QString("⏱️ %1 saniyelik çoklu telemetri örnekleme başlatıldı (500 ms periyot)...").arg(durationSec), "#89DCEB");
 }
 
 void DebugRunnerWindow::onSampleTimerTick() {
@@ -263,853 +469,143 @@ void DebugRunnerWindow::onSampleTimerTick() {
 void DebugRunnerWindow::onSamplingFinished() {
     m_sampleTickTimer.stop();
     m_isSampling = false;
-    m_startSampleBtn->setEnabled(true);
+    m_btnStartSample->setText("⏱️ Örnekleme Başlat");
+    m_btnStartSample->setStyleSheet(StyleHelper::getPastelAmberStyle());
 
-    if (m_cnSamples.isEmpty()) {
-        appendLog("⚙️ ï¸ Hiç C/N örneği alınamadı!", "#FF5252");
-        m_avgResultLabel->setText("<b>[HATA]:</b> Veri alınamadı!");
-        return;
-    }
-
-    double sumCn = std::accumulate(m_cnSamples.begin(), m_cnSamples.end(), 0.0);
-    double avgCn = sumCn / m_cnSamples.size();
-
-    double sumPow = std::accumulate(m_powSamples.begin(), m_powSamples.end(), 0.0);
-    double avgPow = sumPow / m_powSamples.size();
-
-    QString summary = QString("<b>[ORTALAMA (%1 Örnek)]:</b> C/N: <font color='#4CAF50'><b>%2 dB</b></font> | Güç: <font color='#4DD0E1'><b>%3 dBm</b></font>")
-                          .arg(m_cnSamples.size())
-                          .arg(QString::number(avgCn, 'f', 2))
-                          .arg(QString::number(avgPow, 'f', 2));
-
-    m_avgResultLabel->setText(summary);
-    appendLog(QString("✅ Örnekleme Tamamlandı! Ortalama C/N: %1 dB | Ortalama Güç: %2 dBm (Toplam %3 örnek)")
-                  .arg(QString::number(avgCn, 'f', 2))
-                  .arg(QString::number(avgPow, 'f', 2))
-                  .arg(m_cnSamples.size()), "#69F0AE");
-}
-
-void DebugRunnerWindow::onSessionKeyReceived(const QString &sessionKey) {
-    appendLog(QString("🔑 Oturum Açıldı! Alınan SessionKey: %1").arg(sessionKey), "#81C784");
-}
-
-void DebugRunnerWindow::onTuneFinished(bool success, const QString &message) {
-    if (success) {
-        appendLog("✅ Frekans Ayarlandı: " + message, "#A5D6A7");
+    if (!m_cnSamples.isEmpty() && !m_powSamples.isEmpty()) {
+        double avgCn = std::accumulate(m_cnSamples.begin(), m_cnSamples.end(), 0.0) / m_cnSamples.size();
+        double avgPow = std::accumulate(m_powSamples.begin(), m_powSamples.end(), 0.0) / m_powSamples.size();
+        appendLog(QString("✔ Örnekleme tamamlandı (%1 örnek): Ort. C/N = %2 dB | Ort. Güç = %3 dBm")
+                      .arg(m_cnSamples.size())
+                      .arg(avgCn, 0, 'f', 2)
+                      .arg(avgPow, 0, 'f', 2), "#34D399");
     } else {
-        appendLog("❌ Frekans Ayarlama Başarısız: " + message, "#EF5350");
+        appendLog("Örnekleme tamamlandı ancak veri alınamadı.", "#EF4444");
     }
 }
 
-void DebugRunnerWindow::onErrorOccurred(const QString &error) {
-    appendLog("🚨 " + error, "#FF1744");
+void DebugRunnerWindow::onSessionKeyReceived(int sessionKey) {
+    updateSessionBadge(sessionKey);
+    appendLog(QString("✔ Cihaz girişi başarılı! Oturum anahtarı: %1").arg(sessionKey), "#34D399");
+
+    if (m_txtCustomPayload) {
+        QString cur = m_txtCustomPayload->toPlainText();
+        if (cur.contains("{sessionKey}")) {
+            cur.replace("{sessionKey}", QString::number(sessionKey));
+            m_txtCustomPayload->setPlainText(cur);
+        } else if (cur.contains("sessionKey=\n")) {
+            cur.replace("sessionKey=\n", QString("sessionKey=%1\n").arg(sessionKey));
+            m_txtCustomPayload->setPlainText(cur);
+        } else if (cur.contains("sessionKey=\r\n")) {
+            cur.replace("sessionKey=\r\n", QString("sessionKey=%1\r\n").arg(sessionKey));
+            m_txtCustomPayload->setPlainText(cur);
+        }
+    }
 }
 
-void DebugRunnerWindow::onRawResponseReceived(const QString &actionType, const QByteArray &rawJson) {
-    QString timeStr = QDateTime::currentDateTime().toString("HH:mm:ss.zzz");
-    
-    // JSON'ı girintili (indented) formatta güzelleştir
+void DebugRunnerWindow::onLoginFailed(const QString &reason) {
+    updateSessionBadge(-1);
+    appendLog(QString("❌ Cihaz girişi başarısız: %1").arg(reason), "#EF4444");
+}
+
+void DebugRunnerWindow::onTuneFinished(bool isOk, const QString &details) {
+    if (isOk) {
+        appendLog(QString("✔ Frekans başarıyla kilitlendi: %1").arg(details), "#34D399");
+    } else {
+        appendLog(QString("❌ Frekans ayarlama hatası: %1").arg(details), "#EF4444");
+    }
+}
+
+void DebugRunnerWindow::onRawResponseReceived(const QString &actionName, const QByteArray &rawJson) {
+    bool isErr = rawJson.contains("\"error\"") || rawJson.contains("denied") || rawJson.contains("failed") || rawJson.contains("timed out");
+    if (!isErr) {
+        m_lblResponseStatus->setText(QString("🟢 HTTP 200 OK (%1)").arg(actionName));
+        m_lblResponseStatus->setStyleSheet("background-color: #064E3B; border: 1px solid #10B981; color: #34D399; padding: 4px 8px; border-radius: 4px; font-weight: bold;");
+    } else {
+        m_lblResponseStatus->setText(QString("🔴 Yanıt Hatası (%1)").arg(actionName));
+        m_lblResponseStatus->setStyleSheet("background-color: #450A0A; border: 1px solid #EF4444; color: #F87171; padding: 4px 8px; border-radius: 4px; font-weight: bold;");
+    }
+
+    // Pretty format if JSON
     QJsonParseError parseErr;
     QJsonDocument doc = QJsonDocument::fromJson(rawJson, &parseErr);
-    QString prettyJson;
     if (parseErr.error == QJsonParseError::NoError) {
-        prettyJson = QString::fromUtf8(doc.toJson(QJsonDocument::Indented));
+        m_txtRawOutput->setPlainText(QString::fromUtf8(doc.toJson(QJsonDocument::Indented)));
     } else {
-        prettyJson = QString::fromUtf8(rawJson);
+        m_txtRawOutput->setPlainText(QString::fromUtf8(rawJson));
     }
-
-    QString header = QString("======================================================================\n"
-                             "[%1] İSTEK TÜRÜ: %2 | BOYUT: %3 bayt\n"
-                             "======================================================================\n")
-                         .arg(timeStr, actionType).arg(rawJson.size());
-
-    m_rawJsonEdit->append(header + prettyJson + "\n\n");
 }
 
-void DebugRunnerWindow::onScanAllClicked() {
-    appendLog("🔍 Cihazın tüm olası sayfaları (alarmStatus, channeldetails, frequency, deviceInfo) sorgulanıyor...", "#AB47BC");
-    m_webClient->requestStatus();
-    m_webClient->requestDeviceInfo();
-    m_webClient->sendRawQuery("channeldetails");
-    m_webClient->sendRawQuery("frequency");
-    m_webClient->sendRawQuery("channelselection");
-    
-    // Kullanıcıyı doğrudan Ham JSON sekmesine geçir
-    m_tabWidget->setCurrentIndex(1);
+void DebugRunnerWindow::onTelemetryReceived(double powerDbm, double cnDb, double ber, double ebN0Db) {
+    if (m_isSampling) {
+        m_powSamples.append(powerDbm);
+        m_cnSamples.append(cnDb);
+    }
+
+    m_lblPower->setText(QString("Güç: %1 dBm").arg(powerDbm, 0, 'f', 2));
+    m_lblCn->setText(QString("C/N: %1 dB").arg(cnDb, 0, 'f', 2));
+    m_lblBer->setText(QString("BER: %1").arg(ber, 0, 'e', 2));
+    m_lblEbN0->setText(QString("Eb/N0: %1 dB").arg(ebN0Db, 0, 'f', 2));
+
+    if (cnDb > 10.0) {
+        m_lblCn->setStyleSheet("background-color: #064E3B; color: #34D399; padding: 6px; border-radius: 4px; font-weight: bold;");
+    } else {
+        m_lblCn->setStyleSheet("background-color: #181825; color: #CDD6F4; padding: 6px; border-radius: 4px; font-weight: bold;");
+    }
+}
+
+void DebugRunnerWindow::onStatusReceived(bool signalLocked, bool videoLocked, bool audioLocked, const QString &channelName) {
+    auto setLockBadge = [](QLabel *lbl, bool locked, const QString &name, const QString &token) {
+        if (locked) {
+            lbl->setText(QString("%1: KİLİTLİ (%2:+)").arg(name, token));
+            lbl->setStyleSheet("background-color: #064E3B; border: 1px solid #10B981; color: #34D399; padding: 6px; border-radius: 4px; font-weight: bold;");
+        } else {
+            lbl->setText(QString("%1: KİLİTSİZ (%2:-)").arg(name, token));
+            lbl->setStyleSheet("background-color: #450A0A; border: 1px solid #EF4444; color: #F87171; padding: 6px; border-radius: 4px; font-weight: bold;");
+        }
+    };
+
+    setLockBadge(m_lblCarrier, signalLocked, "Taşıyıcı", "S");
+    setLockBadge(m_lblVideo, videoLocked, "Video", "V");
+    setLockBadge(m_lblAudio, audioLocked, "Audio", "A");
+
+    if (!channelName.isEmpty()) {
+        m_lblChannelName->setText("Kanal: " + channelName);
+        m_lblChannelName->setStyleSheet("background-color: #1E1E2E; color: #89DCEB; padding: 6px; border-radius: 4px; font-weight: bold;");
+    }
+}
+
+void DebugRunnerWindow::onTimestampReceived(const QDateTime &deviceTime, const QDateTime &hostTime, const QString &rawTimeStr) {
+    if (m_lblDeviceTime) {
+        m_lblDeviceTime->setText(QString("Cihaz Saati: %1").arg(rawTimeStr.isEmpty() ? "--" : rawTimeStr));
+    }
+    if (m_lblDeltaTime) {
+        if (deviceTime.isValid()) {
+            qint64 dtMs = hostTime.toMSecsSinceEpoch() - deviceTime.toMSecsSinceEpoch();
+            m_lblDeltaTime->setText(QString("Δt (Gecikme): %1 ms").arg(dtMs));
+            m_lblDeltaTime->setStyleSheet("background-color: #064E3B; color: #34D399; padding: 6px; border-radius: 4px; font-weight: bold;");
+        } else {
+            m_lblDeltaTime->setText("Δt (Gecikme): -- ms");
+            m_lblDeltaTime->setStyleSheet("background-color: #181825; color: #CDD6F4; padding: 6px; border-radius: 4px; font-weight: bold;");
+        }
+    }
 }
 
 void DebugRunnerWindow::onCopyRawClicked() {
-    if (m_rawJsonEdit) {
-        QApplication::clipboard()->setText(m_rawJsonEdit->toPlainText());
-        appendLog("📋 Ham JSON içeriği panoya kopyalandı!", "#80CBC4");
-    }
+    if (!m_txtRawOutput) return;
+    QClipboard *cb = QApplication::clipboard();
+    cb->setText(m_txtRawOutput->toPlainText());
+    appendLog("📋 Yanıt JSON panoya kopyalandı.", "#89DCEB");
 }
 
-void DebugRunnerWindow::appendLog(const QString &msg, const QString &color) {
-    QString timeStr = QDateTime::currentDateTime().toString("HH:mm:ss.zzz");
-    m_logEdit->append(QString("<font color='#78909C'>[%1]</font> <font color='%2'>%3</font>")
-                          .arg(timeStr, color, msg));
+void DebugRunnerWindow::onClearOutputClicked() {
+    if (m_txtRawOutput) m_txtRawOutput->clear();
+    m_lblResponseStatus->setText("HTTP Durum: Temizlendi");
+    m_lblResponseStatus->setStyleSheet("background-color: #313244; color: #CDD6F4; padding: 4px 8px; border-radius: 4px;");
 }
 
-
-// =============================================================================
-// DbDebugWidget Implementation
-// =============================================================================
-
-#include <QVBoxLayout>
-#include <QHBoxLayout>
-#include <QGridLayout>
-#include <QGroupBox>
-#include <QHeaderView>
-#include <QDateTime>
-#include <QRandomGenerator>
-#include <QElapsedTimer>
-
-DbDebugWidget::DbDebugWidget(QWidget *parent)
-    : QWidget(parent) {
-    setupUi();
-
-    connect(m_runFullSuiteBtn, &QPushButton::clicked, this, &DbDebugWidget::onRunFullSuiteClicked);
-    connect(&m_suiteTimer, &QTimer::timeout, this, &DbDebugWidget::onSuiteTimerTick);
-
-    connect(m_connectBtn, &QPushButton::clicked, this, &DbDebugWidget::onConnectClicked);
-    connect(m_disconnectBtn, &QPushButton::clicked, this, &DbDebugWidget::onDisconnectClicked);
-    connect(m_startEngineBtn, &QPushButton::clicked, this, &DbDebugWidget::onStartEngineClicked);
-    connect(m_stopEngineBtn, &QPushButton::clicked, this, &DbDebugWidget::onStopEngineClicked);
-    connect(m_initSchemaBtn, &QPushButton::clicked, this, &DbDebugWidget::onInitSchemaClicked);
-    connect(m_loadProfilesBtn, &QPushButton::clicked, this, &DbDebugWidget::onLoadProfilesClicked);
-
-    connect(m_acquireLockBtn, &QPushButton::clicked, this, &DbDebugWidget::onAcquireLockClicked);
-    connect(m_releaseLockBtn, &QPushButton::clicked, this, &DbDebugWidget::onReleaseLockClicked);
-    connect(m_heartbeatBtn, &QPushButton::clicked, this, &DbDebugWidget::onHeartbeatClicked);
-    connect(m_queryLockBtn, &QPushButton::clicked, this, &DbDebugWidget::onQueryLockClicked);
-    connect(m_contentionSimBtn, &QPushButton::clicked, this, &DbDebugWidget::onRunContentionSimulationClicked);
-
-    connect(m_insertMockBtn, &QPushButton::clicked, this, &DbDebugWidget::onInsertMockRunClicked);
-    connect(m_refreshRunsBtn, &QPushButton::clicked, this, &DbDebugWidget::onRefreshTestRunsClicked);
-
-    connect(&m_pollTimer, &QTimer::timeout, this, &DbDebugWidget::onQueryLockClicked);
-
-    updateConnectionStatusBadge(DbManager::instance().isConnected());
-    appendLog("🗄️ï¸ MariaDB & Dağıtık Kilit Doğrulama Modülü Hazır.", "#81D4FA");
+void DebugRunnerWindow::onOpenDbToolClicked() {
+    auto *dbTool = new DbDebugWindow(this);
+    dbTool->setAttribute(Qt::WA_DeleteOnClose);
+    dbTool->show();
 }
-
-DbDebugWidget::~DbDebugWidget() {
-    m_pollTimer.stop();
-    m_suiteTimer.stop();
-}
-
-void DbDebugWidget::setupUi() {
-    QVBoxLayout *mainLayout = new QVBoxLayout(this);
-    mainLayout->setSpacing(8);
-    mainLayout->setContentsMargins(6, 6, 6, 6);
-
-    // -------------------------------------------------------------------------
-    // 0. EN ÜST PANEL: Tek Tıkla Canlı Sistem Teşhis & Doğrulama Süiti
-    // -------------------------------------------------------------------------
-    QGroupBox *suiteGroup = new QGroupBox("⚡ Otomatik Canlı Sistem Teşhis ve Doğrulama Süiti (Full Self-Test)", this);
-    QVBoxLayout *suiteLayout = new QVBoxLayout(suiteGroup);
-
-    QHBoxLayout *suiteTop = new QHBoxLayout();
-    m_runFullSuiteBtn = new QPushButton("🚀 TEK TIKLA TÜM VERİTABANI VE DAĞITIK KİLİDİ TEST ET (RUN FULL SUITE)", this);
-    m_runFullSuiteBtn->setStyleSheet("background-color: #2E7D32; color: #FFFFFF; font-size: 13px; font-weight: bold; padding: 10px 18px; border-radius: 4px;");
-
-    m_suiteProgress = new QProgressBar(this);
-    m_suiteProgress->setRange(0, 100);
-    m_suiteProgress->setValue(0);
-    m_suiteProgress->setTextVisible(true);
-    m_suiteProgress->setStyleSheet("QProgressBar { background-color: #212121; color: white; border: 1px solid #424242; border-radius: 4px; text-align: center; font-weight: bold; height: 26px; } QProgressBar::chunk { background-color: #00C853; border-radius: 3px; }");
-
-    suiteTop->addWidget(m_runFullSuiteBtn, 3);
-    suiteTop->addWidget(m_suiteProgress, 2);
-    suiteLayout->addLayout(suiteTop);
-
-    // 6 Adımlı Teşhis Kartları (2x3 Grid)
-    QGridLayout *cardsLayout = new QGridLayout();
-    cardsLayout->setSpacing(6);
-
-    auto makeCard = [this](const QString &title) {
-        QLabel *lbl = new QLabel(QString("⚪ %1: Beklemede").arg(title), this);
-        lbl->setStyleSheet("background-color: #263238; color: #B0BEC5; padding: 6px 10px; border-radius: 4px; font-weight: bold; font-size: 11px;");
-        return lbl;
-    };
-
-    m_stepDriverLabel = makeCard("1. Sürücü & Motor");
-    m_stepLatencyLabel = makeCard("2. Ağ & Ping Gecikmesi");
-    m_stepSchemaLabel = makeCard("3. Şema & Tablolar (8 Tablo)");
-    m_stepChannelsLabel = makeCard("4. 10 Türksat Transponder");
-    m_stepLockLabel = makeCard("5. Dağıtık Kilit & Çakışma");
-    m_stepPersistenceLabel = makeCard("6. Test Kaydı (SQL I/O)");
-
-    cardsLayout->addWidget(m_stepDriverLabel, 0, 0);
-    cardsLayout->addWidget(m_stepLatencyLabel, 0, 1);
-    cardsLayout->addWidget(m_stepSchemaLabel, 0, 2);
-    cardsLayout->addWidget(m_stepChannelsLabel, 1, 0);
-    cardsLayout->addWidget(m_stepLockLabel, 1, 1);
-    cardsLayout->addWidget(m_stepPersistenceLabel, 1, 2);
-    suiteLayout->addLayout(cardsLayout);
-
-    m_suiteResultBanner = new QLabel("Sistem testi başlatılmaya hazır. Yukarıdaki butona tıklayarak tek adımda tüm altyapıyı doğrulayabilirsiniz.", this);
-    m_suiteResultBanner->setAlignment(Qt::AlignCenter);
-    m_suiteResultBanner->setStyleSheet("background-color: #1E1E1E; color: #FFF59D; padding: 8px; border-radius: 4px; font-weight: bold; font-size: 12px; border: 1px dashed #FFD54F;");
-    suiteLayout->addWidget(m_suiteResultBanner);
-
-    mainLayout->addWidget(suiteGroup);
-
-    // -------------------------------------------------------------------------
-    // 1. ÜST PANEL: MariaDB Bağlantı Yapılandırması
-    // -------------------------------------------------------------------------
-    QGroupBox *connGroup = new QGroupBox("1. MariaDB Veritabanı ve Taşınabilir Motor Yapılandırması", this);
-    QGridLayout *connLayout = new QGridLayout(connGroup);
-
-    m_hostEdit = new QLineEdit("127.0.0.1", this);
-    m_portSpin = new QSpinBox(this);
-    m_portSpin->setRange(1, 65535);
-    m_portSpin->setValue(3306);
-    m_dbNameEdit = new QLineEdit("neta_antenna_test", this);
-    m_userEdit = new QLineEdit("root", this);
-    m_passEdit = new QLineEdit("neta123", this);
-    m_passEdit->setEchoMode(QLineEdit::Password);
-
-    m_startEngineBtn = new QPushButton("🚀 Taşınabilir Motoru Başlat", this);
-    m_startEngineBtn->setStyleSheet("background-color: #00796B; color: white; font-weight: bold; padding: 6px 12px;");
-
-    m_stopEngineBtn = new QPushButton("⏸️ Motoru Durdur", this);
-    m_stopEngineBtn->setStyleSheet("background-color: #D32F2F; color: white; font-weight: bold; padding: 6px 12px;");
-
-    m_connectBtn = new QPushButton("🔌 Bağlan", this);
-    m_connectBtn->setStyleSheet("background-color: #1976D2; color: white; font-weight: bold; padding: 6px 12px;");
-
-    m_disconnectBtn = new QPushButton("❌ Bağlantıyı Kes", this);
-    m_disconnectBtn->setStyleSheet("background-color: #546E7A; color: white; padding: 6px 12px;");
-
-    m_statusBadge = new QLabel("DURUM: BAĞLI DEĞİL", this);
-    m_statusBadge->setStyleSheet("background-color: #B71C1C; color: white; padding: 6px 12px; border-radius: 4px; font-weight: bold;");
-
-    // Satır 0: Bağlantı parametreleri
-    connLayout->addWidget(new QLabel("Host IP:", this), 0, 0);
-    connLayout->addWidget(m_hostEdit, 0, 1);
-    connLayout->addWidget(new QLabel("Port:", this), 0, 2);
-    connLayout->addWidget(m_portSpin, 0, 3);
-    connLayout->addWidget(new QLabel("Veritabanı:", this), 0, 4);
-    connLayout->addWidget(m_dbNameEdit, 0, 5);
-    connLayout->addWidget(new QLabel("Kullanıcı:", this), 0, 6);
-    connLayout->addWidget(m_userEdit, 0, 7);
-    connLayout->addWidget(new QLabel("Şifre:", this), 0, 8);
-    connLayout->addWidget(m_passEdit, 0, 9);
-
-    // Satır 1: Eylem butonları
-    QHBoxLayout *actionLayout = new QHBoxLayout();
-    actionLayout->addWidget(m_startEngineBtn);
-    actionLayout->addWidget(m_stopEngineBtn);
-    actionLayout->addSpacing(15);
-    actionLayout->addWidget(m_connectBtn);
-    actionLayout->addWidget(m_disconnectBtn);
-    actionLayout->addStretch();
-    actionLayout->addWidget(m_statusBadge);
-    connLayout->addLayout(actionLayout, 1, 0, 1, 10);
-
-    mainLayout->addWidget(connGroup);
-
-    // -------------------------------------------------------------------------
-    // 2. ORTA PANEL: Şema, Dağıtık Kilit ve Test Fonksiyonları
-    // -------------------------------------------------------------------------
-    QHBoxLayout *midLayout = new QHBoxLayout();
-
-    // Sol Panel: Dağıtık Kilit (Algoritma 2 - reference_lock)
-    QGroupBox *lockGroup = new QGroupBox("2. Algoritma 2: Dağıtık Atomik Kilit Simülatörü (reference_lock)", this);
-    QGridLayout *lockLayout = new QGridLayout(lockGroup);
-
-    m_stationSpin = new QSpinBox(this);
-    m_stationSpin->setRange(1, 3);
-    m_stationSpin->setValue(1);
-    m_stationSpin->setPrefix("Masa ");
-
-    m_channelSpin = new QSpinBox(this);
-    m_channelSpin->setRange(1, 10);
-    m_channelSpin->setValue(1);
-    m_channelSpin->setPrefix("Kanal #");
-
-    m_acquireLockBtn = new QPushButton("🔒 Kilidi Talep Et (Acquire)", this);
-    m_acquireLockBtn->setStyleSheet("background-color: #2E7D32; color: white; font-weight: bold; padding: 6px 10px;");
-
-    m_releaseLockBtn = new QPushButton("🔓 Kilidi Bırak (Release)", this);
-    m_releaseLockBtn->setStyleSheet("background-color: #C62828; color: white; font-weight: bold; padding: 6px 10px;");
-
-    m_heartbeatBtn = new QPushButton("💓 Heartbeat Gönder", this);
-    m_heartbeatBtn->setStyleSheet("background-color: #00838F; color: white; padding: 6px 10px;");
-
-    m_queryLockBtn = new QPushButton("🔍 Canlı Kilit Durumu", this);
-    m_queryLockBtn->setStyleSheet("background-color: #4527A0; color: white; padding: 6px 10px;");
-
-    m_contentionSimBtn = new QPushButton("⚡ Otomatik Çakışma ve Sıra Testi (Masa 1 vs 2)", this);
-    m_contentionSimBtn->setStyleSheet("background-color: #E65100; color: white; font-weight: bold; padding: 8px 12px;");
-
-    m_lockHolderBadge = new QLabel("Kilit Durumu: BOŞTA (Kullanılabilir)", this);
-    m_lockHolderBadge->setStyleSheet("background-color: #263238; color: #69F0AE; padding: 6px 10px; border-radius: 4px; font-weight: bold;");
-
-    lockLayout->addWidget(new QLabel("İstasyon No:", this), 0, 0);
-    lockLayout->addWidget(m_stationSpin, 0, 1);
-    lockLayout->addWidget(new QLabel("Aktif Kanal:", this), 0, 2);
-    lockLayout->addWidget(m_channelSpin, 0, 3);
-
-    lockLayout->addWidget(m_acquireLockBtn, 1, 0, 1, 2);
-    lockLayout->addWidget(m_releaseLockBtn, 1, 2, 1, 2);
-    lockLayout->addWidget(m_heartbeatBtn, 2, 0, 1, 2);
-    lockLayout->addWidget(m_queryLockBtn, 2, 2, 1, 2);
-    lockLayout->addWidget(m_contentionSimBtn, 3, 0, 1, 4);
-    lockLayout->addWidget(m_lockHolderBadge, 4, 0, 1, 4);
-
-    midLayout->addWidget(lockGroup, 5);
-
-    // Sağ Panel: Şema & Test Verisi Kaydı
-    QGroupBox *schemaGroup = new QGroupBox("3. Şema Sağlama & Test Veritabanı Kayıtları", this);
-    QVBoxLayout *schemaLayout = new QVBoxLayout(schemaGroup);
-
-    QHBoxLayout *schemaBtnLayout = new QHBoxLayout();
-    m_initSchemaBtn = new QPushButton("🛡️ ï¸ Tablo Şemasını & Varsayılanları Yükle", this);
-    m_initSchemaBtn->setStyleSheet("background-color: #00695C; color: white; font-weight: bold; padding: 6px 10px;");
-
-    m_loadProfilesBtn = new QPushButton("📡 Türksat 42E Profili & 10 Frekansı Doğrula", this);
-    m_loadProfilesBtn->setStyleSheet("background-color: #283593; color: white; font-weight: bold; padding: 6px 10px;");
-
-    schemaBtnLayout->addWidget(m_initSchemaBtn);
-    schemaBtnLayout->addWidget(m_loadProfilesBtn);
-    schemaLayout->addLayout(schemaBtnLayout);
-
-    QHBoxLayout *runBtnLayout = new QHBoxLayout();
-    m_insertMockBtn = new QPushButton("📑 Simüle Test Koşusu Yaz (10 Frekans PASS)", this);
-    m_insertMockBtn->setStyleSheet("background-color: #37474F; color: white; padding: 6px 10px;");
-
-    m_refreshRunsBtn = new QPushButton("🔄 Test Geçmişini Yenile", this);
-    m_refreshRunsBtn->setStyleSheet("background-color: #455A64; color: white; padding: 6px 10px;");
-
-    runBtnLayout->addWidget(m_insertMockBtn);
-    runBtnLayout->addWidget(m_refreshRunsBtn);
-    schemaLayout->addLayout(runBtnLayout);
-
-    // Test Runs Mini Tablosu
-    m_runsTable = new QTableWidget(this);
-    m_runsTable->setColumnCount(7);
-    m_runsTable->setHorizontalHeaderLabels(QStringList() << "ID" << "İstasyon" << "Seri No" << "Süre" << "Sonuç" << "Ort Î” C/N" << "Tarih");
-    m_runsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
-    m_runsTable->horizontalHeader()->setStretchLastSection(true);
-    m_runsTable->setStyleSheet("background-color: #1E1E1E; color: #FFFFFF; font-size: 11px;");
-    schemaLayout->addWidget(m_runsTable);
-
-    midLayout->addWidget(schemaGroup, 6);
-    mainLayout->addLayout(midLayout);
-
-    // -------------------------------------------------------------------------
-    // 3. ALT PANEL: Canlı Log Konsolu
-    // -------------------------------------------------------------------------
-    QGroupBox *logGroup = new QGroupBox("4. Veritabanı ve Kilit İşlem Konsol Logları", this);
-    QVBoxLayout *logLayout = new QVBoxLayout(logGroup);
-    m_logEdit = new QTextEdit(this);
-    m_logEdit->setReadOnly(true);
-    m_logEdit->setStyleSheet("background-color: #121212; color: #E0E0E0; font-family: Consolas, monospace; font-size: 11px;");
-    logLayout->addWidget(m_logEdit);
-    mainLayout->addWidget(logGroup, 1);
-}
-
-void DbDebugWidget::appendLog(const QString &msg, const QString &color) {
-    QString timeStr = QDateTime::currentDateTime().toString("HH:mm:ss.zzz");
-    m_logEdit->append(QString("<font color='#888888'>[%1]</font> <font color='%2'>%3</font>")
-                          .arg(timeStr, color, msg));
-}
-
-void DbDebugWidget::updateConnectionStatusBadge(bool connected) {
-    if (connected) {
-        QString driver = DbManager::instance().driverName();
-        m_statusBadge->setText(QString("DURUM: BAĞLI (%1)").arg(driver));
-        m_statusBadge->setStyleSheet("background-color: #1B5E20; color: #A5D6A7; padding: 4px 8px; border-radius: 4px; font-weight: bold;");
-        if (!m_pollTimer.isActive()) {
-            m_pollTimer.start(2000); // 2 saniyede bir kilit durumunu sorgula
-        }
-    } else {
-        m_statusBadge->setText("DURUM: BAĞLI DEĞİL");
-        m_statusBadge->setStyleSheet("background-color: #B71C1C; color: #FFCDD2; padding: 4px 8px; border-radius: 4px; font-weight: bold;");
-        m_pollTimer.stop();
-    }
-}
-
-void DbDebugWidget::onStartEngineClicked() {
-    appendLog("🚀 Yerel Taşınabilir MariaDB motoru başlatılıyor...", "#FFF59D");
-    bool ok = DbManager::instance().startPortableMariaDbIfPresent();
-    if (ok) {
-        appendLog("✅ Taşınabilir MariaDB motoru aktif! (Port: 3306)", "#69F0AE");
-        onConnectClicked();
-    } else {
-        appendLog("❌ Taşınabilir MariaDB başlatılamadı. tools/mariadb_portable klasörünü kontrol ediniz.", "#FF5252");
-    }
-}
-
-void DbDebugWidget::onStopEngineClicked() {
-    appendLog("⏸️ Taşınabilir MariaDB motoru durduruluyor...", "#FFF59D");
-    DbManager::instance().closeDatabase();
-    DbManager::instance().stopPortableMariaDbIfRunning();
-    updateConnectionStatusBadge(false);
-    appendLog("🛑 MariaDB motoru ve bağlantısı güvenle kapatıldı.", "#B0BEC5");
-}
-
-void DbDebugWidget::onConnectClicked() {
-    QString host = m_hostEdit->text().trimmed();
-    int port = m_portSpin->value();
-    QString dbName = m_dbNameEdit->text().trimmed();
-    QString user = m_userEdit->text().trimmed();
-    QString pass = m_passEdit->text();
-
-    appendLog(QString("🔌 Bağlanılıyor: %1:%2/%3 (Kullanıcı: %4)...").arg(host).arg(port).arg(dbName, user), "#FFF59D");
-
-    bool ok = DbManager::instance().connectToDatabase(host, port, dbName, user, pass);
-    updateConnectionStatusBadge(ok);
-
-    if (ok) {
-        appendLog("✅ MariaDB Veritabanı Bağlantısı BAŞARILI!", "#69F0AE");
-        onQueryLockClicked();
-        onRefreshTestRunsClicked();
-    } else {
-        appendLog(QString("❌ Bağlantı HATASI: %1").arg(DbManager::instance().lastError()), "#FF5252");
-    }
-}
-
-void DbDebugWidget::onDisconnectClicked() {
-    DbManager::instance().closeDatabase();
-    updateConnectionStatusBadge(false);
-    m_lockHolderBadge->setText("Kilit Durumu: BAĞLANTI YOK");
-    m_lockHolderBadge->setStyleSheet("background-color: #263238; color: #9E9E9E; padding: 6px 10px; border-radius: 4px;");
-    appendLog("🔌 Veritabanı bağlantısı kapatıldı.", "#B0BEC5");
-}
-
-void DbDebugWidget::onInitSchemaClicked() {
-    if (!DbManager::instance().isConnected()) {
-        appendLog("⚙️ ï¸ Önce veritabanına bağlanmalısınız!", "#FFA726");
-        return;
-    }
-
-    appendLog("🛡️ ï¸ Veritabanı şeması ve tohum (seed) verileri yükleniyor...", "#FFF59D");
-    bool ok = DbManager::instance().ensureDefaultDataIfMissing();
-    if (ok) {
-        appendLog("✅ Şema tabloları ve varsayılan Türksat 42E verileri başarıyla doğrulandı!", "#69F0AE");
-        onLoadProfilesClicked();
-        onQueryLockClicked();
-    } else {
-        appendLog(QString("❌ Şema yükleme HATASI: %1").arg(DbManager::instance().lastError()), "#FF5252");
-    }
-}
-
-void DbDebugWidget::onLoadProfilesClicked() {
-    if (!DbManager::instance().isConnected()) {
-        appendLog("⚙️ ï¸ Veritabanı bağlantısı yok!", "#FFA726");
-        return;
-    }
-
-    auto profiles = DbManager::instance().getProfiles();
-    appendLog(QString("📡 Toplam Kayıtlı Uydu Profili: %1").arg(profiles.size()), "#81D4FA");
-
-    for (const auto &p : profiles) {
-        appendLog(QString("👉 Profil #%1: '%2' (Uydu: %3, Tolerans: ±%4 dB, Kanal Sayısı: %5)")
-                      .arg(p.id)
-                      .arg(p.profileName, p.satelliteName)
-                      .arg(p.defaultToleranceDb, 0, 'f', 2)
-                      .arg(p.channels.size()), "#E0E0E0");
-
-        for (const auto &ch : p.channels) {
-            appendLog(QString("   - TP #%1: %2 | %3 MHz | SR: %4 | Pol: %5 | Tol: ±%6 dB")
-                          .arg(ch.channelNo)
-                          .arg(ch.channelName)
-                          .arg(ch.frequencyMhz)
-                          .arg(ch.symbolRate)
-                          .arg(ch.polarization)
-                          .arg(ch.toleranceDb, 0, 'f', 2), "#B0BEC5");
-        }
-    }
-}
-
-void DbDebugWidget::onAcquireLockClicked() {
-    if (!DbManager::instance().isConnected()) {
-        appendLog("⚙️ ï¸ Veritabanı bağlantısı yok!", "#FFA726");
-        return;
-    }
-
-    int stationId = m_stationSpin->value();
-    int holder = 0;
-    int ch = 0;
-
-    bool ok = DbManager::instance().tryAcquireDbLock(stationId, holder, ch);
-    if (ok) {
-        appendLog(QString("🔒 [KİLİT ALINDI] İstasyon #%1 referans DRX kilidini BAŞARIYLA aldı!").arg(stationId), "#69F0AE");
-    } else {
-        appendLog(QString("⛔ [KİLİT MEŞGUL] Kilit İstasyon #%1 tarafından tutuluyor (Aktif Kanal: %2)!").arg(holder).arg(ch), "#FF5252");
-    }
-    onQueryLockClicked();
-}
-
-void DbDebugWidget::onReleaseLockClicked() {
-    if (!DbManager::instance().isConnected()) {
-        appendLog("⚙️ ï¸ Veritabanı bağlantısı yok!", "#FFA726");
-        return;
-    }
-
-    int stationId = m_stationSpin->value();
-    bool ok = DbManager::instance().releaseDbLock(stationId);
-    if (ok) {
-        appendLog(QString("🔓 [KİLİT BIRAKILDI] İstasyon #%1 kilidi serbest bıraktı.").arg(stationId), "#81D4FA");
-    } else {
-        appendLog(QString("❌ Kilit bırakma başarısız: %1").arg(DbManager::instance().lastError()), "#FF5252");
-    }
-    onQueryLockClicked();
-}
-
-void DbDebugWidget::onHeartbeatClicked() {
-    if (!DbManager::instance().isConnected()) {
-        appendLog("⚙️ ï¸ Veritabanı bağlantısı yok!", "#FFA726");
-        return;
-    }
-
-    int stationId = m_stationSpin->value();
-    int currentCh = m_channelSpin->value();
-    bool ok = DbManager::instance().updateDbLockHeartbeat(stationId, currentCh);
-    if (ok) {
-        appendLog(QString("💓 [HEARTBEAT] İstasyon #%1 canlılık sinyali gönderdi (Kanal #%2).").arg(stationId).arg(currentCh), "#FFD54F");
-    } else {
-        appendLog(QString("❌ Heartbeat güncelleme başarısız: %1").arg(DbManager::instance().lastError()), "#FF5252");
-    }
-    onQueryLockClicked();
-}
-
-void DbDebugWidget::onQueryLockClicked() {
-    if (!DbManager::instance().isConnected()) return;
-
-    int currentChannel = 0;
-    int holder = DbManager::instance().getDbLockHolder(currentChannel);
-
-    if (holder == 0) {
-        m_lockHolderBadge->setText("Kilit Durumu: 🟢 BOŞTA (Kullanılabilir)");
-        m_lockHolderBadge->setStyleSheet("background-color: #1B5E20; color: #C8E6C9; padding: 6px 10px; border-radius: 4px; font-weight: bold;");
-    } else {
-        m_lockHolderBadge->setText(QString("Kilit Durumu: 🔴 İSTASYON %1 TEST EDİYOR (Kanal #%2)").arg(holder).arg(currentChannel));
-        m_lockHolderBadge->setStyleSheet("background-color: #B71C1C; color: #FFCDD2; padding: 6px 10px; border-radius: 4px; font-weight: bold;");
-    }
-}
-
-void DbDebugWidget::onRunContentionSimulationClicked() {
-    if (!DbManager::instance().isConnected()) {
-        appendLog("⚙️ ï¸ Veritabanı bağlantısı yok!", "#FFA726");
-        return;
-    }
-
-    appendLog("===================================================================", "#FFD54F");
-    appendLog("⚡ ALGORİTMA 2: DAĞITIK ÇAKIŞMA & KUYRUK SİMÜLASYONU BAŞLATILIYOR", "#FFD54F");
-    appendLog("===================================================================", "#FFD54F");
-
-    // Adım 0: Önceki kalıntı varsa temizle
-    DbManager::instance().releaseDbLock(0);
-
-    // Adım 1: İstasyon 1 kilidi talep eder
-    int holder = 0;
-    int ch = 0;
-    bool ok1 = DbManager::instance().tryAcquireDbLock(1, holder, ch);
-    if (ok1) {
-        appendLog("✅ [ADIM 1] İstasyon 1 kilidi BAŞARIYLA aldı.", "#69F0AE");
-    } else {
-        appendLog("❌ [ADIM 1 HATASI] İstasyon 1 kilidi alamadı!", "#FF5252");
-        return;
-    }
-
-    // Adım 2: İstasyon 2 kilit almaya çalışır (Engellenmelidir!)
-    bool ok2 = DbManager::instance().tryAcquireDbLock(2, holder, ch);
-    if (!ok2 && holder == 1) {
-        appendLog(QString("✅ [ADIM 2] İstasyon 2 bekletildi (Kilit İstasyon %1'de) - ÇAKIŞMA ÖNLENDİ!").arg(holder), "#69F0AE");
-    } else {
-        appendLog(QString("❌ [ADIM 2 HATASI] Atomik kilitleme başarısız! (ok2=%1, holder=%2)").arg(ok2).arg(holder), "#FF5252");
-    }
-
-    // Adım 3: İstasyon 1 kanal ilerler ve heartbeat atar
-    DbManager::instance().updateDbLockHeartbeat(1, 5);
-    appendLog("✅ [ADIM 3] İstasyon 1 Kanal #5 için Heartbeat güncelledi.", "#81D4FA");
-
-    // Adım 4: İstasyon 1 testi bitirir ve kilidi serbest bırakır
-    DbManager::instance().releaseDbLock(1);
-    appendLog("✅ [ADIM 4] İstasyon 1 testini tamamladı ve kilidi serbest bıraktı.", "#81D4FA");
-
-    // Adım 5: Şimdi İstasyon 2 kilidi talep eder (Başarılı olmalıdır!)
-    bool ok2_after = DbManager::instance().tryAcquireDbLock(2, holder, ch);
-    if (ok2_after) {
-        appendLog("✅ [ADIM 5] İstasyon 2 kilidi BAŞARIYLA devraldı!", "#69F0AE");
-        DbManager::instance().releaseDbLock(2);
-        appendLog("✅ [ADIM 6] İstasyon 2 de kilidi serbest bıraktı. Kilit tertemiz boşta.", "#69F0AE");
-    } else {
-        appendLog("❌ [ADIM 5 HATASI] İstasyon 2 serbest kilidi alamadı!", "#FF5252");
-    }
-
-    appendLog("🎉 DAĞITIK KİLİT ENTEGRASYON TESTİ %100 BAŞARIYLA TAMAMLANDI!", "#69F0AE");
-    appendLog("===================================================================", "#FFD54F");
-    onQueryLockClicked();
-}
-
-void DbDebugWidget::onInsertMockRunClicked() {
-    if (!DbManager::instance().isConnected()) {
-        appendLog("⚙️ ï¸ Veritabanı bağlantısı yok!", "#FFA726");
-        return;
-    }
-
-    TestRunData run;
-    run.stationId = m_stationSpin->value();
-    run.operatorId = 1;
-    run.antennaSn = QString("DRX-DEBUG-%1").arg(QRandomGenerator::global()->bounded(10000, 99999));
-    run.satelliteProfileId = 1;
-    run.timestamp = QDateTime::currentDateTime();
-    run.durationSec = 52;
-    run.overallResult = "PASS";
-    run.notes = "Geliştirici Debug Konsolu Tarafından Otomatik Üretildi";
-
-    double totalDelta = 0.0;
-    double maxDelta = 0.0;
-
-    for (int i = 1; i <= 10; ++i) {
-        ChannelSampleResult ch;
-        ch.channelNo = i;
-        ch.channelName = QString("CH_%1").arg(i);
-        ch.frequencyMhz = 11000 + (i * 125);
-        ch.symbolRate = 27500;
-        ch.polarization = (i % 2 == 0) ? "V" : "H";
-        ch.dutCn = 14.5 + (QRandomGenerator::global()->bounded(100) / 100.0) - 0.5;
-        ch.dutPow = -39.0 + (QRandomGenerator::global()->bounded(100) / 100.0) - 0.5;
-        ch.refCn = 14.6;
-        ch.refPow = -38.8;
-        ch.deltaDb = ch.dutCn - ch.refCn;
-        ch.carrierLocked = true;
-        ch.videoLocked = true;
-        ch.audioLocked = true;
-        ch.toleranceDb = 1.5;
-        ch.status = (qAbs(ch.deltaDb) <= ch.toleranceDb) ? "PASS" : "FAIL";
-
-        totalDelta += ch.deltaDb;
-        if (qAbs(ch.deltaDb) > maxDelta) maxDelta = qAbs(ch.deltaDb);
-
-        run.channels.append(ch);
-    }
-
-    run.avgDeltaDb = totalDelta / 10.0;
-    run.maxDeltaDb = maxDelta;
-
-    qint64 runId = DbManager::instance().insertTestRun(run);
-    if (runId > 0) {
-        appendLog(QString("📑 [KAYIT BAŞARILI] Mock Test Koşusu eklendi! (ID: #%1, Seri No: %2, Sonuç: %3, Ort Î”: %4 dB)")
-                      .arg(runId)
-                      .arg(run.antennaSn, run.overallResult)
-                      .arg(run.avgDeltaDb, 0, 'f', 2), "#69F0AE");
-        onRefreshTestRunsClicked();
-    } else {
-        appendLog(QString("❌ Test koşusu kayıt HATASI: %1").arg(DbManager::instance().lastError()), "#FF5252");
-    }
-}
-
-void DbDebugWidget::onRefreshTestRunsClicked() {
-    if (!DbManager::instance().isConnected()) return;
-
-    auto runs = DbManager::instance().getTestRuns(15);
-    m_runsTable->setRowCount(runs.size());
-
-    for (int r = 0; r < runs.size(); ++r) {
-        const auto &run = runs[r];
-        m_runsTable->setItem(r, 0, new QTableWidgetItem(QString::number(run.id)));
-        m_runsTable->setItem(r, 1, new QTableWidgetItem(QString("Masa %1").arg(run.stationId)));
-        m_runsTable->setItem(r, 2, new QTableWidgetItem(run.antennaSn));
-        m_runsTable->setItem(r, 3, new QTableWidgetItem(QString("%1 sn").arg(run.durationSec)));
-
-        QTableWidgetItem *resItem = new QTableWidgetItem(run.overallResult);
-        if (run.overallResult == "PASS") {
-            resItem->setForeground(QBrush(QColor("#69F0AE")));
-        } else {
-            resItem->setForeground(QBrush(QColor("#FF5252")));
-        }
-        m_runsTable->setItem(r, 4, resItem);
-
-        m_runsTable->setItem(r, 5, new QTableWidgetItem(QString::number(run.avgDeltaDb, 'f', 2) + " dB"));
-        m_runsTable->setItem(r, 6, new QTableWidgetItem(run.timestamp.toString("yyyy-MM-dd HH:mm:ss")));
-    }
-}
-
-void DbDebugWidget::onRunFullSuiteClicked() {
-    m_runFullSuiteBtn->setEnabled(false);
-    m_suiteStep = 0;
-    m_suiteProgress->setValue(0);
-    m_suiteResultBanner->setText("⏳ Otomatik teşhis süreci başlatıldı, lütfen bekleyiniz...");
-    m_suiteResultBanner->setStyleSheet("background-color: #0D47A1; color: white; padding: 8px; border-radius: 4px; font-weight: bold; font-size: 12px;");
-
-    auto resetCard = [](QLabel *lbl, const QString &text) {
-        lbl->setText(QString("⏳ %1: Test Ediliyor...").arg(text));
-        lbl->setStyleSheet("background-color: #37474F; color: #FFF59D; padding: 6px 10px; border-radius: 4px; font-weight: bold; font-size: 11px;");
-    };
-
-    resetCard(m_stepDriverLabel, "1. Sürücü & Motor");
-    resetCard(m_stepLatencyLabel, "2. Ağ & Ping Gecikmesi");
-    resetCard(m_stepSchemaLabel, "3. Şema & Tablolar");
-    resetCard(m_stepChannelsLabel, "4. 10 Türksat Transponder");
-    resetCard(m_stepLockLabel, "5. Dağıtık Kilit & Çakışma");
-    resetCard(m_stepPersistenceLabel, "6. Test Kaydı (SQL I/O)");
-
-    appendLog("===================================================================", "#00E676");
-    appendLog("⚡ OTOMATİK VERİTABANI VE DAĞITIK KİLİT TEŞHİS SÜİTİ BAŞLATILDI", "#00E676");
-    appendLog("===================================================================", "#00E676");
-
-    m_suiteTimer.start(400);
-}
-
-void DbDebugWidget::onSuiteTimerTick() {
-    switch (m_suiteStep) {
-    case 0: { // AŞAMA 1: Sürücü & Taşınabilir Motor
-        appendLog("[AŞAMA 1/6] MariaDB sürücüsü ve yerel taşınabilir motor kontrol ediliyor...", "#FFF59D");
-        bool ok = DbManager::instance().isConnected();
-        if (!ok) {
-            DbManager::instance().startPortableMariaDbIfPresent();
-            onConnectClicked();
-            ok = DbManager::instance().isConnected();
-        }
-        if (ok) {
-            QString drv = DbManager::instance().driverName();
-            m_stepDriverLabel->setText(QString("🟢 1. Motor: AKTİF (%1)").arg(drv));
-            m_stepDriverLabel->setStyleSheet("background-color: #1B5E20; color: #A5D6A7; padding: 6px 10px; border-radius: 4px; font-weight: bold; font-size: 11px;");
-            appendLog(QString("✅ [AŞAMA 1/6] %1 SQL sürücüsü doğrulandı, sunucu aktif ve hazır!").arg(drv), "#69F0AE");
-        } else {
-            m_stepDriverLabel->setText("🔴 1. Motor: BAŞARISIZ");
-            m_stepDriverLabel->setStyleSheet("background-color: #B71C1C; color: #FFCDD2; padding: 6px 10px; border-radius: 4px; font-weight: bold; font-size: 11px;");
-            appendLog("❌ [AŞAMA 1/6 HATASI] Veritabanı motoruna bağlanılamadı!", "#FF5252");
-        }
-        m_suiteProgress->setValue(16);
-        m_suiteStep++;
-        break;
-    }
-
-    case 1: { // AŞAMA 2: Ping & Ağ Gecikmesi
-        appendLog("[AŞAMA 2/6] SQL bağlantı gecikmesi ve ping süresi ölçülüyor...", "#FFF59D");
-        if (DbManager::instance().isConnected()) {
-            QElapsedTimer timer;
-            timer.start();
-            for (int i = 0; i < 5; ++i) {
-                QSqlQuery q(QSqlDatabase::database("NetaMainDb"));
-                q.exec("SELECT 1");
-            }
-            double avgMs = timer.elapsed() / 5.0;
-            m_stepLatencyLabel->setText(QString("🟢 2. Ping: %1 ms (Mükemmel)").arg(avgMs, 0, 'f', 1));
-            m_stepLatencyLabel->setStyleSheet("background-color: #1B5E20; color: #A5D6A7; padding: 6px 10px; border-radius: 4px; font-weight: bold; font-size: 11px;");
-            appendLog(QString("✅ [AŞAMA 2/6] Veritabanı ortalama yanıt gecikmesi: %1 ms (Çok Hızlı)").arg(avgMs, 0, 'f', 2), "#69F0AE");
-        } else {
-            m_stepLatencyLabel->setText("🔴 2. Ping: HATA");
-            m_stepLatencyLabel->setStyleSheet("background-color: #B71C1C; color: #FFCDD2; padding: 6px 10px; border-radius: 4px; font-weight: bold; font-size: 11px;");
-        }
-        m_suiteProgress->setValue(33);
-        m_suiteStep++;
-        break;
-    }
-
-    case 2: { // AŞAMA 3: Şema & 8 Tablo Bütünlüğü
-        appendLog("[AŞAMA 3/6] Tablo şeması ve ilişkisel veri modeli denetleniyor...", "#FFF59D");
-        if (DbManager::instance().isConnected()) {
-            DbManager::instance().ensureDefaultDataIfMissing();
-            QSqlQuery q("SHOW TABLES", QSqlDatabase::database("NetaMainDb"));
-            int tableCount = 0;
-            QStringList tableNames;
-            while (q.next()) {
-                tableCount++;
-                tableNames << q.value(0).toString();
-            }
-            m_stepSchemaLabel->setText(QString("🟢 3. Şema: %1/8 Tablo Hazır").arg(tableCount));
-            m_stepSchemaLabel->setStyleSheet("background-color: #1B5E20; color: #A5D6A7; padding: 6px 10px; border-radius: 4px; font-weight: bold; font-size: 11px;");
-            appendLog(QString("✅ [AŞAMA 3/6] %1 adet üretim tablosu doğrulandı: %2")
-                          .arg(tableCount).arg(tableNames.join(", ")), "#69F0AE");
-        } else {
-            m_stepSchemaLabel->setText("🔴 3. Şema: HATA");
-            m_stepSchemaLabel->setStyleSheet("background-color: #B71C1C; color: #FFCDD2; padding: 6px 10px; border-radius: 4px; font-weight: bold; font-size: 11px;");
-        }
-        m_suiteProgress->setValue(50);
-        m_suiteStep++;
-        break;
-    }
-
-    case 3: { // AŞAMA 4: 10 Türksat Transponder Kanalı
-        appendLog("[AŞAMA 4/6] Türksat 42E fabrika transponder kanalları sorgulanıyor...", "#FFF59D");
-        if (DbManager::instance().isConnected()) {
-            auto profiles = DbManager::instance().getProfiles();
-            int channelCount = 0;
-            if (!profiles.isEmpty()) {
-                channelCount = profiles.first().channels.size();
-            }
-            m_stepChannelsLabel->setText(QString("🟢 4. Kanallar: %1/10 TP Hazır").arg(channelCount));
-            m_stepChannelsLabel->setStyleSheet("background-color: #1B5E20; color: #A5D6A7; padding: 6px 10px; border-radius: 4px; font-weight: bold; font-size: 11px;");
-            appendLog(QString("✅ [AŞAMA 4/6] Profil '%1' altında %2 test frekansı eksiksiz doğrulandı.")
-                          .arg(profiles.isEmpty() ? "Yok" : profiles.first().profileName)
-                          .arg(channelCount), "#69F0AE");
-        } else {
-            m_stepChannelsLabel->setText("🔴 4. Kanallar: HATA");
-            m_stepChannelsLabel->setStyleSheet("background-color: #B71C1C; color: #FFCDD2; padding: 6px 10px; border-radius: 4px; font-weight: bold; font-size: 11px;");
-        }
-        m_suiteProgress->setValue(66);
-        m_suiteStep++;
-        break;
-    }
-
-    case 4: { // AŞAMA 5: Algoritma 2 Canlı Dağıtık Kilit & Çakışma Önleme
-        appendLog("[AŞAMA 5/6] Algoritma 2 Dağıtık Kilit (reference_lock) çakışma ve sıra testi yürütülüyor...", "#FFF59D");
-        if (DbManager::instance().isConnected()) {
-            DbManager::instance().releaseDbLock(0); // Önce sıfırla
-            int holder = 0, ch = 0;
-            bool s1_ok = DbManager::instance().tryAcquireDbLock(1, holder, ch);
-            bool s2_blocked = !DbManager::instance().tryAcquireDbLock(2, holder, ch) && (holder == 1);
-            DbManager::instance().updateDbLockHeartbeat(1, 5);
-            DbManager::instance().releaseDbLock(1);
-            bool s2_ok = DbManager::instance().tryAcquireDbLock(2, holder, ch);
-            DbManager::instance().releaseDbLock(2);
-
-            if (s1_ok && s2_blocked && s2_ok) {
-                m_stepLockLabel->setText("🟢 5. Kilit: Çakışma Önleme Başarılı");
-                m_stepLockLabel->setStyleSheet("background-color: #1B5E20; color: #A5D6A7; padding: 6px 10px; border-radius: 4px; font-weight: bold; font-size: 11px;");
-                appendLog("✅ [AŞAMA 5/6] Dağıtık Kilit Kuyruğu kusursuz: Masa 1 kilit aldı -> Masa 2 engellendi -> Masa 1 bıraktı -> Masa 2 devraldı!", "#69F0AE");
-            } else {
-                m_stepLockLabel->setText("🔴 5. Kilit: Çakışma Hatası");
-                m_stepLockLabel->setStyleSheet("background-color: #B71C1C; color: #FFCDD2; padding: 6px 10px; border-radius: 4px; font-weight: bold; font-size: 11px;");
-            }
-        } else {
-            m_stepLockLabel->setText("🔴 5. Kilit: BAĞLANTI YOK");
-            m_stepLockLabel->setStyleSheet("background-color: #B71C1C; color: #FFCDD2; padding: 6px 10px; border-radius: 4px; font-weight: bold; font-size: 11px;");
-        }
-        m_suiteProgress->setValue(83);
-        m_suiteStep++;
-        break;
-    }
-
-    case 5: { // AŞAMA 6: Test Koşusu Yazma ve Okuma (SQL I/O Hızı)
-        appendLog("[AŞAMA 6/6] 10 kanallı simüle anten test koşusu MariaDB'ye yazılıyor...", "#FFF59D");
-        if (DbManager::instance().isConnected()) {
-            QElapsedTimer ioTimer;
-            ioTimer.start();
-            onInsertMockRunClicked();
-            qint64 ioMs = ioTimer.elapsed();
-
-            m_stepPersistenceLabel->setText(QString("🟢 6. Kayıt: Yazıldı (%1 ms)").arg(ioMs));
-            m_stepPersistenceLabel->setStyleSheet("background-color: #1B5E20; color: #A5D6A7; padding: 6px 10px; border-radius: 4px; font-weight: bold; font-size: 11px;");
-            appendLog(QString("✅ [AŞAMA 6/6] 10 kanal telemetri verisi %1 ms sürede kaydedildi ve geri okundu!").arg(ioMs), "#69F0AE");
-        } else {
-            m_stepPersistenceLabel->setText("🔴 6. Kayıt: HATA");
-            m_stepPersistenceLabel->setStyleSheet("background-color: #B71C1C; color: #FFCDD2; padding: 6px 10px; border-radius: 4px; font-weight: bold; font-size: 11px;");
-        }
-        m_suiteProgress->setValue(100);
-        m_suiteStep++;
-        break;
-    }
-
-    case 6: { // TAMAMLANDI: BÜYÜK YEŞİL KUTLAMA BANNERI
-        m_suiteTimer.stop();
-        m_runFullSuiteBtn->setEnabled(true);
-        m_suiteResultBanner->setText("🎉 MÜKEMMEL! TÜM VERİTABANI VE ALGORİTMA 2 ALTYAPISI %100 TEST EDİLDİ VE ÇALIŞIYOR!");
-        m_suiteResultBanner->setStyleSheet("background-color: #1B5E20; color: #FFFFFF; padding: 10px; border-radius: 4px; font-weight: bold; font-size: 13px; border: 2px solid #00E676;");
-        appendLog("===================================================================", "#00E676");
-        appendLog("🎉 TEBRİKLER: VERİTABANI VE ALGORİTMA 2 TÜM TESTLERDEN BAŞARIYLA GEÇTİ (PASS)!", "#00E676");
-        appendLog("===================================================================", "#00E676");
-        break;
-    }
-    }
-}
-

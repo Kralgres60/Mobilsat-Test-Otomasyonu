@@ -201,6 +201,8 @@ void DrxSimServer::handleHttpRequest(QTcpSocket *socket, const QByteArray &rawRe
         if (user.isEmpty() || (user == "admin" && pass == "1234")) {
             m_forceAccessDenied = false;
             m_activeSessionKey = 100000 + QRandomGenerator::global()->bounded(899999);
+            jsonResp["menuheader"] = "Session Key";
+            jsonResp["menuid"] = "sessionkey";
             jsonResp["sessionkey"] = m_activeSessionKey;
             jsonResp["sessionKey"] = m_activeSessionKey;
             jsonResp["status"] = "ok";
@@ -292,22 +294,28 @@ QJsonObject DrxSimServer::buildAlarmStatusJson() const {
         elems.append(o);
     };
 
-    addEl("st_current_time", "Saat", QDateTime::currentDateTime().toString("hh:mm:ss"));
+    // Format strictly matches DRX9000 real hardware: "09:11:45 - 22/09/2026"
+    QString curTimeStr = QDateTime::currentDateTime().toString("hh:mm:ss - dd/MM/yyyy");
+    addEl("st_current_time", "Saat", curTimeStr);
     addEl("st_channel", "Kanal", resolveChannelName(m_currentFreqMhz, m_currentPol));
     addEl("st_signal", "Sinyal", sigLock ? "tick" : "cross");
     addEl("st_video", "Video", vidLock ? "tick" : "cross");
-    addEl("st_audio", "Ses", audLock ? "tick" : "cross");
-    addEl("st_cn", "C/N", QString("%1 dB").arg(cnVal, 0, 'f', 2));
-    addEl("st_power", "Güç", QString("%1 dBm").arg(powVal, 0, 'f', 2));
-    addEl("st_ber", "BER", sigLock ? m_liveSample.ber : QStringLiteral("1.0E-1"));
-    addEl("st_ebn0", "Eb/N0", QString("%1 dB").arg(qMax(0.0, cnVal - 2.8), 0, 'f', 2));
+    addEl("st_audio", "Audio", audLock ? "tick" : "cross");
+    addEl("st_ber", "BER", sigLock ? (m_liveSample.ber.isEmpty() ? "1.0E-7" : m_liveSample.ber) : "?");
+    addEl("st_ebn0", "EbN0", sigLock ? QString("%1 dB").arg(qMax(0.0, cnVal - 2.8), 0, 'f', 2) : "?");
+    addEl("st_power", "Sinyal Gücü", sigLock ? QString("%1 dBm").arg(powVal, 0, 'f', 2) : "?");
+    addEl("st_cn", "C/N", sigLock ? QString("%1 dB").arg(cnVal, 0, 'f', 2) : "?");
 
     QJsonObject sec;
     sec["elements"] = elems;
+    sec["header"] = "";
+    sec["type"] = "statustable";
     QJsonArray secs;
     secs.append(sec);
 
     QJsonObject root;
+    root["menuheader"] = "Durum";
+    root["menuid"] = "alarmstatus";
     root["sections"] = secs;
     root["signalLock"] = sigLock;
     root["videoLock"] = vidLock;

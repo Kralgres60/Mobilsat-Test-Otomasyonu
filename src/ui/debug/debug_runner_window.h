@@ -1,6 +1,6 @@
 /**
  * @file debug_runner_window.h
- * @brief Developer debug console for DRX Web CGI, MariaDB queries, and lock testing.
+ * @brief Dedicated developer debug console for DRX Web CGI REST API queries and payload outputs.
  * @author Semi Eren Gökyıldız
  * @copyright Copyright (C) 2026 NETA Elektronik A.Ş.
  */
@@ -9,7 +9,6 @@
 #define DEBUG_RUNNER_WINDOW_H
 
 #include <QMainWindow>
-#include <QWidget>
 #include <QLineEdit>
 #include <QSpinBox>
 #include <QComboBox>
@@ -18,92 +17,11 @@
 #include <QLabel>
 #include <QTimer>
 #include <QVector>
-#include <QTabWidget>
-#include <QTableWidget>
-#include <QProgressBar>
 #include "hardware/data_transfer.h"
-#include "database/db_manager.h"
-
-/**
- * @class DbDebugWidget
- * @brief MariaDB connection check, schema validator, and Algorithm 2 stress test component.
- */
-class DbDebugWidget : public QWidget {
-    Q_OBJECT
-public:
-    explicit DbDebugWidget(QWidget *parent = nullptr);
-    ~DbDebugWidget() override;
-
-private slots:
-    void onConnectClicked();
-    void onDisconnectClicked();
-    void onStartEngineClicked();
-    void onStopEngineClicked();
-    void onInitSchemaClicked();
-    void onAcquireLockClicked();
-    void onReleaseLockClicked();
-    void onHeartbeatClicked();
-    void onQueryLockClicked();
-    void onRunContentionSimulationClicked();
-    void onInsertMockRunClicked();
-    void onRefreshTestRunsClicked();
-    void onLoadProfilesClicked();
-    void onRunFullSuiteClicked();
-    void onSuiteTimerTick();
-
-private:
-    void setupUi();
-    void appendLog(const QString &msg, const QString &color = "#E0E0E0");
-    void updateConnectionStatusBadge(bool connected);
-
-    QLineEdit *m_hostEdit = nullptr;
-    QSpinBox *m_portSpin = nullptr;
-    QLineEdit *m_dbNameEdit = nullptr;
-    QLineEdit *m_userEdit = nullptr;
-    QLineEdit *m_passEdit = nullptr;
-    QPushButton *m_connectBtn = nullptr;
-    QPushButton *m_disconnectBtn = nullptr;
-    QPushButton *m_startEngineBtn = nullptr;
-    QPushButton *m_stopEngineBtn = nullptr;
-    QLabel *m_statusBadge = nullptr;
-
-    QPushButton *m_initSchemaBtn = nullptr;
-    QPushButton *m_loadProfilesBtn = nullptr;
-
-    QSpinBox *m_stationSpin = nullptr;
-    QSpinBox *m_channelSpin = nullptr;
-    QPushButton *m_acquireLockBtn = nullptr;
-    QPushButton *m_releaseLockBtn = nullptr;
-    QPushButton *m_heartbeatBtn = nullptr;
-    QPushButton *m_queryLockBtn = nullptr;
-    QPushButton *m_contentionSimBtn = nullptr;
-    QLabel *m_lockHolderBadge = nullptr;
-
-    QPushButton *m_insertMockBtn = nullptr;
-    QPushButton *m_refreshRunsBtn = nullptr;
-    QTableWidget *m_runsTable = nullptr;
-
-    QTextEdit *m_logEdit = nullptr;
-
-    QPushButton *m_runFullSuiteBtn = nullptr;
-    QProgressBar *m_suiteProgress = nullptr;
-    QLabel *m_stepDriverLabel = nullptr;
-    QLabel *m_stepLatencyLabel = nullptr;
-    QLabel *m_stepSchemaLabel = nullptr;
-    QLabel *m_stepChannelsLabel = nullptr;
-    QLabel *m_stepLockLabel = nullptr;
-    QLabel *m_stepPersistenceLabel = nullptr;
-    QLabel *m_suiteResultBanner = nullptr;
-
-    QTimer m_pollTimer;
-    QTimer m_suiteTimer;
-    int m_suiteStep = 0;
-};
 
 /**
  * @class DebugRunnerWindow
- * @brief Standalone test GUI providing manual DRX Web CGI authentication, transponder tuning,
- *        5-second multi-sample averaging, and formatted raw JSON payload inspection.
+ * @brief Streamlined developer GUI focused strictly on DRX REST API requests, live telemetry, and raw JSON outputs.
  */
 class DebugRunnerWindow : public QMainWindow {
     Q_OBJECT
@@ -113,56 +31,84 @@ public:
 
 private slots:
     void onConnectClicked();
+    void onPingClicked();
     void onTuneClicked();
-    void onPollTelemetryClicked();
+    void onPollAlarmStatusClicked();
+    void onPollDeviceInfoClicked();
+    void onSendCustomPostClicked();
     void onStartSamplingClicked();
     void onSampleTimerTick();
     void onSamplingFinished();
-    void onSessionKeyReceived(const QString &sessionKey);
-    void onTuneFinished(bool success, const QString &message);
-    void onErrorOccurred(const QString &error);
-    void onRawResponseReceived(const QString &actionType, const QByteArray &rawJson);
-    void onScanAllClicked();
     void onCopyRawClicked();
+    void onClearOutputClicked();
+    void onOpenDbToolClicked();
+
+    // DRX Web Client Signal Handlers
+    void onSessionKeyReceived(int sessionKey);
+    void onLoginFailed(const QString &reason);
+    void onTuneFinished(bool isOk, const QString &details);
+    void onRawResponseReceived(const QString &actionName, const QByteArray &rawJson);
+    void onTelemetryReceived(double powerDbm, double cnDb, double ber, double ebN0Db);
+    void onStatusReceived(bool signalLocked, bool videoLocked, bool audioLocked, const QString &channelName);
+    void onTimestampReceived(const QDateTime &deviceTime, const QDateTime &hostTime, const QString &rawTimeStr);
 
 private:
     void setupUi();
     void appendLog(const QString &msg, const QString &color = "#E0E0E0");
+    void updateSessionBadge(int sessionKey);
+    void setPresetPayloadForAction(const QString &action);
+    void syncEndpointSettings();
 
-    QLineEdit *m_ipEdit = nullptr;
-    QSpinBox *m_portSpin = nullptr;
-    QLineEdit *m_userEdit = nullptr;
-    QLineEdit *m_passEdit = nullptr;
-    QPushButton *m_connectBtn = nullptr;
-    QLabel *m_sessionBadge = nullptr;
+    // Connection Controls
+    QLineEdit *m_txtIp = nullptr;
+    QSpinBox *m_spinPort = nullptr;
+    QLineEdit *m_txtUser = nullptr;
+    QLineEdit *m_txtPass = nullptr;
+    QPushButton *m_btnConnect = nullptr;
+    QPushButton *m_btnPing = nullptr;
+    QLabel *m_lblSessionBadge = nullptr;
+    QPushButton *m_btnOpenDbTool = nullptr;
 
-    QSpinBox *m_freqSpin = nullptr;
-    QSpinBox *m_srSpin = nullptr;
-    QComboBox *m_polCombo = nullptr;
-    QSpinBox *m_sampleDurationSpin = nullptr;
-    QPushButton *m_tuneBtn = nullptr;
-    QPushButton *m_pollBtn = nullptr;
-    QPushButton *m_startSampleBtn = nullptr;
-    QPushButton *m_scanAllBtn = nullptr;
+    // Frequency Tuning (Tune)
+    QSpinBox *m_spinFreq = nullptr;
+    QSpinBox *m_spinSymbolRate = nullptr;
+    QComboBox *m_comboPol = nullptr;
+    QPushButton *m_btnTune = nullptr;
 
-    QLabel *m_carrierLabel = nullptr;
-    QLabel *m_videoLabel = nullptr;
-    QLabel *m_audioLabel = nullptr;
-    QLabel *m_powerLabel = nullptr;
-    QLabel *m_cnLabel = nullptr;
-    QLabel *m_berLabel = nullptr;
-    QLabel *m_statusLabel = nullptr;
-    QLabel *m_liveCnLabel = nullptr;
-    QLabel *m_livePowLabel = nullptr;
-    QLabel *m_liveEbN0Label = nullptr;
-    QLabel *m_liveBerLabel = nullptr;
-    QLabel *m_avgResultLabel = nullptr;
+    // Status and Sampling Controls
+    QPushButton *m_btnAlarmStatus = nullptr;
+    QPushButton *m_btnDeviceInfo = nullptr;
+    QSpinBox *m_spinSampleSec = nullptr;
+    QPushButton *m_btnStartSample = nullptr;
 
-    QTabWidget *m_tabWidget = nullptr;
-    QTextEdit *m_rawJsonEdit = nullptr;
-    QTextEdit *m_logEdit = nullptr;
-    QPushButton *m_copyRawBtn = nullptr;
+    // RF Telemetry Badges
+    QLabel *m_lblCarrier = nullptr;
+    QLabel *m_lblVideo = nullptr;
+    QLabel *m_lblAudio = nullptr;
+    QLabel *m_lblPower = nullptr;
+    QLabel *m_lblCn = nullptr;
+    QLabel *m_lblBer = nullptr;
+    QLabel *m_lblEbN0 = nullptr;
+    QLabel *m_lblChannelName = nullptr;
+    QLabel *m_lblDeviceTime = nullptr;
+    QLabel *m_lblDeltaTime = nullptr;
 
+    // Custom CGI Request Controls
+    QComboBox *m_comboCgiAction = nullptr;
+    QTextEdit *m_txtCustomPayload = nullptr;
+    QPushButton *m_btnSendCustom = nullptr;
+
+    // Raw Output Panel (Core Focus)
+    QLabel *m_lblResponseStatus = nullptr;
+    QLabel *m_lblResponseLatency = nullptr;
+    QTextEdit *m_txtRawOutput = nullptr;
+    QPushButton *m_btnCopyRaw = nullptr;
+    QPushButton *m_btnClearOutput = nullptr;
+
+    // Bottom Log Console
+    QTextEdit *m_txtLogs = nullptr;
+
+    // Sampling State
     bool m_isSampling = false;
     QTimer m_sampleTickTimer;
     QTimer m_sampleDurationTimer;
@@ -170,7 +116,6 @@ private:
     QVector<double> m_cnSamples;
 
     Ethernet *m_webClient = nullptr;
-    DbDebugWidget *m_dbDebugWidget = nullptr;
 };
 
 #endif // DEBUG_RUNNER_WINDOW_H

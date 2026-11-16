@@ -17,6 +17,7 @@
 #include "ui/common/lobby_window.h"
 #include "ui/host/host_window.h"
 #include "ui/debug/debug_runner_window.h"
+#include "ui/debug/db_debug_window.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGridLayout>
@@ -243,12 +244,20 @@ void ClientWindow::setupMenuBar() {
     connect(actHostReconnect, &QAction::triggered, this, &ClientWindow::onReconnectHostClicked);
 
     QMenu *menuAraclar = menuBar()->addMenu("Araçlar");
-    QAction *actDebug = menuAraclar->addAction("🛠️ Geliştirici & Hata Ayıklama Konsolu");
+    QAction *actDebug = menuAraclar->addAction("🌐 DRX REST API Debug Konsolu");
     actDebug->setShortcut(QKeySequence("F12"));
     connect(actDebug, &QAction::triggered, this, [this]() {
         auto *debugWin = new DebugRunnerWindow(this);
         debugWin->setAttribute(Qt::WA_DeleteOnClose);
         debugWin->show();
+    });
+
+    QAction *actDbTool = menuAraclar->addAction("🗄️ Veritabanı & Kilit Test Aracı");
+    actDbTool->setShortcut(QKeySequence("Ctrl+F12"));
+    connect(actDbTool, &QAction::triggered, this, [this]() {
+        auto *dbWin = new DbDebugWindow(this);
+        dbWin->setAttribute(Qt::WA_DeleteOnClose);
+        dbWin->show();
     });
 
     QMenu *menuAyarlar = menuBar()->addMenu("Ayarlar");

@@ -23,6 +23,26 @@ DrxProtocolConfig::DrxProtocolConfig(QObject *parent)
     load();
 }
 
+static QStringList parseIniStringList(const QVariant &var, const QString &fallbackComma) {
+    if (!var.isValid()) {
+        return fallbackComma.split(',', Qt::SkipEmptyParts);
+    }
+    QStringList fromList = var.toStringList();
+    if (!fromList.isEmpty()) {
+        QStringList clean;
+        for (const QString &item : fromList) {
+            QString trimmed = item.trimmed();
+            if (!trimmed.isEmpty()) clean << trimmed;
+        }
+        if (!clean.isEmpty()) return clean;
+    }
+    QString fromStr = var.toString().trimmed();
+    if (!fromStr.isEmpty()) {
+        return fromStr.split(',', Qt::SkipEmptyParts);
+    }
+    return fallbackComma.split(',', Qt::SkipEmptyParts);
+}
+
 void DrxProtocolConfig::load() {
     // Priority 1: applicationDirPath()/config/drx_protocols.ini
     // Priority 2: current working dir config/drx_protocols.ini
@@ -61,23 +81,23 @@ void DrxProtocolConfig::load() {
     m_cgiRawQueryFormat = settings.value("RawQueryFormat",
         "query={query}\nsessionKey={sessionKey}\n").toString();
 
-    m_cgiSessionKeyFields = settings.value("SessionKeyFields", "sessionkey,sessionKey,key").toString().split(',', Qt::SkipEmptyParts);
-    m_cgiPowerFields = settings.value("PowerFields", "power,pow,signal_power,rf_power").toString().split(',', Qt::SkipEmptyParts);
-    m_cgiCnFields = settings.value("CnFields", "cn,snr,cn_db,c_n").toString().split(',', Qt::SkipEmptyParts);
-    m_cgiBerFields = settings.value("BerFields", "ber,bit_error_rate").toString().split(',', Qt::SkipEmptyParts);
-    m_cgiEbN0Fields = settings.value("EbN0Fields", "ebn0,eb_n0,ebno").toString().split(',', Qt::SkipEmptyParts);
-    m_cgiCarrierLockFields = settings.value("CarrierLockFields", "carrier_lock,carrier,lock,signal_locked").toString().split(',', Qt::SkipEmptyParts);
-    m_cgiVideoLockFields = settings.value("VideoLockFields", "video_lock,video,video_locked").toString().split(',', Qt::SkipEmptyParts);
-    m_cgiAudioLockFields = settings.value("AudioLockFields", "audio_lock,audio,audio_locked").toString().split(',', Qt::SkipEmptyParts);
-    m_cgiChannelNameFields = settings.value("ChannelNameFields", "channel_name,service_name,ch_name,channel").toString().split(',', Qt::SkipEmptyParts);
+    m_cgiSessionKeyFields = parseIniStringList(settings.value("SessionKeyFields"), "sessionkey,sessionKey,key");
+    m_cgiPowerFields = parseIniStringList(settings.value("PowerFields"), "power,pow,signal_power,rf_power");
+    m_cgiCnFields = parseIniStringList(settings.value("CnFields"), "cn,snr,cn_db,c_n");
+    m_cgiBerFields = parseIniStringList(settings.value("BerFields"), "ber,bit_error_rate");
+    m_cgiEbN0Fields = parseIniStringList(settings.value("EbN0Fields"), "ebn0,eb_n0,ebno");
+    m_cgiCarrierLockFields = parseIniStringList(settings.value("CarrierLockFields"), "carrier_lock,carrier,lock,signal_locked");
+    m_cgiVideoLockFields = parseIniStringList(settings.value("VideoLockFields"), "video_lock,video,video_locked");
+    m_cgiAudioLockFields = parseIniStringList(settings.value("AudioLockFields"), "audio_lock,audio,audio_locked");
+    m_cgiChannelNameFields = parseIniStringList(settings.value("ChannelNameFields"), "channel_name,service_name,ch_name,channel");
     settings.endGroup();
 
     // -------------------------------------------------------------------------
     // 2. RS232 / Serial Protocol Templates
     // -------------------------------------------------------------------------
     settings.beginGroup("RS232_SERIAL");
-    m_serialPromptTokens = settings.value("PromptDetectionTokens", "-->,Select Option:,:").toString().split(',', Qt::SkipEmptyParts);
-    m_serialStatusPrefixes = settings.value("StatusResponsePrefixes", "getstatus:,status:").toString().split(',', Qt::SkipEmptyParts);
+    m_serialPromptTokens = parseIniStringList(settings.value("PromptDetectionTokens"), "-->,Select Option:,:");
+    m_serialStatusPrefixes = parseIniStringList(settings.value("StatusResponsePrefixes"), "getstatus:,status:");
     m_serialStatusCmd = settings.value("StatusRequestFormat", "getstatus\n").toString();
     m_serialDeviceInfoCmd = settings.value("DeviceInfoRequestFormat", "getstatus\n").toString();
     m_serialTuneFormat = settings.value("TuneRequestFormat", "tune {freqMhz} {srate} {pol}\n").toString();
@@ -223,8 +243,30 @@ QByteArray DrxProtocolConfig::formatCgiTune(int sessionKey, int freqKhz, int sym
 }
 
 QByteArray DrxProtocolConfig::formatCgiRawQuery(const QString &query, int sessionKey) const {
+    QString q = query.trimmed();
+
+    // If query is already a multi-line or formatted key-value payload (contains '=' or newline)
+    if (q.contains('=') || q.contains('\n') || q.contains('\r') || q.startsWith("ResponseTo", Qt::CaseInsensitive)) {
+        QMap<QString, QString> t;
+        t["sessionKey"] = (sessionKey > 0) ? QString::number(sessionKey) : "";
+        QString result = replaceTokens(q, t);
+
+        if (sessionKey > 0) {
+            if (result.contains("sessionKey=\n")) {
+                result.replace("sessionKey=\n", QString("sessionKey=%1\n").arg(sessionKey));
+            } else if (result.contains("sessionKey=\r\n")) {
+                result.replace("sessionKey=\r\n", QString("sessionKey=%1\r\n").arg(sessionKey));
+            } else if (!result.contains("sessionKey=")) {
+                if (!result.endsWith('\n')) result.append('\n');
+                result.append(QString("sessionKey=%1\n").arg(sessionKey));
+            }
+        }
+        return result.toUtf8();
+    }
+
+    // Single query token like "alarmStatus" or "deviceInfo"
     QMap<QString, QString> t;
-    t["query"] = query;
+    t["query"] = q;
     t["sessionKey"] = (sessionKey > 0) ? QString::number(sessionKey) : "";
     return replaceTokens(m_cgiRawQueryFormat, t).toUtf8();
 }
@@ -240,18 +282,42 @@ double DrxProtocolConfig::extractFirstDouble(const QJsonObject &root, const QStr
             if (ok) return d;
         }
     }
+    // Case-insensitive fallback
+    for (const QString &k : keys) {
+        QString cleanKey = k.trimmed().toLower();
+        for (auto it = root.constBegin(); it != root.constEnd(); ++it) {
+            if (it.key().trimmed().toLower() == cleanKey) {
+                if (it.value().isDouble()) return it.value().toDouble();
+                bool ok = false;
+                double d = it.value().toString().toDouble(&ok);
+                if (ok) return d;
+            }
+        }
+    }
     return fallback;
 }
 
 bool DrxProtocolConfig::extractFirstBool(const QJsonObject &root, const QStringList &keys) const {
+    auto evalVal = [](const QJsonValue &val) -> bool {
+        if (val.isBool()) return val.toBool();
+        if (val.isDouble()) return val.toInt() != 0;
+        QString s = val.toString().trimmed().toUpper();
+        return (s == "1" || s == "TRUE" || s == "YES" || s == "LOCKED" || s == "+" || s == "TICK" || s == "OK");
+    };
+
     for (const QString &k : keys) {
         QString cleanKey = k.trimmed();
         if (root.contains(cleanKey)) {
-            QJsonValue val = root.value(cleanKey);
-            if (val.isBool()) return val.toBool();
-            if (val.isDouble()) return val.toInt() != 0;
-            QString s = val.toString().trimmed().toUpper();
-            if (s == "1" || s == "TRUE" || s == "YES" || s == "LOCKED" || s == "+") return true;
+            return evalVal(root.value(cleanKey));
+        }
+    }
+    // Case-insensitive fallback
+    for (const QString &k : keys) {
+        QString cleanKey = k.trimmed().toLower();
+        for (auto it = root.constBegin(); it != root.constEnd(); ++it) {
+            if (it.key().trimmed().toLower() == cleanKey) {
+                return evalVal(it.value());
+            }
         }
     }
     return false;
@@ -264,10 +330,20 @@ QString DrxProtocolConfig::extractFirstString(const QJsonObject &root, const QSt
             return root.value(cleanKey).toString();
         }
     }
+    // Case-insensitive fallback
+    for (const QString &k : keys) {
+        QString cleanKey = k.trimmed().toLower();
+        for (auto it = root.constBegin(); it != root.constEnd(); ++it) {
+            if (it.key().trimmed().toLower() == cleanKey) {
+                return it.value().toString();
+            }
+        }
+    }
     return QString();
 }
 
 int DrxProtocolConfig::extractSessionKey(const QJsonObject &root) const {
+    // 1. Check configured fields
     for (const QString &k : m_cgiSessionKeyFields) {
         QString cleanKey = k.trimmed();
         if (root.contains(cleanKey)) {
@@ -278,6 +354,30 @@ int DrxProtocolConfig::extractSessionKey(const QJsonObject &root) const {
             if (ok && key > 0) return key;
         }
     }
+
+    // 2. Direct fail-safe check for common DRX key variants
+    const QStringList fallbacks = {"sessionkey", "sessionKey", "key", "SessionKey", "Sessionkey", "sessKey", "Session_Key"};
+    for (const QString &fk : fallbacks) {
+        if (root.contains(fk)) {
+            QJsonValue val = root.value(fk);
+            if (val.isDouble()) return val.toInt();
+            bool ok = false;
+            int key = val.toString().toInt(&ok);
+            if (ok && key > 0) return key;
+        }
+    }
+
+    // 3. Deep case-insensitive scan across root keys
+    for (auto it = root.constBegin(); it != root.constEnd(); ++it) {
+        if (it.key().compare("sessionkey", Qt::CaseInsensitive) == 0 ||
+            it.key().compare("session_key", Qt::CaseInsensitive) == 0) {
+            if (it.value().isDouble()) return it.value().toInt();
+            bool ok = false;
+            int key = it.value().toString().toInt(&ok);
+            if (ok && key > 0) return key;
+        }
+    }
+
     return -1;
 }
 

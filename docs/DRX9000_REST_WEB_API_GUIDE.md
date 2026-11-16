@@ -122,20 +122,45 @@ query=alarmStatus
 sessionKey=482910
 ```
 
+**Real DRX9000 Hardware Response Format:**
+```json
+{
+    "menuheader": "Durum",
+    "menuid": "alarmstatus",
+    "sections": [
+        {
+            "elements": [
+                { "caption": "Saat", "domid": "st_current_time", "value": "09:11:45 - 22/09/2026" },
+                { "caption": "Kanal", "domid": "st_channel", "value": "TV8" },
+                { "caption": "Sinyal", "domid": "st_signal", "value": "cross" },
+                { "caption": "Video", "domid": "st_video", "value": "cross" },
+                { "caption": "Audio", "domid": "st_audio", "value": "cross" },
+                { "caption": "BER", "domid": "st_ber", "value": "?" },
+                { "caption": "EbN0", "domid": "st_ebn0", "value": "?" },
+                { "caption": "Sinyal Gücü", "domid": "st_power", "value": "?" },
+                { "caption": "C/N", "domid": "st_cn", "value": "?" }
+            ],
+            "header": "",
+            "type": "statustable"
+        }
+    ]
+}
+```
+
 **Response JSON Elements:**
 Parsed by `extractElements()` which flattens `sections[].elements[]`:
 
-| `domid` | Alternative `caption` | Example Raw Value | Parsed Output |
+| `domid` | Alternative `caption` | Example Raw Value | Parsed Output & Description |
 |---|---|---|---|
-| `st_current_time` | `time` | `"08:15:42"` | Timestamp |
-| `st_channel` | `channel` | `"TRT 1 HD"` | `channelName` (String) |
-| `st_signal` | `signal` | `"tick"` / `"cross"` / `"1"` / `"0"` | `sigLock` (`bool`) |
-| `st_video` | `video` | `"tick"` / `"cross"` | `vidLock` (`bool`) |
-| `st_audio` | `audio` | `"tick"` / `"cross"` | `audLock` (`bool`) |
-| `st_cn` | `c/n`, `cn` | `"14.6 dB"` | `cn` (`double`, dB) |
-| `st_power` | `power` | `"- 39.2 dBm"` | `pwr` (`double`, dBm) |
-| `st_ber` | `ber` | `"1.0E-7"` | `ber` (`double`) |
-| `st_ebn0` | `ebn0`, `eb/n0` | `"11.4 dB"` | `ebn0` (`double`) |
+| `st_current_time` | `Saat`, `time` | `"09:11:45 - 22/09/2026"` | `deviceTime` (`QDateTime`). Also calculates $\Delta t = \text{HostTime} - \text{DeviceTime}$ for latency tracking. |
+| `st_channel` | `Kanal`, `channel` | `"TV8"` / `"TRT 1 HD"` | `channelName` (String) |
+| `st_signal` | `Sinyal`, `signal` | `"tick"` / `"cross"` / `"?"` | `sigLock` (`bool`). `"tick"` = Locked, `"cross"` / `"?"` = Unlocked. |
+| `st_video` | `Video`, `video` | `"tick"` / `"cross"` | `vidLock` (`bool`) |
+| `st_audio` | `Audio`, `audio`, `ses` | `"tick"` / `"cross"` | `audLock` (`bool`) |
+| `st_cn` | `C/N`, `cn` | `"14.6 dB"` / `"?"` | `cn` (`double`, dB). Parsed safely, returns `0.0` when `"?"`. |
+| `st_power` | `Sinyal Gücü`, `power` | `"- 39.2 dBm"` / `"?"` | `pwr` (`double`, dBm) |
+| `st_ber` | `BER`, `ber` | `"1.0E-7"` / `"?"` | `ber` (`double`) |
+| `st_ebn0` | `EbN0`, `eb/n0` | `"11.4 dB"` / `"?"` | `ebn0` (`double`) |
 
 ---
 

@@ -81,6 +81,9 @@ signals:
     /** @brief Emitted when a device info key-value pair is received. */
     void deviceInfoReceived(const QString &key, const QString &value);
 
+    /** @brief Emitted when telemetry timestamp is captured (device time, host receipt time, raw string). */
+    void timestampReceived(const QDateTime &deviceTime, const QDateTime &hostTime, const QString &rawTimeStr);
+
     /** @brief Emitted when a log or error message is produced. */
     void logMessage(const QString &message, bool isError);
 };
@@ -129,6 +132,21 @@ public:
     int timeoutMs() const { return m_timeoutMs; }
     void resetSession();
 
+    /** @brief Get the last parsed device clock timestamp. @return Device QDateTime. */
+    QDateTime lastDeviceTime() const { return m_lastDeviceTime; }
+
+    /** @brief Get the host arrival timestamp when telemetry was parsed. @return Host QDateTime. */
+    QDateTime lastHostTime() const { return m_lastHostTime; }
+
+    /** @brief Get the raw unparsed device timestamp string from DRX alarmstatus JSON. @return Raw time string. */
+    QString lastDeviceTimeString() const { return m_lastDeviceTimeStr; }
+
+    /** @brief Get the latency/clock difference in milliseconds (Host - Device). @return Delta time in ms. */
+    qint64 lastDeltaTimeMs() const { return m_lastDeltaTimeMs; }
+
+    /** @brief Get the latency/clock difference in seconds (Host - Device). @return Delta time in seconds. */
+    double deltaTimeSeconds() const { return m_lastDeltaTimeMs / 1000.0; }
+
 public slots:
     void pingHost(int timeoutMs = 1000);
     void testConnectionAndSync();
@@ -175,6 +193,11 @@ private:
 
     QString m_pendingActionAfterLogin;
     QByteArray m_pendingDataAfterLogin;
+
+    QDateTime m_lastDeviceTime;
+    QDateTime m_lastHostTime;
+    QString m_lastDeviceTimeStr;
+    qint64 m_lastDeltaTimeMs = 0;
 };
 
 // =============================================================================
