@@ -216,17 +216,16 @@ QUrl Ethernet::cgiUrl() const {
     url.setScheme("http");
     url.setHost(m_hostIp);
     url.setPort(m_port);
-    url.setPath("/cgi-bin/drx.cgi");
+    url.setPath(DrxProtocolConfig::instance().cgiEndpointPath());
     return url;
 }
 
-void Ethernet::login() {
-    QByteArray postData;
-    postData.append("ResponseTo=login\n");
-    postData.append("sessionKey=\n");
-    postData.append("lg_username=" + m_username.toUtf8() + "\n");
-    postData.append("lg_password=" + m_password.toUtf8() + "\n");
+void Ethernet::sendData(const QByteArray &data) {
+    sendCgiRequest("raw", data);
+}
 
+void Ethernet::login() {
+    QByteArray postData = DrxProtocolConfig::instance().formatCgiLogin(m_username, m_password);
     emit logMessage(QString("[CGI Giriş] %1@%2:%3").arg(m_username, m_hostIp).arg(m_port), false);
     sendCgiRequest("login", postData);
 }
@@ -237,9 +236,7 @@ void Ethernet::requestStatus() {
         login();
         return;
     }
-    QByteArray postData;
-    postData.append("query=alarmStatus\n");
-    postData.append(QString("sessionKey=%1\n").arg(m_sessionKey).toUtf8());
+    QByteArray postData = DrxProtocolConfig::instance().formatCgiStatus(m_sessionKey);
     sendCgiRequest("alarmStatus", postData);
 }
 
@@ -249,9 +246,7 @@ void Ethernet::requestDeviceInfo() {
         login();
         return;
     }
-    QByteArray postData;
-    postData.append("query=deviceInfo\n");
-    postData.append(QString("sessionKey=%1\n").arg(m_sessionKey).toUtf8());
+    QByteArray postData = DrxProtocolConfig::instance().formatCgiDeviceInfo(m_sessionKey);
     sendCgiRequest("deviceInfo", postData);
 }
 
@@ -260,12 +255,7 @@ void Ethernet::sendTune(int freqMHz, int symbolRate, const QString &polarity) {
     int srBdps = (symbolRate < 100000) ? (symbolRate * 1000) : symbolRate;
     int polEnum = (polarity.trimmed().toUpper().startsWith('H')) ? 1 : 0;
 
-    QByteArray postData;
-    postData.append("ResponseTo=freq\n");
-    postData.append(QString("sessionKey=%1\n").arg(m_sessionKey > 0 ? QString::number(m_sessionKey) : "").toUtf8());
-    postData.append(QString("fr_frequency=%1\n").arg(freqKhz).toUtf8());
-    postData.append(QString("fr_srate=%1\n").arg(srBdps).toUtf8());
-    postData.append(QString("fr_pol=%1\n").arg(polEnum).toUtf8());
+    QByteArray postData = DrxProtocolConfig::instance().formatCgiTune(m_sessionKey, freqKhz, srBdps, polEnum);
 
     if (m_sessionKey <= 0) {
         m_pendingActionAfterLogin = "freq";
@@ -278,17 +268,7 @@ void Ethernet::sendTune(int freqMHz, int symbolRate, const QString &polarity) {
 }
 
 void Ethernet::sendRaw(const QString &command) {
-    QString q = command.trimmed();
-    QByteArray postData;
-    if (q.contains("=")) {
-        postData = q.toUtf8();
-        if (!postData.endsWith('\n')) postData.append('\n');
-    } else {
-        postData.append("query=" + q.toUtf8() + "\n");
-    }
-    if (m_sessionKey > 0 && !postData.contains("sessionKey=")) {
-        postData.append(QString("sessionKey=%1\n").arg(m_sessionKey).toUtf8());
-    }
+    QByteArray postData = DrxProtocolConfig::instance().formatCgiRawQuery(command.trimmed(), m_sessionKey);
     sendCgiRequest("raw", postData);
 }
 
@@ -360,16 +340,7 @@ void Ethernet::parseCgiResponse(const QString &actionType, const QByteArray &pay
 }
 
 void Ethernet::handleLoginResponse(const QJsonObject &root) {
-    int key = -1;
-    if (root.contains("sessionkey")) {
-        key = root.value("sessionkey").toInt(-1);
-        if (key <= 0) key = root.value("sessionkey").toString().toInt();
-    } else if (root.contains("sessionKey")) {
-        key = root.value("sessionKey").toInt(-1);
-        if (key <= 0) key = root.value("sessionKey").toString().toInt();
-    } else if (root.contains("key")) {
-        key = root.value("key").toInt(-1);
-    }
+    int key = DrxProtocolConfig::instance().extractSessionKey(root);
 
     if (key > 0) {
         m_sessionKey = key;
@@ -441,12 +412,16 @@ void Ethernet::handleAlarmStatusResponse(const QJsonObject &root) {
             }
         }
     } else {
-        // Backward compatibility for flat JSON fields
-        if (root.contains("signalLock")) sig = root.value("signalLock").toBool(false);
-        else if (root.contains("sLock")) sig = (root.value("sLock").toInt(0) == 1);
-
-        if (root.contains("videoLock")) vid = root.value("videoLock").toBool(false);
-        else if (root.contains("vLock")) vid = (root.value("vLock").toInt(0) == 1);
+        // Dynamic protocol format template fallback (flat or custom JSON responses)
+        sig = DrxProtocolConfig::instance().extractCarrierLock(root);
+        vid = DrxProtocolConfig::instance().extractVideoLock(root);
+        aud = DrxProtocolConfig::instance().extractAudioLock(root);
+        chName = DrxProtocolConfig::instance().extractChannelName(root);
+        pwr = DrxProtocolConfig::instance().extractPower(root, -999.0);
+        cn = DrxProtocolConfig::instance().extractCn(root, 0.0);
+        ber = DrxProtocolConfig::instance().extractBer(root, 1.0e-7);
+        ebn0 = DrxProtocolConfig::instance().extractEbN0(root, 0.0);
+    }
 
         if (root.contains("audioLock")) aud = root.value("audioLock").toBool(false);
         else if (root.contains("aLock")) aud = (root.value("aLock").toInt(0) == 1);
@@ -611,37 +586,40 @@ void RS232::setPortConfig(const QString &portName, int baudRate) {
     m_baudRate = baudRate;
 }
 
+void RS232::sendData(const QByteArray &data) {
+    if (!isConnected()) return;
+    m_serial.write(data);
+    emit logMessage(QString::fromUtf8(data).trimmed(), true);
+}
+
 void RS232::sendTune(int freqMhz, int symbolRate, const QString &polarity) {
     if (!isConnected()) return;
-    QString cmd = QString("tune %1 %2 %3\n").arg(freqMhz).arg(symbolRate).arg(polarity.toLower());
+    QString cmd = DrxProtocolConfig::instance().formatSerialTune(freqMhz, symbolRate, polarity);
     sendRaw(cmd);
 }
 
 void RS232::requestStatus() {
     if (!isConnected()) return;
-    sendRaw("getstatus\n");
+    sendRaw(DrxProtocolConfig::instance().serialStatusCmd());
 }
 
 void RS232::requestDeviceInfo() {
     if (!isConnected()) return;
-    sendRaw("getstatus\n");
+    sendRaw(DrxProtocolConfig::instance().serialDeviceInfoCmd());
 }
 
 void RS232::startTunerLog() {
     if (!isConnected()) return;
-    sendRaw("tunerlog on\n");
+    sendRaw(DrxProtocolConfig::instance().serialTunerLogOnCmd());
 }
 
 void RS232::stopTunerLog() {
     if (!isConnected()) return;
-    sendRaw("tunerlog off\n");
+    sendRaw(DrxProtocolConfig::instance().serialTunerLogOffCmd());
 }
 
 void RS232::sendRaw(const QString &command) {
-    if (!isConnected()) return;
-    QByteArray data = command.toUtf8();
-    m_serial.write(data);
-    emit logMessage(command.trimmed(), true);
+    sendData(command.toUtf8());
 }
 
 void RS232::onReadyRead() {
@@ -673,20 +651,20 @@ void RS232::processRxBuffer() {
 
         emit logMessage(line, false);
 
-        if (line.contains("-->") || line.contains("Select Option:") || line.endsWith(":")) {
+        if (DrxProtocolConfig::instance().isPromptLine(line)) {
             emit devicePromptDetected(line);
             setReadyState(DeviceReadyState::Ready, "Komut istemi tespit edildi (-->)");
         }
 
-        if (line.contains("getstatus:") || line.contains("status:")) {
-            bool s = line.contains("S:+");
-            bool v = line.contains("V:+");
-            bool a = line.contains("A:+");
+        if (DrxProtocolConfig::instance().isStatusResponseLine(line)) {
+            bool s = false, v = false, a = false;
+            DrxProtocolConfig::instance().parseSerialLocks(line, s, v, a);
             setReadyState(DeviceReadyState::Ready, "Durum yanıtı alındı");
             emit statusReceived(s, v, a);
         } else if (line.contains("POW:", Qt::CaseInsensitive) || line.contains("C/N:", Qt::CaseInsensitive)) {
             double pow = 0, cn = 0, ber = 1.0e-7;
-            if (parseRfTelemetryLine(line, pow, cn, ber)) {
+            if (DrxProtocolConfig::instance().parseSerialTelemetry(line, pow, cn, ber) ||
+                parseRfTelemetryLine(line, pow, cn, ber)) {
                 emit telemetryReceived(pow, cn, ber);
             }
         } else if (line.contains("SW Ver", Qt::CaseInsensitive)) {

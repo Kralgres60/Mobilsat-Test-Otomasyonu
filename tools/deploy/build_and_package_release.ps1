@@ -153,6 +153,11 @@ foreach ($vcDll in @("vcruntime140.dll", "msvcp140.dll")) {
 Write-Host "[6/6] Yonetici ag paylasim, Tasinabilir MariaDB ve DRX Simulator ekleniyor..." -ForegroundColor Yellow
 Copy-Item "$ProjectDir\tools\deploy\host_scripts\1_Yonetici_Klasor_Paylasimini_Ac.bat" "$OutputDir\" -Force
 
+# Protokol ve Format Şablonları Klasörünü Kopyala
+if (Test-Path "$ProjectDir\config") {
+    Copy-Item "$ProjectDir\config" "$OutputDir\config" -Recurse -Force
+}
+
 # DRX9000 TCP Simülatörü: Build edilmemişse (veya kaynak kodu güncellendiyse) otomatik derle ve tools/ altına ekle
 $SimDir = "$ProjectDir\tools\drx_simulator"
 $SimOutDir = "$SimDir\OUTPUT"

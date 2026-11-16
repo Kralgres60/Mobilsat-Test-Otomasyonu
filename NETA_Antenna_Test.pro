@@ -38,6 +38,7 @@ SOURCES += \
     src/core/xlsxutil.cpp \
     src/database/db_manager.cpp \
     src/hardware/data_transfer.cpp \
+    src/hardware/drx_protocol_config.cpp \
     src/network/udp_beacon.cpp \
     src/network/tcp_server.cpp \
     src/network/tcp_client.cpp \
@@ -69,6 +70,7 @@ HEADERS += \
     src/core/xlsxutil.h \
     src/database/db_manager.h \
     src/hardware/data_transfer.h \
+    src/hardware/drx_protocol_config.h \
     src/network/network_messages.h \
     src/network/udp_beacon.h \
     src/network/tcp_server.h \

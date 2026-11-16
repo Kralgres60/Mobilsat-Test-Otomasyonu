@@ -118,8 +118,10 @@ DRX-Antenna-Test/
 │   ├── DRX_System_Architecture_Algorithm_2.png
 │   └── screenshots/                        # Üretim arayüzü ekran görüntüleri
 │
+├── config/                          # Dinamik protokol ve format şablonları (drx_protocols.ini)
+│
 ├── resources/                       # Görsel kaynaklar
-│   └── images/                      # logo.png, neta_app.ico, neta_app.png
+│   └── images/                      # logo.png, neta_app.ico, neta_sim_app.ico
 │
 ├── sql/                             # Veritabanı şeması ve test profilleri seed verisi
 │   ├── schema_mysql.sql
@@ -129,7 +131,7 @@ DRX-Antenna-Test/
 │   ├── main.cpp                     # Giriş noktası ve CLI parametre işleyici
 │   ├── core/                        # AppConfig, appinfo.h, LockArbiter, StateMachine, XlsxUtil, DependencyInstaller
 │   ├── database/                    # DbManager (MariaDB bağlantısı ve modeller)
-│   ├── hardware/                    # DataTransfer (Base), Ethernet (Web CGI) ve RS232 (Seri Port) sürücüleri
+│   ├── hardware/                    # Donanım Soyutlama (HAL), DataTransfer, DrxProtocolConfig, Ethernet, RS232
 │   ├── network/                     # TcpServer, TcpClient, UdpBeacon
 │   └── ui/                          # Grafik Arayüz Katmanı
 │       ├── common/                  # LobbyWindow, LoginDialog, TestHistoryWidget (SQL Tarayıcı ile), ProfileManager, StyleHelper

@@ -22,11 +22,12 @@
 #include <QJsonDocument>
 #include <QSerialPort>
 #include <QSerialPortInfo>
+#include "drx_protocol_config.h"
 
 /**
  * @class DataTransfer
  * @brief Abstract interface class for hardware communication and telemetry.
- *        Unifies frequency tuning, status querying, and telemetry monitoring.
+ *        Unifies frequency tuning, status querying, and telemetry monitoring across USB/Serial and TCP/Ethernet.
  */
 class DataTransfer : public QObject {
     Q_OBJECT
@@ -34,7 +35,7 @@ public:
     explicit DataTransfer(QObject *parent = nullptr) : QObject(parent) {}
     ~DataTransfer() override = default;
 
-    /** @brief Returns transport type name ("Ethernet" or "RS232"). */
+    /** @brief Returns transport type name ("Ethernet", "RS232", "RS485"). */
     virtual QString transferType() const = 0;
 
     /** @brief Connects to the device. */
@@ -48,6 +49,9 @@ public:
 
     /** @brief Checks if the device is ready to receive commands. */
     virtual bool isDeviceReady() const { return isConnected(); }
+
+    /** @brief Sends raw byte buffer to hardware (Unified HAL: USB-UART or TCP/Ethernet). */
+    virtual void sendData(const QByteArray &data) = 0;
 
     /** @brief Sends frequency tuning command. */
     virtual void sendTune(int freqMhz, int symbolRate, const QString &polarity) = 0;
@@ -102,6 +106,7 @@ public:
     bool isConnected() const override;
     bool isDeviceReady() const override;
 
+    void sendData(const QByteArray &data) override;
     void sendTune(int freqMhz, int symbolRate, const QString &polarity) override;
     void requestStatus() override;
     void requestDeviceInfo() override;
@@ -204,6 +209,7 @@ public:
     bool isConnected() const override;
     bool isDeviceReady() const override { return m_readyState == DeviceReadyState::Ready; }
 
+    void sendData(const QByteArray &data) override;
     void sendTune(int freqMhz, int symbolRate, const QString &polarity) override;
     void requestStatus() override;
     void requestDeviceInfo() override;
