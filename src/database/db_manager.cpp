@@ -252,13 +252,25 @@ bool DbManager::executeSqlScript(const QString &resourceOrFilePath) {
             continue;
         }
 
+        // Strip inline comments (-- comment)
+        int commentPos = line.indexOf("--");
+        if (commentPos >= 0) {
+            line = line.left(commentPos).trimmed();
+        }
+        if (line.isEmpty()) {
+            continue;
+        }
+
         if (line.startsWith("USE ", Qt::CaseInsensitive)) {
             continue;
         }
 
-        currentQuery += line + " ";
+        currentQuery += line + "\n";
         if (line.endsWith(";")) {
-            currentQuery.chop(1);
+            currentQuery = currentQuery.trimmed();
+            if (currentQuery.endsWith(';')) {
+                currentQuery.chop(1);
+            }
             currentQuery = currentQuery.trimmed();
             if (!currentQuery.isEmpty()) {
                 if (!q.exec(currentQuery)) {
@@ -271,7 +283,14 @@ bool DbManager::executeSqlScript(const QString &resourceOrFilePath) {
     }
 
     if (!currentQuery.trimmed().isEmpty()) {
-        q.exec(currentQuery.trimmed());
+        QString trailing = currentQuery.trimmed();
+        if (trailing.endsWith(';')) {
+            trailing.chop(1);
+        }
+        trailing = trailing.trimmed();
+        if (!trailing.isEmpty()) {
+            q.exec(trailing);
+        }
     }
 
     return true;
@@ -290,9 +309,9 @@ bool DbManager::ensureDefaultDataIfMissing() {
     QSqlDatabase db = QSqlDatabase::database(m_connectionName);
     QSqlQuery q(db);
 
-    // 1. Check if tables exist (satellite_profiles, profile_channels, golden_frequencies)
+    // 1. Check if tables exist (satellite_profiles, profile_channels, golden_frequencies, test_runs, test_run_channels, work_orders)
     bool needSchema = false;
-    for (const char *tbl : {"satellite_profiles", "profile_channels", "golden_frequencies"}) {
+    for (const char *tbl : {"satellite_profiles", "profile_channels", "golden_frequencies", "test_runs", "test_run_channels", "work_orders"}) {
         q.exec(QString("SHOW TABLES LIKE '%1';").arg(tbl));
         if (!q.next() || q.value(0).toString().isEmpty()) {
             needSchema = true;
@@ -301,44 +320,87 @@ bool DbManager::ensureDefaultDataIfMissing() {
     }
 
     if (needSchema) {
-        qInfo() << "[DbManager] MySQL tabloları bulunamadı, şema otomatik yükleniyor...";
+        qInfo() << "[DbManager] Eksik MySQL tabloları tespit edildi, şema otomatik yükleniyor...";
         executeSqlScript(":/sql/schema_mysql.sql");
+    }
 
-        // Safety net: create tables directly if missing
-        q.exec("SHOW TABLES LIKE 'profile_channels';");
-        if (!q.next() || q.value(0).toString().isEmpty()) {
-            q.exec("CREATE TABLE IF NOT EXISTS `profile_channels` ("
-                   "`id` INT AUTO_INCREMENT PRIMARY KEY,"
-                   "`profile_id` INT NOT NULL,"
-                   "`channel_no` INT NOT NULL,"
-                   "`channel_name` VARCHAR(64) NOT NULL,"
-                   "`frequency_mhz` INT NOT NULL,"
-                   "`symbol_rate` INT NOT NULL,"
-                   "`polarization` ENUM('V', 'H') NOT NULL,"
-                   "`tolerance_db` DECIMAL(4, 2) NOT NULL DEFAULT 1.50,"
-                   "`golden_cn_db` DECIMAL(5, 2) NOT NULL DEFAULT 0.00,"
-                   "`golden_pow_dbm` DECIMAL(6, 2) NOT NULL DEFAULT 0.00,"
-                   "`has_golden_sample` TINYINT(1) NOT NULL DEFAULT 0,"
-                   "`golden_updated_at` TIMESTAMP NULL DEFAULT NULL,"
-                   "`created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
-                   "UNIQUE KEY `uk_profile_channel` (`profile_id`, `channel_no`)"
-                   ") ENGINE=InnoDB;");
-        }
-        q.exec("SHOW TABLES LIKE 'golden_frequencies';");
-        if (!q.next() || q.value(0).toString().isEmpty()) {
-            q.exec("CREATE TABLE IF NOT EXISTS `golden_frequencies` ("
-                   "`id` INT AUTO_INCREMENT PRIMARY KEY,"
-                   "`label` VARCHAR(100) NOT NULL DEFAULT '',"
-                   "`frequency_mhz` INT NOT NULL,"
-                   "`symbol_rate` INT NOT NULL,"
-                   "`polarization` ENUM('V', 'H') NOT NULL,"
-                   "`golden_cn_db` DECIMAL(5, 2) NOT NULL DEFAULT 0.00,"
-                   "`golden_pow_dbm` DECIMAL(6, 2) NOT NULL DEFAULT 0.00,"
-                   "`tolerance_db` DECIMAL(4, 2) NOT NULL DEFAULT 1.50,"
-                   "`updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,"
-                   "UNIQUE KEY `uk_golden_freq_key` (`frequency_mhz`, `symbol_rate`, `polarization`)"
-                   ") ENGINE=InnoDB;");
-        }
+    // Safety net: directly guarantee test_runs and test_run_channels exist
+    q.exec("CREATE TABLE IF NOT EXISTS `test_runs` ("
+           "`id` BIGINT AUTO_INCREMENT PRIMARY KEY,"
+           "`work_order_id` INT DEFAULT NULL,"
+           "`station_id` TINYINT NOT NULL,"
+           "`operator_id` INT DEFAULT NULL,"
+           "`tester_name` VARCHAR(100) NOT NULL DEFAULT '',"
+           "`operator_username` VARCHAR(64) NOT NULL DEFAULT '',"
+           "`antenna_sn` VARCHAR(64) NOT NULL,"
+           "`satellite_profile_id` INT NOT NULL,"
+           "`test_timestamp` DATETIME DEFAULT CURRENT_TIMESTAMP,"
+           "`duration_sec` INT NOT NULL DEFAULT 0,"
+           "`overall_result` ENUM('PASS', 'FAIL', 'ABORTED') NOT NULL,"
+           "`fail_reason` TEXT DEFAULT NULL,"
+           "`avg_delta_db` DECIMAL(5, 2) DEFAULT 0.00,"
+           "`max_delta_db` DECIMAL(5, 2) DEFAULT 0.00,"
+           "`notes` TEXT DEFAULT NULL,"
+           "INDEX `idx_antenna_sn` (`antenna_sn`),"
+           "INDEX `idx_timestamp` (`test_timestamp`),"
+           "INDEX `idx_station` (`station_id`)"
+           ") ENGINE=InnoDB;");
+
+    q.exec("CREATE TABLE IF NOT EXISTS `test_run_channels` ("
+           "`id` BIGINT AUTO_INCREMENT PRIMARY KEY,"
+           "`test_run_id` BIGINT NOT NULL,"
+           "`channel_no` INT NOT NULL,"
+           "`channel_name` VARCHAR(64) NOT NULL,"
+           "`frequency_mhz` INT NOT NULL,"
+           "`symbol_rate` INT NOT NULL,"
+           "`polarization` ENUM('V', 'H') NOT NULL,"
+           "`dut_cn_avg` DECIMAL(5, 2) NOT NULL DEFAULT 0.00,"
+           "`dut_pow_avg` DECIMAL(6, 2) NOT NULL DEFAULT 0.00,"
+           "`ref_cn_avg` DECIMAL(5, 2) NOT NULL DEFAULT 0.00,"
+           "`ref_pow_avg` DECIMAL(6, 2) NOT NULL DEFAULT 0.00,"
+           "`delta_db` DECIMAL(5, 2) NOT NULL DEFAULT 0.00,"
+           "`carrier_locked` TINYINT(1) NOT NULL DEFAULT 0,"
+           "`video_locked` TINYINT(1) NOT NULL DEFAULT 0,"
+           "`audio_locked` TINYINT(1) NOT NULL DEFAULT 0,"
+           "`tolerance_db` DECIMAL(4, 2) NOT NULL DEFAULT 1.50,"
+           "`result` ENUM('PASS', 'FAIL', 'WARNING') NOT NULL,"
+           "INDEX `idx_run_channel` (`test_run_id`, `channel_no`)"
+           ") ENGINE=InnoDB;");
+
+    // Safety net: create tables directly if missing
+    q.exec("SHOW TABLES LIKE 'profile_channels';");
+    if (!q.next() || q.value(0).toString().isEmpty()) {
+        q.exec("CREATE TABLE IF NOT EXISTS `profile_channels` ("
+               "`id` INT AUTO_INCREMENT PRIMARY KEY,"
+               "`profile_id` INT NOT NULL,"
+               "`channel_no` INT NOT NULL,"
+               "`channel_name` VARCHAR(64) NOT NULL,"
+               "`frequency_mhz` INT NOT NULL,"
+               "`symbol_rate` INT NOT NULL,"
+               "`polarization` ENUM('V', 'H') NOT NULL,"
+               "`tolerance_db` DECIMAL(4, 2) NOT NULL DEFAULT 1.50,"
+               "`golden_cn_db` DECIMAL(5, 2) NOT NULL DEFAULT 0.00,"
+               "`golden_pow_dbm` DECIMAL(6, 2) NOT NULL DEFAULT 0.00,"
+               "`has_golden_sample` TINYINT(1) NOT NULL DEFAULT 0,"
+               "`golden_updated_at` TIMESTAMP NULL DEFAULT NULL,"
+               "`created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+               "UNIQUE KEY `uk_profile_channel` (`profile_id`, `channel_no`)"
+               ") ENGINE=InnoDB;");
+    }
+    q.exec("SHOW TABLES LIKE 'golden_frequencies';");
+    if (!q.next() || q.value(0).toString().isEmpty()) {
+        q.exec("CREATE TABLE IF NOT EXISTS `golden_frequencies` ("
+               "`id` INT AUTO_INCREMENT PRIMARY KEY,"
+               "`label` VARCHAR(100) NOT NULL DEFAULT '',"
+               "`frequency_mhz` INT NOT NULL,"
+               "`symbol_rate` INT NOT NULL,"
+               "`polarization` ENUM('V', 'H') NOT NULL,"
+               "`golden_cn_db` DECIMAL(5, 2) NOT NULL DEFAULT 0.00,"
+               "`golden_pow_dbm` DECIMAL(6, 2) NOT NULL DEFAULT 0.00,"
+               "`tolerance_db` DECIMAL(4, 2) NOT NULL DEFAULT 1.50,"
+               "`updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,"
+               "UNIQUE KEY `uk_golden_freq_key` (`frequency_mhz`, `symbol_rate`, `polarization`)"
+               ") ENGINE=InnoDB;");
     }
 
     // 2. Check default profile and channels
@@ -963,6 +1025,7 @@ qint64 DbManager::insertTestRun(const TestRunData &run) {
     }
     if (!isConnected()) {
         m_lastError = "Veritabanı bağlantısı kurulamadığı için test kaydı eklenemedi.";
+        qWarning() << "[DbManager]" << m_lastError;
         return -1;
     }
     QSqlDatabase db = QSqlDatabase::database(m_connectionName);
@@ -991,7 +1054,12 @@ qint64 DbManager::insertTestRun(const TestRunData &run) {
             targetProfileId = qMin.value(0).toInt();
         } else {
             ensureDefaultDataIfMissing();
-            targetProfileId = 1;
+            QSqlQuery qMin2("SELECT MIN(id) FROM satellite_profiles", db);
+            if (qMin2.next() && qMin2.value(0).toInt() > 0) {
+                targetProfileId = qMin2.value(0).toInt();
+            } else {
+                targetProfileId = 1;
+            }
         }
     }
 
@@ -1010,6 +1078,18 @@ qint64 DbManager::insertTestRun(const TestRunData &run) {
                                ? AppConfig::instance().currentUsername()
                                : run.operatorUsername.trimmed();
 
+    QString oRes = run.overallResult.trimmed().toUpper();
+    if (oRes != "PASS" && oRes != "ABORTED") {
+        oRes = "FAIL";
+    }
+
+    QString sn = run.antennaSn.trimmed();
+    if (sn.isEmpty()) {
+        sn = "SN-UNKNOWN";
+    }
+
+    QString ts = (run.timestamp.isValid() ? run.timestamp : QDateTime::currentDateTime()).toString("yyyy-MM-dd HH:mm:ss");
+
     QSqlQuery q(db);
     q.prepare("INSERT INTO test_runs (work_order_id, station_id, operator_id, tester_name, operator_username, antenna_sn, "
               "satellite_profile_id, test_timestamp, duration_sec, overall_result, fail_reason, "
@@ -1018,14 +1098,14 @@ qint64 DbManager::insertTestRun(const TestRunData &run) {
     q.bindValue(":wo", woVal);
     q.bindValue(":st", run.stationId);
     q.bindValue(":op", run.operatorId > 0 ? run.operatorId : QVariant());
-    q.bindValue(":tname", run.testerName);
-    q.bindValue(":opuser", opUser);
-    q.bindValue(":sn", run.antennaSn);
+    q.bindValue(":tname", run.testerName.left(100));
+    q.bindValue(":opuser", opUser.left(64));
+    q.bindValue(":sn", sn.left(64));
     q.bindValue(":sp", targetProfileId);
-    q.bindValue(":ts", (run.timestamp.isValid() ? run.timestamp : QDateTime::currentDateTime()).toString(Qt::ISODate));
+    q.bindValue(":ts", ts);
     q.bindValue(":dur", run.durationSec);
-    q.bindValue(":res", run.overallResult);
-    q.bindValue(":fr", run.failReason);
+    q.bindValue(":res", oRes);
+    q.bindValue(":fr", run.failReason.trimmed());
     q.bindValue(":avg", run.avgDeltaDb);
     q.bindValue(":max", run.maxDeltaDb);
     q.bindValue(":notes", run.notes);
@@ -1041,6 +1121,15 @@ qint64 DbManager::insertTestRun(const TestRunData &run) {
 
     // Insert channel measurement results
     for (const auto &ch : run.channels) {
+        QString chRes = ch.status.trimmed().toUpper();
+        if (chRes != "PASS" && chRes != "WARNING") {
+            chRes = "FAIL";
+        }
+        QString chPol = ch.polarization.trimmed().toUpper();
+        if (chPol != "V" && chPol != "H") {
+            chPol = "V";
+        }
+
         QSqlQuery qCh(db);
         qCh.prepare("INSERT INTO test_run_channels (test_run_id, channel_no, channel_name, frequency_mhz, "
                     "symbol_rate, polarization, dut_cn_avg, dut_pow_avg, ref_cn_avg, ref_pow_avg, delta_db, "
@@ -1049,10 +1138,10 @@ qint64 DbManager::insertTestRun(const TestRunData &run) {
                     ":delta, :c_lock, :v_lock, :a_lock, :tol, :res)");
         qCh.bindValue(":tr_id", runId);
         qCh.bindValue(":ch_no", ch.channelNo);
-        qCh.bindValue(":ch_name", ch.channelName);
+        qCh.bindValue(":ch_name", ch.channelName.left(64));
         qCh.bindValue(":freq", ch.frequencyMhz);
         qCh.bindValue(":sr", ch.symbolRate);
-        qCh.bindValue(":pol", ch.polarization);
+        qCh.bindValue(":pol", chPol);
         qCh.bindValue(":dut_cn", ch.dutCn);
         qCh.bindValue(":dut_pow", ch.dutPow);
         qCh.bindValue(":ref_cn", ch.refCn);
@@ -1062,7 +1151,7 @@ qint64 DbManager::insertTestRun(const TestRunData &run) {
         qCh.bindValue(":v_lock", ch.videoLocked ? 1 : 0);
         qCh.bindValue(":a_lock", ch.audioLocked ? 1 : 0);
         qCh.bindValue(":tol", ch.toleranceDb);
-        qCh.bindValue(":res", ch.status);
+        qCh.bindValue(":res", chRes);
 
         if (!qCh.exec()) {
             qWarning() << "[DbManager] test_run_channels insert failed:" << qCh.lastError().text();

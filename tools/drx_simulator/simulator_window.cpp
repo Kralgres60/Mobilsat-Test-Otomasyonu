@@ -19,11 +19,14 @@
 #include <QFileInfo>
 #include <QAbstractItemView>
 #include <QSignalBlocker>
+#include <QIcon>
 
 SimulatorWindow::SimulatorWindow(QWidget *parent)
     : QMainWindow(parent),
       m_server(new DrxSimServer("DRX-SIM-01", "00:1A:2B:90:00:01", this)),
       m_playTimer(new QTimer(this)) {
+
+    setWindowIcon(QIcon(":/neta_sim_app.ico"));
 
     m_points = SimCurveModel::createPreset(SimCurveModel::PresetType::NormalStable, 30);
 

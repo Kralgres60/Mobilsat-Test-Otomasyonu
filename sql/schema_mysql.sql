@@ -70,16 +70,16 @@ CREATE TABLE IF NOT EXISTS `profile_channels` (
 CREATE TABLE IF NOT EXISTS `test_runs` (
     `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
     `work_order_id` INT DEFAULT NULL,
-    `station_id` TINYINT NOT NULL, -- 1, 2, 3
+    `station_id` TINYINT NOT NULL,
     `operator_id` INT DEFAULT NULL,
     `tester_name` VARCHAR(100) NOT NULL DEFAULT '',
     `operator_username` VARCHAR(64) NOT NULL DEFAULT '',
     `antenna_sn` VARCHAR(64) NOT NULL,
     `satellite_profile_id` INT NOT NULL,
-    `test_timestamp` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    `test_timestamp` DATETIME DEFAULT CURRENT_TIMESTAMP,
     `duration_sec` INT NOT NULL DEFAULT 0,
     `overall_result` ENUM('PASS', 'FAIL', 'ABORTED') NOT NULL,
-    `fail_reason` VARCHAR(255) DEFAULT NULL,
+    `fail_reason` TEXT DEFAULT NULL,
     `avg_delta_db` DECIMAL(5, 2) DEFAULT 0.00,
     `max_delta_db` DECIMAL(5, 2) DEFAULT 0.00,
     `notes` TEXT DEFAULT NULL,
@@ -94,7 +94,7 @@ CREATE TABLE IF NOT EXISTS `test_runs` (
 CREATE TABLE IF NOT EXISTS `test_run_channels` (
     `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
     `test_run_id` BIGINT NOT NULL,
-    `channel_no` INT NOT NULL, -- 1 .. 50
+    `channel_no` INT NOT NULL,
     `channel_name` VARCHAR(64) NOT NULL,
     `frequency_mhz` INT NOT NULL,
     `symbol_rate` INT NOT NULL,
@@ -104,9 +104,9 @@ CREATE TABLE IF NOT EXISTS `test_run_channels` (
     `ref_cn_avg` DECIMAL(5, 2) NOT NULL DEFAULT 0.00,
     `ref_pow_avg` DECIMAL(6, 2) NOT NULL DEFAULT 0.00,
     `delta_db` DECIMAL(5, 2) NOT NULL DEFAULT 0.00,
-    `carrier_locked` TINYINT(1) NOT NULL DEFAULT 0, -- S:+
-    `video_locked` TINYINT(1) NOT NULL DEFAULT 0,   -- V:+
-    `audio_locked` TINYINT(1) NOT NULL DEFAULT 0,   -- A:+
+    `carrier_locked` TINYINT(1) NOT NULL DEFAULT 0,
+    `video_locked` TINYINT(1) NOT NULL DEFAULT 0,
+    `audio_locked` TINYINT(1) NOT NULL DEFAULT 0,
     `tolerance_db` DECIMAL(4, 2) NOT NULL DEFAULT 1.50,
     `result` ENUM('PASS', 'FAIL', 'WARNING') NOT NULL,
     FOREIGN KEY (`test_run_id`) REFERENCES `test_runs`(`id`) ON DELETE CASCADE,

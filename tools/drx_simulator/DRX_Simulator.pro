@@ -11,6 +11,12 @@ win32-g++ {
     QMAKE_CXXFLAGS += -finput-charset=UTF-8 -fexec-charset=UTF-8
 }
 
+win32 {
+    RC_ICONS = neta_sim_app.ico
+}
+
+RESOURCES += simulator.qrc
+
 TARGET = NETA_DRX_Simulator
 TEMPLATE = app
 

@@ -7,6 +7,7 @@
 
 #include <QApplication>
 #include <QFont>
+#include <QIcon>
 #include <QTextCodec>
 #include "simulator_window.h"
 
@@ -15,6 +16,7 @@ int main(int argc, char *argv[]) {
     qputenv("QT_BEARER_POLL_TIMEOUT", QByteArray::number(-1));
 
     QApplication app(argc, argv);
+    app.setWindowIcon(QIcon(":/neta_sim_app.ico"));
     app.setFont(QFont("Segoe UI", 9));
     QTextCodec::setCodecForLocale(QTextCodec::codecForName("UTF-8"));
 
