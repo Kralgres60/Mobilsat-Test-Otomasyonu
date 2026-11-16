@@ -258,5 +258,22 @@ The `golden_frequencies` table supports two flexible reference paradigms:
 2. **Audio-Style Live Recording:** Operators start an audio-like live session ("🔴 Canlı Ölçüm Kaydını Başlat") which streams telemetry from the connected Golden DRX9000 device at 200ms intervals. The session computes real-time averages and stores serialized curve points (`sample_data` as comma-separated values) along with the recorded duration (`duration_sec`).
 
 Selecting any row in the Host UI or Station UI parses `sample_data` and renders an interactive `QCustomPlot` mini-graph visualizing the actual signal trajectory, baseline mean line, and tolerance envelope.
-   - Traceable by operator username, originating station IP/ID, and timestamp.
+
+---
+
+## 9. High-Performance B-Tree Indexing and Paginated Query Engine
+
+To prevent GUI stalls when the production database scales to hundreds of thousands of test records:
+
+1. **B-Tree Composite Indexes:**
+   - `idx_test_runs_sn_time`: (`antenna_sn`, `test_timestamp`) enables instant barcode queries and chronological ranges.
+   - `idx_test_runs_wo`: (`work_order_id`) provides fast batch filtering.
+   - `idx_test_runs_result`: (`overall_result`) accelerates PASS/FAIL filtering.
+   - `idx_run_channels_run`: (`test_run_id`) accelerates drill-down channel telemetry lookups.
+2. **Server-Side Pagination:**
+   - Handled via `DbManager::getTestRunsPaged(page, pageSize, ...)` using SQL `LIMIT` and `OFFSET`.
+   - Prevents memory bloat and keeps UI rendering instantaneous regardless of table size.
+3. **In-Memory Fast Lookup ($O(1)$ and $O(\log N)$):**
+   - Barcode index: In-memory `QHash<QString, QVector<int>>` for sub-millisecond barcode matches.
+   - Binary search: `TestHistoryWidget::binarySearchRunById()` finds runs in $O(\log N)$ time.
 

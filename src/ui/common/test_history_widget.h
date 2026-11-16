@@ -44,12 +44,29 @@ private slots:
     void applyDbFilter(const QString &text);
     void onClearAuditLogsClicked();
 
+    // Pagination & Search Slots
+    void onFirstPageClicked();
+    void onPrevPageClicked();
+    void onNextPageClicked();
+    void onLastPageClicked();
+    void onPageSizeChanged(int index);
+
 private:
     void setupUi();
     void setupHistoryTab(QWidget *tab);
     void setupDbViewerTab(QWidget *tab);
     void setupAuditLogTab(QWidget *tab);
     void populateTable(const QVector<TestRunData> &runs);
+    void updatePaginationControls();
+    void rebuildBarcodeIndex();
+
+    /**
+     * @brief High-performance Binary Search to find a run by ID in O(log N) time.
+     * @param runs Sorted slice or array of test runs (sorted descending by ID)
+     * @param targetId Target run database ID
+     * @return Index if found, or -1 if not found.
+     */
+    static int binarySearchRunById(const QVector<TestRunData> &runs, qint64 targetId);
 
     QTabWidget   *m_tabs          = nullptr;
 
@@ -63,6 +80,23 @@ private:
     QLabel       *m_lblSummary    = nullptr;
     QTableWidget *m_table         = nullptr;
     QVector<TestRunData> m_cachedRuns;
+
+    // Pagination controls
+    QPushButton  *m_btnFirstPage  = nullptr;
+    QPushButton  *m_btnPrevPage   = nullptr;
+    QLabel       *m_lblPageInfo   = nullptr;
+    QPushButton  *m_btnNextPage   = nullptr;
+    QPushButton  *m_btnLastPage   = nullptr;
+    QComboBox    *m_comboPageSize = nullptr;
+    QLabel       *m_lblTotalCount = nullptr;
+
+    int m_currentPage  = 1;
+    int m_pageSize     = 50;
+    int m_totalRecords = 0;
+    int m_totalPages   = 1;
+
+    // Fast In-Memory Barcode Index (O(1) search)
+    QHash<QString, QVector<int>> m_barcodeIndex;
 
     // Tab 2: Database Table Browser
     QComboBox    *m_comboTables   = nullptr;

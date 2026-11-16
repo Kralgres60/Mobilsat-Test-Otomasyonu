@@ -139,6 +139,10 @@ public:
     qint64 insertTestRun(const TestRunData &run);
     /** @brief Queries recent test runs joined with operator username and satellite profile name. */
     QVector<TestRunData> getTestRuns(int limit = 100, const QString &searchSn = QString());
+    /** @brief Returns total count of test runs matching filter criteria for high-performance pagination. */
+    int getTestRunsCount(const QString &searchNeedle = QString(), int stationFilter = -1, const QString &resultFilter = QString());
+    /** @brief Queries a paginated slice of test runs with indexed server-side pagination. */
+    QVector<TestRunData> getTestRunsPaged(int page, int pageSize = 50, const QString &searchNeedle = QString(), int stationFilter = -1, const QString &resultFilter = QString());
     /** @brief Checks whether a test run with the same serial number, station, and timestamp already exists. */
     bool testRunExists(const QString &antennaSn, int stationId, const QDateTime &timestamp);
 

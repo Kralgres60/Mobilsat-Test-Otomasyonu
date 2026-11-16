@@ -87,7 +87,10 @@ CREATE TABLE IF NOT EXISTS `test_runs` (
     FOREIGN KEY (`satellite_profile_id`) REFERENCES `satellite_profiles`(`id`),
     INDEX `idx_antenna_sn` (`antenna_sn`),
     INDEX `idx_timestamp` (`test_timestamp`),
-    INDEX `idx_station` (`station_id`)
+    INDEX `idx_station` (`station_id`),
+    INDEX `idx_test_runs_sn_time` (`antenna_sn`, `test_timestamp`),
+    INDEX `idx_test_runs_wo` (`work_order_id`),
+    INDEX `idx_test_runs_result` (`overall_result`)
 ) ENGINE=InnoDB;
 
 -- 6. Test Koşusu Kanal Detayları (10 Kanalın Örnekleme Verileri)

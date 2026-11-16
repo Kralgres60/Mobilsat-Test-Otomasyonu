@@ -128,6 +128,56 @@ void TestHistoryWidget::setupHistoryTab(QWidget *tab) {
     m_table->setAlternatingRowColors(true);
     m_table->verticalHeader()->setDefaultSectionSize(26);
     vbox->addWidget(m_table, 1);
+
+    // Pagination toolbar
+    QHBoxLayout *pageRow = new QHBoxLayout();
+    pageRow->setSpacing(6);
+
+    m_btnFirstPage = new QPushButton("⏮ İlk", tab);
+    m_btnFirstPage->setCursor(Qt::PointingHandCursor);
+    m_btnFirstPage->setFixedWidth(55);
+    connect(m_btnFirstPage, &QPushButton::clicked, this, &TestHistoryWidget::onFirstPageClicked);
+
+    m_btnPrevPage = new QPushButton("◀ Önceki", tab);
+    m_btnPrevPage->setCursor(Qt::PointingHandCursor);
+    m_btnPrevPage->setFixedWidth(75);
+    connect(m_btnPrevPage, &QPushButton::clicked, this, &TestHistoryWidget::onPrevPageClicked);
+
+    m_lblPageInfo = new QLabel("Sayfa 1 / 1", tab);
+    m_lblPageInfo->setStyleSheet("font-weight: bold; color: #34D399; padding: 0 8px; font-size: 10pt;");
+
+    m_btnNextPage = new QPushButton("Sonraki ▶", tab);
+    m_btnNextPage->setCursor(Qt::PointingHandCursor);
+    m_btnNextPage->setFixedWidth(75);
+    connect(m_btnNextPage, &QPushButton::clicked, this, &TestHistoryWidget::onNextPageClicked);
+
+    m_btnLastPage = new QPushButton("Son ⏭", tab);
+    m_btnLastPage->setCursor(Qt::PointingHandCursor);
+    m_btnLastPage->setFixedWidth(55);
+    connect(m_btnLastPage, &QPushButton::clicked, this, &TestHistoryWidget::onLastPageClicked);
+
+    pageRow->addWidget(m_btnFirstPage);
+    pageRow->addWidget(m_btnPrevPage);
+    pageRow->addWidget(m_lblPageInfo);
+    pageRow->addWidget(m_btnNextPage);
+    pageRow->addWidget(m_btnLastPage);
+    pageRow->addStretch();
+
+    pageRow->addWidget(new QLabel("Sayfa Başına:", tab));
+    m_comboPageSize = new QComboBox(tab);
+    m_comboPageSize->addItem("50 Kayıt", 50);
+    m_comboPageSize->addItem("100 Kayıt", 100);
+    m_comboPageSize->addItem("250 Kayıt", 250);
+    m_comboPageSize->addItem("500 Kayıt", 500);
+    connect(m_comboPageSize, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &TestHistoryWidget::onPageSizeChanged);
+    pageRow->addWidget(m_comboPageSize);
+
+    m_lblTotalCount = new QLabel("Toplam: 0 Kayıt", tab);
+    m_lblTotalCount->setStyleSheet("color: #94A3B8; font-size: 9pt; padding-left: 10px;");
+    pageRow->addWidget(m_lblTotalCount);
+
+    vbox->addLayout(pageRow);
 }
 
 void TestHistoryWidget::setupDbViewerTab(QWidget *tab) {
@@ -184,44 +234,116 @@ void TestHistoryWidget::setupDbViewerTab(QWidget *tab) {
 }
 
 void TestHistoryWidget::refreshHistory() {
+    m_currentPage = 1;
+    applyFilters();
+}
+
+void TestHistoryWidget::applyFilters() {
     DbManager &db = DbManager::instance();
     if (!db.isConnected()) {
         m_cachedRuns.clear();
         m_table->setRowCount(0);
         m_lblSummary->setText("⚠️ Veritabanı bağlantısı yok (Çevrimdışı)");
+        m_totalRecords = 0;
+        m_totalPages = 1;
+        updatePaginationControls();
         return;
     }
 
-    m_cachedRuns = db.getTestRuns(500);
-    applyFilters();
+    const QString query = m_txtSearch ? m_txtSearch->text().trimmed() : QString();
+    const int stationFilter = m_comboStation ? m_comboStation->currentData().toInt() : -1;
+    const QString resultFilter = m_comboResult ? m_comboResult->currentData().toString() : QString();
+
+    // 1. Get total count using indexed DB query
+    m_totalRecords = db.getTestRunsCount(query, stationFilter, resultFilter);
+    m_totalPages = qMax(1, (m_totalRecords + m_pageSize - 1) / m_pageSize);
+    m_currentPage = qBound(1, m_currentPage, m_totalPages);
+
+    // 2. Fetch only the requested page slice using indexed LIMIT & OFFSET
+    m_cachedRuns = db.getTestRunsPaged(m_currentPage, m_pageSize, query, stationFilter, resultFilter);
+
+    // 3. Rebuild in-memory hash index for instantaneous O(1) barcode lookup
+    rebuildBarcodeIndex();
+
+    // 4. Render rows and update pagination UI
+    populateTable(m_cachedRuns);
+    updatePaginationControls();
 }
 
-void TestHistoryWidget::applyFilters() {
-    const QString query = m_txtSearch->text().trimmed();
-    const int stationFilter = m_comboStation->currentData().toInt();
-    const QString resultFilter = m_comboResult->currentData().toString();
-
-    QVector<TestRunData> filtered;
-    filtered.reserve(m_cachedRuns.size());
-
-    for (const auto &r : m_cachedRuns) {
-        if (stationFilter != -1 && r.stationId != stationFilter) continue;
-        if (!resultFilter.isEmpty() && !r.overallResult.trimmed().toUpper().contains(resultFilter)) continue;
-
-        if (!query.isEmpty()) {
-            bool match = r.antennaSn.contains(query, Qt::CaseInsensitive)
-                      || r.testerName.contains(query, Qt::CaseInsensitive)
-                      || r.operatorUsername.contains(query, Qt::CaseInsensitive)
-                      || r.profileName.contains(query, Qt::CaseInsensitive)
-                      || r.failReason.contains(query, Qt::CaseInsensitive)
-                      || QString::number(r.workOrderId).contains(query);
-            if (!match) continue;
-        }
-
-        filtered.append(r);
+void TestHistoryWidget::updatePaginationControls() {
+    if (m_lblPageInfo) {
+        m_lblPageInfo->setText(QString("Sayfa %1 / %2").arg(m_currentPage).arg(m_totalPages));
     }
+    if (m_lblTotalCount) {
+        m_lblTotalCount->setText(QString("Toplam: %1 Kayıt").arg(m_totalRecords));
+    }
+    if (m_btnFirstPage) m_btnFirstPage->setEnabled(m_currentPage > 1);
+    if (m_btnPrevPage)  m_btnPrevPage->setEnabled(m_currentPage > 1);
+    if (m_btnNextPage)  m_btnNextPage->setEnabled(m_currentPage < m_totalPages);
+    if (m_btnLastPage)  m_btnLastPage->setEnabled(m_currentPage < m_totalPages);
+}
 
-    populateTable(filtered);
+void TestHistoryWidget::rebuildBarcodeIndex() {
+    m_barcodeIndex.clear();
+    for (int i = 0; i < m_cachedRuns.size(); ++i) {
+        const QString sn = m_cachedRuns[i].antennaSn.trimmed().toUpper();
+        if (!sn.isEmpty()) {
+            m_barcodeIndex[sn].append(i);
+        }
+    }
+}
+
+int TestHistoryWidget::binarySearchRunById(const QVector<TestRunData> &runs, qint64 targetId) {
+    int left = 0;
+    int right = runs.size() - 1;
+    while (left <= right) {
+        int mid = left + (right - left) / 2;
+        if (runs[mid].id == targetId) {
+            return mid;
+        }
+        if (runs[mid].id < targetId) {
+            right = mid - 1; // Since runs are sorted descending by ID
+        } else {
+            left = mid + 1;
+        }
+    }
+    return -1;
+}
+
+void TestHistoryWidget::onFirstPageClicked() {
+    if (m_currentPage != 1) {
+        m_currentPage = 1;
+        applyFilters();
+    }
+}
+
+void TestHistoryWidget::onPrevPageClicked() {
+    if (m_currentPage > 1) {
+        m_currentPage--;
+        applyFilters();
+    }
+}
+
+void TestHistoryWidget::onNextPageClicked() {
+    if (m_currentPage < m_totalPages) {
+        m_currentPage++;
+        applyFilters();
+    }
+}
+
+void TestHistoryWidget::onLastPageClicked() {
+    if (m_currentPage != m_totalPages) {
+        m_currentPage = m_totalPages;
+        applyFilters();
+    }
+}
+
+void TestHistoryWidget::onPageSizeChanged(int /*index*/) {
+    if (m_comboPageSize) {
+        m_pageSize = m_comboPageSize->currentData().toInt();
+        m_currentPage = 1;
+        applyFilters();
+    }
 }
 
 void TestHistoryWidget::populateTable(const QVector<TestRunData> &runs) {
@@ -274,8 +396,9 @@ void TestHistoryWidget::populateTable(const QVector<TestRunData> &runs) {
     }
 
     m_table->setSortingEnabled(true);
-    m_lblSummary->setText(QString("Toplam: %1 kayıt listelendi  |  ✅ PASS: %2   ❌ FAIL: %3   ⚠️ Diğer: %4")
-                              .arg(runs.size()).arg(passCount).arg(failCount).arg(abortCount));
+    m_lblSummary->setText(QString("📊 Sayfa %1/%2: %3 kayıt gösteriliyor | Toplam Filtrelenen: %4 (Bu sayfada: ✅ %5  ❌ %6  ⚠️ %7)")
+                              .arg(m_currentPage).arg(m_totalPages).arg(runs.size())
+                              .arg(m_totalRecords).arg(passCount).arg(failCount).arg(abortCount));
 }
 
 void TestHistoryWidget::onExportExcelClicked() {

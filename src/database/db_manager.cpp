@@ -194,6 +194,16 @@ bool DbManager::initTablesIfSqlite() {
     q.exec("ALTER TABLE golden_frequencies ADD COLUMN sample_data TEXT DEFAULT '';");
     q.exec("CREATE TABLE IF NOT EXISTS audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, log_timestamp TEXT DEFAULT CURRENT_TIMESTAMP, action_type TEXT NOT NULL, details TEXT, operator_username TEXT DEFAULT '', station_id INTEGER DEFAULT 0);");
 
+    // Performance B-Tree Indexes for SQLite local fallback
+    q.exec("CREATE INDEX IF NOT EXISTS idx_test_runs_sn ON test_runs (antenna_sn);");
+    q.exec("CREATE INDEX IF NOT EXISTS idx_test_runs_time ON test_runs (test_timestamp);");
+    q.exec("CREATE INDEX IF NOT EXISTS idx_test_runs_sn_time ON test_runs (antenna_sn, test_timestamp);");
+    q.exec("CREATE INDEX IF NOT EXISTS idx_test_runs_wo ON test_runs (work_order_id);");
+    q.exec("CREATE INDEX IF NOT EXISTS idx_test_runs_station ON test_runs (station_id);");
+    q.exec("CREATE INDEX IF NOT EXISTS idx_test_runs_result ON test_runs (overall_result);");
+    q.exec("CREATE INDEX IF NOT EXISTS idx_run_channels_run ON test_run_channels (test_run_id);");
+    q.exec("CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs (action_type);");
+
     // Check if default profile exists
     q.exec("SELECT COUNT(*) FROM satellite_profiles;");
     if (q.next() && q.value(0).toInt() == 0) {
@@ -514,6 +524,20 @@ bool DbManager::ensureDefaultDataIfMissing() {
            "INDEX idx_audit_time (log_timestamp), "
            "INDEX idx_audit_station (station_id)"
            ") ENGINE=InnoDB;");
+
+    // 6e. Performance B-Tree composite indexes for test_runs (fast search & pagination)
+    q.exec("SHOW INDEX FROM test_runs WHERE Key_name = 'idx_test_runs_sn_time';");
+    if (!q.next()) {
+        q.exec("ALTER TABLE test_runs ADD INDEX idx_test_runs_sn_time (antenna_sn, test_timestamp);");
+    }
+    q.exec("SHOW INDEX FROM test_runs WHERE Key_name = 'idx_test_runs_wo';");
+    if (!q.next()) {
+        q.exec("ALTER TABLE test_runs ADD INDEX idx_test_runs_wo (work_order_id);");
+    }
+    q.exec("SHOW INDEX FROM test_runs WHERE Key_name = 'idx_test_runs_result';");
+    if (!q.next()) {
+        q.exec("ALTER TABLE test_runs ADD INDEX idx_test_runs_result (overall_result);");
+    }
 
     // Insert default Reference Mode if missing
     q.exec("INSERT INTO system_settings (setting_key, setting_value, description) "
@@ -1227,6 +1251,135 @@ QVector<TestRunData> DbManager::getTestRuns(int limit, const QString &searchSn) 
     if (!q.exec()) {
         m_lastError = q.lastError().text();
         qWarning() << "[DbManager] getTestRuns failed:" << m_lastError;
+        return list;
+    }
+
+    while (q.next()) {
+        TestRunData r;
+        r.id = q.value(0).toLongLong();
+        r.workOrderId = q.value(1).toInt();
+        r.stationId = q.value(2).toInt();
+        r.operatorId = q.value(3).toInt();
+        r.testerName = q.value(4).toString();
+        r.operatorUsername = q.value(5).toString();
+        r.antennaSn = q.value(6).toString();
+        r.satelliteProfileId = q.value(7).toInt();
+        r.profileName = q.value(8).toString();
+        r.timestamp = QDateTime::fromString(q.value(9).toString(), Qt::ISODate);
+        if (!r.timestamp.isValid()) {
+            r.timestamp = q.value(9).toDateTime();
+        }
+        r.durationSec = q.value(10).toInt();
+        r.overallResult = q.value(11).toString();
+        r.failReason = q.value(12).toString();
+        r.avgDeltaDb = q.value(13).toDouble();
+        r.maxDeltaDb = q.value(14).toDouble();
+        r.notes = q.value(15).toString();
+        list.append(r);
+    }
+    return list;
+}
+
+int DbManager::getTestRunsCount(const QString &searchNeedle, int stationFilter, const QString &resultFilter) {
+    if (!isConnected()) return 0;
+    QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+
+    QString sql = "SELECT COUNT(*) FROM test_runs tr "
+                  "LEFT JOIN users u ON u.id = tr.operator_id "
+                  "LEFT JOIN satellite_profiles sp ON sp.id = tr.satellite_profile_id WHERE 1=1 ";
+
+    if (stationFilter != -1) {
+        sql += "AND tr.station_id = :st ";
+    }
+    if (!resultFilter.trimmed().isEmpty()) {
+        sql += "AND tr.overall_result = :res ";
+    }
+    const QString needle = searchNeedle.trimmed();
+    if (!needle.isEmpty()) {
+        sql += "AND (tr.antenna_sn LIKE :s1 OR tr.tester_name LIKE :s2 "
+               "OR tr.operator_username LIKE :s3 OR u.username LIKE :s4 "
+               "OR sp.profile_name LIKE :s5 OR tr.fail_reason LIKE :s6 OR tr.notes LIKE :s7) ";
+    }
+
+    QSqlQuery q(db);
+    q.prepare(sql);
+    if (stationFilter != -1) {
+        q.bindValue(":st", stationFilter);
+    }
+    if (!resultFilter.trimmed().isEmpty()) {
+        q.bindValue(":res", resultFilter.trimmed());
+    }
+    if (!needle.isEmpty()) {
+        const QString like = QString("%%1%").arg(needle);
+        q.bindValue(":s1", like);
+        q.bindValue(":s2", like);
+        q.bindValue(":s3", like);
+        q.bindValue(":s4", like);
+        q.bindValue(":s5", like);
+        q.bindValue(":s6", like);
+        q.bindValue(":s7", like);
+    }
+
+    if (q.exec() && q.next()) {
+        return q.value(0).toInt();
+    }
+    return 0;
+}
+
+QVector<TestRunData> DbManager::getTestRunsPaged(int page, int pageSize, const QString &searchNeedle, int stationFilter, const QString &resultFilter) {
+    QVector<TestRunData> list;
+    if (!isConnected()) return list;
+
+    int safePage = qMax(1, page);
+    int safePageSize = qBound(10, pageSize, 1000);
+    int offset = (safePage - 1) * safePageSize;
+
+    QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+    QString sql = "SELECT tr.id, tr.work_order_id, tr.station_id, tr.operator_id, tr.tester_name, "
+                  "COALESCE(NULLIF(tr.operator_username, ''), u.username, '') AS op_username, "
+                  "tr.antenna_sn, tr.satellite_profile_id, COALESCE(sp.profile_name, '') AS prof_name, "
+                  "tr.test_timestamp, tr.duration_sec, tr.overall_result, tr.fail_reason, "
+                  "tr.avg_delta_db, tr.max_delta_db, tr.notes "
+                  "FROM test_runs tr "
+                  "LEFT JOIN users u ON u.id = tr.operator_id "
+                  "LEFT JOIN satellite_profiles sp ON sp.id = tr.satellite_profile_id WHERE 1=1 ";
+
+    if (stationFilter != -1) {
+        sql += "AND tr.station_id = :st ";
+    }
+    if (!resultFilter.trimmed().isEmpty()) {
+        sql += "AND tr.overall_result = :res ";
+    }
+    const QString needle = searchNeedle.trimmed();
+    if (!needle.isEmpty()) {
+        sql += "AND (tr.antenna_sn LIKE :s1 OR tr.tester_name LIKE :s2 "
+               "OR tr.operator_username LIKE :s3 OR u.username LIKE :s4 "
+               "OR sp.profile_name LIKE :s5 OR tr.fail_reason LIKE :s6 OR tr.notes LIKE :s7) ";
+    }
+    sql += QString("ORDER BY tr.id DESC LIMIT %1 OFFSET %2").arg(safePageSize).arg(offset);
+
+    QSqlQuery q(db);
+    q.prepare(sql);
+    if (stationFilter != -1) {
+        q.bindValue(":st", stationFilter);
+    }
+    if (!resultFilter.trimmed().isEmpty()) {
+        q.bindValue(":res", resultFilter.trimmed());
+    }
+    if (!needle.isEmpty()) {
+        const QString like = QString("%%1%").arg(needle);
+        q.bindValue(":s1", like);
+        q.bindValue(":s2", like);
+        q.bindValue(":s3", like);
+        q.bindValue(":s4", like);
+        q.bindValue(":s5", like);
+        q.bindValue(":s6", like);
+        q.bindValue(":s7", like);
+    }
+
+    if (!q.exec()) {
+        m_lastError = q.lastError().text();
+        qWarning() << "[DbManager] getTestRunsPaged failed:" << m_lastError;
         return list;
     }
 
