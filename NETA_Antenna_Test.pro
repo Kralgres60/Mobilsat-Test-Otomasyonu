@@ -37,6 +37,7 @@ SOURCES += \
     src/core/dependency_installer.cpp \
     src/core/xlsxutil.cpp \
     src/database/db_manager.cpp \
+    src/database/backup_manager.cpp \
     src/hardware/data_transfer.cpp \
     src/hardware/drx_protocol_config.cpp \
     src/network/udp_beacon.cpp \
@@ -71,6 +72,7 @@ HEADERS += \
     src/core/dependency_installer.h \
     src/core/xlsxutil.h \
     src/database/db_manager.h \
+    src/database/backup_manager.h \
     src/hardware/data_transfer.h \
     src/hardware/drx_protocol_config.h \
     src/network/network_messages.h \

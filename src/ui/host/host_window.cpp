@@ -38,6 +38,8 @@
 #include <QPixmap>
 #include <QSplitter>
 #include <QFrame>
+#include <QDesktopServices>
+#include <QUrl>
 
 HostWindow::HostWindow(QWidget *parent)
     : QMainWindow(parent),
@@ -161,6 +163,27 @@ HostWindow::HostWindow(QWidget *parent)
     if (DbManager::instance().isConnected()) {
         DbManager::instance().ensureDefaultDataIfMissing();
     }
+
+    // Auto-backup service initialization & signal connections
+    BackupManager::instance().startAutoBackup(24);
+    connect(&BackupManager::instance(), &BackupManager::backupCompleted, this,
+            [this](const QString &path, qint64 size) {
+        QString filename = QFileInfo(path).fileName();
+        if (m_lblLastBackupInfo) {
+            m_lblLastBackupInfo->setText(QString("Son Yedek: %1 (%2 KB) | Otomatik: Aktif (24s)")
+                .arg(filename)
+                .arg(size / 1024));
+        }
+        appendLog(QString("💾 [Otomatik Yedek] Başarılı: %1 (%2 KB)").arg(filename).arg(size / 1024));
+    });
+    connect(&BackupManager::instance(), &BackupManager::backupFailed, this,
+            [this](const QString &err) {
+        appendLog(QString("❌ [Yedekleme Hatası] %1").arg(err));
+    });
+    connect(&BackupManager::instance(), &BackupManager::backupsPruned, this,
+            [this](int count) {
+        appendLog(QString("🧹 [Yedekleme Temizliği] %1 adet eski yedek (>30 gün) budandı.").arg(count));
+    });
     ReferenceMode activeMode = DbManager::instance().getReferenceMode();
     m_tcpServer.setReferenceMode(activeMode);
     updateRefModeBadgeUi(activeMode);
@@ -1005,6 +1028,32 @@ void HostWindow::setupSettingsPage() {
     dbActionRow->addWidget(btnInstallMysql);
     dbActionRow->addWidget(btnResetDb);
     vboxDb->addLayout(dbActionRow);
+
+    QHBoxLayout *backupActionRow = new QHBoxLayout();
+    m_btnBackupNow = new QPushButton("💾 Veritabanını Şimdi Yedekle", grpDbSettings);
+    m_btnBackupNow->setStyleSheet("background-color: #059669; color: #FFFFFF; border: none; border-radius: 4px; padding: 7px 12px; font-weight: bold;");
+    connect(m_btnBackupNow, &QPushButton::clicked, this, &HostWindow::onBackupDbNowClicked);
+
+    m_btnOpenBackupDir = new QPushButton("📂 Yedek Klasörü", grpDbSettings);
+    m_btnOpenBackupDir->setStyleSheet("background-color: #374151; color: #E5E7EB; border: 1px solid #4B5563; border-radius: 4px; padding: 7px 12px;");
+    connect(m_btnOpenBackupDir, &QPushButton::clicked, this, &HostWindow::onOpenBackupDirClicked);
+
+    backupActionRow->addWidget(m_btnBackupNow);
+    backupActionRow->addWidget(m_btnOpenBackupDir);
+    vboxDb->addLayout(backupActionRow);
+
+    m_lblLastBackupInfo = new QLabel(grpDbSettings);
+    m_lblLastBackupInfo->setStyleSheet("color: #9CA3AF; font-size: 8pt;");
+    QFileInfoList backups = BackupManager::instance().listBackups();
+    if (!backups.isEmpty()) {
+        m_lblLastBackupInfo->setText(QString("Son Yedek: %1 (%2 KB) | Otomatik: Aktif (24s)")
+            .arg(backups.first().fileName())
+            .arg(backups.first().size() / 1024));
+    } else {
+        m_lblLastBackupInfo->setText("Son Yedek: Henüz yok | Otomatik: Aktif (24s)");
+    }
+    vboxDb->addWidget(m_lblLastBackupInfo);
+
     cardsGrid->addWidget(grpDbSettings, 1, 0);
 
     // Card 4: Optional Legacy RS232 Fallback for Reference DRX
@@ -1335,6 +1384,39 @@ void HostWindow::onCheckDbClicked() {
             m_lblDbStatus->setStyleSheet("color: #F87171; font-weight: bold;");
         }
     }
+}
+
+void HostWindow::onBackupDbNowClicked() {
+    appendLog("💾 Manuel veritabanı yedekleme başlatılıyor...");
+    QString outPath;
+    QString outErr;
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    bool ok = BackupManager::instance().performBackup(&outPath, &outErr);
+    QApplication::restoreOverrideCursor();
+
+    if (ok) {
+        QFileInfo fi(outPath);
+        if (m_lblLastBackupInfo) {
+            m_lblLastBackupInfo->setText(QString("Son Yedek: %1 (%2 KB) | Otomatik: Aktif (24s)")
+                .arg(fi.fileName())
+                .arg(fi.size() / 1024));
+        }
+        appendLog(QString("💾 Manuel yedekleme tamamlandı: %1 (%2 KB)").arg(fi.fileName()).arg(fi.size() / 1024));
+        QMessageBox::information(this, "Yedekleme Başarılı",
+            QString("Veritabanı yedeği başarıyla oluşturuldu:\n\nDosya: %1\nBoyut: %2 KB\nKonum: %3")
+                .arg(fi.fileName())
+                .arg(fi.size() / 1024)
+                .arg(fi.absolutePath()));
+    } else {
+        appendLog(QString("❌ Yedekleme başarısız oldu: %1").arg(outErr));
+        QMessageBox::warning(this, "Yedekleme Hatası",
+            QString("Veritabanı yedeklenemedi:\n\n%1").arg(outErr));
+    }
+}
+
+void HostWindow::onOpenBackupDirClicked() {
+    QString dir = BackupManager::instance().backupDirectory();
+    QDesktopServices::openUrl(QUrl::fromLocalFile(dir));
 }
 
 void HostWindow::appendLog(const QString &msg) {

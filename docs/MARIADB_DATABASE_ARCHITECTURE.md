@@ -277,3 +277,25 @@ To prevent GUI stalls when the production database scales to hundreds of thousan
    - Barcode index: In-memory `QHash<QString, QVector<int>>` for sub-millisecond barcode matches.
    - Binary search: `TestHistoryWidget::binarySearchRunById()` finds runs in $O(\log N)$ time.
 
+---
+
+## 10. Automated Database Backup and Retention Pruning Engine (`BackupManager`)
+
+To guarantee business continuity and zero data loss on factory production lines:
+
+1. **Scheduled Background Automation:**
+   - Managed by `BackupManager::instance()`, running an asynchronous `QTimer` (default 24-hour cycle) without freezing the GUI.
+   - Automatically kicks off at shift change or daily maintenance intervals.
+2. **Dual-Engine Export Capability:**
+   - **SQLite Mode:** Executes atomic, non-blocking `VACUUM INTO '<backupPath>'` query; falls back to verified binary copy (`neta_backup_sqlite_YYYYMMDD_HHMMSS.db`).
+   - **MariaDB Mode (mysqldump & Native SQL Dump):**
+     - Prioritizes external `mysqldump.exe` with `--single-transaction --quick` flags.
+     - When `mysqldump` is unavailable, activates the built-in native Qt SQL engine (`dumpMariaDbNative`): queries table definitions (`SHOW CREATE TABLE`), streams table rows with batch `INSERT INTO` statements, and writes fully self-contained `.sql` dumps.
+3. **Automatic Retention Pruning (30 Days):**
+   - Analyzes file modification timestamps in the `backups/` storage folder.
+   - Automatically unlinks backups older than 30 days to protect disk storage from exhaustion.
+4. **Audit Trail & Operator Controls:**
+   - Manual one-click trigger ("💾 Veritabanını Şimdi Yedekle") and directory explorer shortcut ("📂 Yedek Klasörü") on the Host Settings console.
+   - Every backup operation logs an audit trail event (`DB_BACKUP`) with filename and byte size in the `audit_logs` table.
+
+

@@ -178,6 +178,11 @@ bool DbManager::isConnected() const {
     return QSqlDatabase::database(m_connectionName).isOpen();
 }
 
+QString DbManager::databaseName() const {
+    if (!QSqlDatabase::contains(m_connectionName)) return QString();
+    return QSqlDatabase::database(m_connectionName).databaseName();
+}
+
 bool DbManager::initTablesIfSqlite() {
     QSqlDatabase db = QSqlDatabase::database(m_connectionName);
     QSqlQuery q(db);

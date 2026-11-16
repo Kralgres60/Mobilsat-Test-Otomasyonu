@@ -31,6 +31,7 @@
 #include "ui/common/drx_clock_badge.h"
 #include "ui/host/golden_reference_widget.h"
 #include "ui/host/user_manager_widget.h"
+#include "database/backup_manager.h"
 
 /**
  * @class HostWindow
@@ -74,6 +75,8 @@ private slots:
     void onInstallMysqlClicked();
     void onResetDbClicked();
     void onCheckDbClicked();
+    void onBackupDbNowClicked();
+    void onOpenBackupDirClicked();
     void onAboutClicked();
     void onLogoutClicked();
     /** @brief Returns to the unified HOST / JOIN server lobby window. */
@@ -181,6 +184,9 @@ private:
     QLineEdit *m_txtDbHost = nullptr;
     QSpinBox *m_spinDbPort = nullptr; ///< MariaDB port in Settings
     QLineEdit *m_txtDbName = nullptr;
+    QLabel *m_lblLastBackupInfo = nullptr;
+    QPushButton *m_btnBackupNow = nullptr;
+    QPushButton *m_btnOpenBackupDir = nullptr;
     QSpinBox *m_spinHostTcpPort = nullptr; ///< Host TCP server port in Settings
     QSpinBox *m_spinHostUdpPort = nullptr; ///< Host UDP beacon port in Settings
 

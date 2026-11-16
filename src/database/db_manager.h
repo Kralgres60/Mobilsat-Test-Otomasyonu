@@ -80,6 +80,15 @@ public:
     /** @brief Returns the Qt SQL connection name used by this DbManager. */
     QString connectionName() const { return m_connectionName; }
 
+    /** @brief Returns true if active driver is MariaDB/MySQL. */
+    bool isUsingMysql() const { return m_driverName == "QMYSQL"; }
+
+    /** @brief Returns true if active driver is SQLite. */
+    bool isUsingSqlite() const { return m_driverName == "QSQLITE"; }
+
+    /** @brief Returns active database name or file path. */
+    QString databaseName() const;
+
     // Automatic Schema & Default Seed Data Provisioning
     bool ensureDefaultDataIfMissing();
     bool executeSqlScript(const QString &resourceOrFilePath);
