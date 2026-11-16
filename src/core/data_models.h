@@ -245,14 +245,16 @@ struct StationLiveStatus {
  */
 struct GoldenFrequencyRecord {
     int id = 0;                     ///< Primary key
-    QString label;                  ///< Descriptive label (e.g. "11054 V 30000")
-    int frequencyMhz = 11054;       ///< Transponder frequency (MHz)
-    int symbolRate = 30000;         ///< Symbol rate (kSym/s)
+    QString label;                  ///< Descriptive measurement label (e.g. "Canlı Ölçüm #1")
+    int frequencyMhz = 11054;       ///< Transponder frequency (MHz) or 0
+    int symbolRate = 30000;         ///< Symbol rate (kSym/s) or 0
     QString polarization = "V";     ///< Polarization ("V" or "H")
     double goldenCnDb = 0.0;        ///< Measured Reference C/N (dB)
     double goldenPowDbm = 0.0;      ///< Measured Reference Power (dBm)
     double toleranceDb = 1.50;      ///< Reference tolerance delta (dB)
     QString updatedAt;              ///< Last measurement timestamp string
+    QString sampleData;             ///< Serialized telemetry curve points for mini-graph visualization
+    int durationSec = 0;            ///< Measurement duration in seconds
 };
 
 /**

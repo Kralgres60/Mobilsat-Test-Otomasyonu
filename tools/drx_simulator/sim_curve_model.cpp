@@ -31,7 +31,47 @@ QVector<SimTelemetryPoint> SimCurveModel::createPreset(PresetType type, int poin
             p.videoLock = true;
             p.audioLock = true;
             p.ber = "1.0E-7";
-            p.note = "Normal";
+            p.note = "Normal Kararlı";
+            break;
+
+        case PresetType::HighSignalPass:
+            p.cnDb = 16.50 + 0.10 * qSin(i * 0.5);
+            p.powerDbm = -38.00 + 0.20 * qCos(i * 0.3);
+            p.signalLock = true;
+            p.videoLock = true;
+            p.audioLock = true;
+            p.ber = "1.0E-8";
+            p.note = "Yüksek Kalite Sinyal";
+            break;
+
+        case PresetType::MarginalSignal:
+            p.cnDb = 9.50 + 0.12 * qSin(i * 0.6);
+            p.powerDbm = -52.00 + 0.30 * qCos(i * 0.4);
+            p.signalLock = true;
+            p.videoLock = true;
+            p.audioLock = true;
+            p.ber = "4.2E-5";
+            p.note = "Sınırda Sinyal (PASS)";
+            break;
+
+        case PresetType::LowCnFail:
+            p.cnDb = 7.20 + 0.15 * qSin(i * 0.3);
+            p.powerDbm = -56.00 + 0.20 * qCos(i * 0.5);
+            p.signalLock = true;
+            p.videoLock = false;
+            p.audioLock = false;
+            p.ber = "5.5E-3";
+            p.note = "Düşük C/N (FAIL)";
+            break;
+
+        case PresetType::CompleteLoss:
+            p.cnDb = 0.00;
+            p.powerDbm = -85.00;
+            p.signalLock = false;
+            p.videoLock = false;
+            p.audioLock = false;
+            p.ber = "1.0E-1";
+            p.note = "Sinyal Yok (Kilit Kopuk)";
             break;
 
         case PresetType::MiddleCnDropFault:

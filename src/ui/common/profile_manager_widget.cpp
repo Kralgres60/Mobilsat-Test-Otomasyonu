@@ -33,20 +33,61 @@ ProfileManagerWidget::ProfileManagerWidget(bool isHostMode,
     m_goldenStepTimer.setSingleShot(true);
     connect(&m_goldenStepTimer, &QTimer::timeout, this, &ProfileManagerWidget::onGoldenCaptureStepTimeout);
 
-    if (m_isHostMode) {
+    setReceiverClients(nullptr, m_refWebClient, m_refSerial);
+}
+
+void ProfileManagerWidget::setReceiverClients(DrxWebClient *dutWeb, DrxWebClient *refWeb, SerialWorker *refSerial) {
+    m_dutWebClient = dutWeb;
+    m_refWebClient = refWeb;
+    m_refSerial = refSerial;
+
+    if (m_comboReceiverSource) {
+        m_comboReceiverSource->blockSignals(true);
+        m_comboReceiverSource->clear();
+        if (m_dutWebClient) {
+            m_comboReceiverSource->addItem("📡 DUT DRX (İstasyon)", 0);
+        }
         if (m_refWebClient) {
-            connect(m_refWebClient, &DrxWebClient::telemetryReceived, this,
-                    [this](double powDbm, double cnDb, double, double) {
-                onReferenceTelemetryReceived(powDbm, cnDb);
-            });
+            m_comboReceiverSource->addItem("🛰️ Referans DRX (Golden)", 1);
         }
-        if (m_refSerial) {
-            connect(m_refSerial, &SerialWorker::telemetryReceived, this,
-                    [this](double powDbm, double cnDb, double) {
-                onReferenceTelemetryReceived(powDbm, cnDb);
-            });
+        if (m_comboReceiverSource->count() == 0) {
+            m_comboReceiverSource->addItem("📡 DRX Alıcısı", 0);
         }
+        m_comboReceiverSource->blockSignals(false);
     }
+
+    if (m_dutWebClient) {
+        disconnect(m_dutWebClient, &DrxWebClient::telemetryReceived, this, nullptr);
+        connect(m_dutWebClient, &DrxWebClient::telemetryReceived, this,
+                [this](double powDbm, double cnDb, double, double) {
+            onReferenceTelemetryReceived(powDbm, cnDb);
+        });
+    }
+    if (m_refWebClient) {
+        disconnect(m_refWebClient, &DrxWebClient::telemetryReceived, this, nullptr);
+        connect(m_refWebClient, &DrxWebClient::telemetryReceived, this,
+                [this](double powDbm, double cnDb, double, double) {
+            onReferenceTelemetryReceived(powDbm, cnDb);
+        });
+    }
+    if (m_refSerial) {
+        disconnect(m_refSerial, &SerialWorker::telemetryReceived, this, nullptr);
+        connect(m_refSerial, &SerialWorker::telemetryReceived, this,
+                [this](double powDbm, double cnDb, double) {
+            onReferenceTelemetryReceived(powDbm, cnDb);
+        });
+    }
+}
+
+DrxWebClient* ProfileManagerWidget::activeCaptureClient() const {
+    if (m_comboReceiverSource && m_comboReceiverSource->count() > 0) {
+        int idx = m_comboReceiverSource->currentData().toInt();
+        if (idx == 0 && m_dutWebClient) return m_dutWebClient;
+        if (idx == 1 && m_refWebClient) return m_refWebClient;
+    }
+    if (m_refWebClient && m_refWebClient->isReachable()) return m_refWebClient;
+    if (m_dutWebClient && m_dutWebClient->isReachable()) return m_dutWebClient;
+    return m_dutWebClient ? m_dutWebClient : m_refWebClient;
 }
 
 void ProfileManagerWidget::setupUi() {
@@ -158,49 +199,58 @@ void ProfileManagerWidget::setupUi() {
     m_tableProfileChannels->setColumnWidth(7, 100);
     m_tableProfileChannels->setColumnWidth(8, 105);
 
-    // Stations only see test parameters; Golden Sample calibration is managed by Admin
-    if (!m_isHostMode) {
-        m_tableProfileChannels->setColumnHidden(5, true); // Tolerans (dB)
-        m_tableProfileChannels->setColumnHidden(6, true); // Golden C/N
-        m_tableProfileChannels->setColumnHidden(7, true); // Golden POW
-        m_tableProfileChannels->setColumnHidden(8, true); // Golden Durum
-    }
-
     chVBox->addWidget(m_tableProfileChannels, 1);
 
+    // Mini Reference Curve Graph (C/N across Transponders + Tolerance Bands)
+    m_miniPlot = new QCustomPlot(grpChannels);
+    setupMiniPlot();
+    chVBox->addWidget(m_miniPlot);
+
     QHBoxLayout *chActionRow = new QHBoxLayout();
-    QPushButton *btnAddCh = new QPushButton("➕ Frekans / Kanal Ekle", grpChannels);
+    QPushButton *btnAddCh = new QPushButton("➕ Frekans Ekle", grpChannels);
     btnAddCh->setCursor(Qt::PointingHandCursor);
     connect(btnAddCh, &QPushButton::clicked, this, &ProfileManagerWidget::onAddChannelRowClicked);
 
-    QPushButton *btnRemCh = new QPushButton("➖ Seçili / Son Kanalı Sil", grpChannels);
+    QPushButton *btnRemCh = new QPushButton("➖ Frekans Sil", grpChannels);
     btnRemCh->setCursor(Qt::PointingHandCursor);
     connect(btnRemCh, &QPushButton::clicked, this, &ProfileManagerWidget::onRemoveChannelRowClicked);
 
-    QPushButton *btnSaveProf = new QPushButton("💾 Profili & Frekansları Kaydet", grpChannels);
-    btnSaveProf->setCursor(Qt::PointingHandCursor);
-    btnSaveProf->setStyleSheet("background-color: #10B981; color: #071210; border: none; border-radius: 4px; padding: 8px 14px; font-weight: bold;");
-    connect(btnSaveProf, &QPushButton::clicked, this, &ProfileManagerWidget::onSaveProfileClicked);
-
     chActionRow->addWidget(btnAddCh);
     chActionRow->addWidget(btnRemCh);
+    chActionRow->addSpacing(8);
+
+    chActionRow->addWidget(new QLabel("Alıcı:", grpChannels));
+    m_comboReceiverSource = new QComboBox(grpChannels);
+    m_comboReceiverSource->setToolTip("Golden sample ölçümü için kullanılacak alıcı kaynağı");
+    m_comboReceiverSource->addItem("📡 DUT DRX (İstasyon)", 0);
+    chActionRow->addWidget(m_comboReceiverSource);
+
+    chActionRow->addWidget(new QLabel("Süre:", grpChannels));
+    m_spinSampleDuration = new QSpinBox(grpChannels);
+    m_spinSampleDuration->setRange(1, 60);
+    m_spinSampleDuration->setValue(5);
+    m_spinSampleDuration->setSuffix(" sn");
+    m_spinSampleDuration->setToolTip("Her transponder için ortalama alma süresi (saniye)");
+    chActionRow->addWidget(m_spinSampleDuration);
+
+    m_btnGoldenCapture = new QPushButton("📸 Golden Sample Ölçümü Al", grpChannels);
+    m_btnGoldenCapture->setCursor(Qt::PointingHandCursor);
+    m_btnGoldenCapture->setStyleSheet("background-color: #D97706; color: #FFFFFF; border: none; border-radius: 4px; padding: 7px 12px; font-weight: bold;");
+    connect(m_btnGoldenCapture, &QPushButton::clicked, this, &ProfileManagerWidget::onStartGoldenCaptureClicked);
+    chActionRow->addWidget(m_btnGoldenCapture);
+
     chActionRow->addStretch();
 
-    if (m_isHostMode) {
-        m_btnGoldenCapture = new QPushButton("📸 Referanstan Golden Sample Ölç", grpChannels);
-        m_btnGoldenCapture->setCursor(Qt::PointingHandCursor);
-        m_btnGoldenCapture->setStyleSheet("background-color: #D97706; color: #FFFFFF; border: none; border-radius: 4px; padding: 8px 14px; font-weight: bold;");
-        connect(m_btnGoldenCapture, &QPushButton::clicked, this, &ProfileManagerWidget::onStartGoldenCaptureClicked);
-        chActionRow->addWidget(m_btnGoldenCapture);
-    }
-
+    QPushButton *btnSaveProf = new QPushButton("💾 Profili & Frekansları Kaydet", grpChannels);
+    btnSaveProf->setCursor(Qt::PointingHandCursor);
+    btnSaveProf->setStyleSheet("background-color: #10B981; color: #071210; border: none; border-radius: 4px; padding: 7px 14px; font-weight: bold;");
+    connect(btnSaveProf, &QPushButton::clicked, this, &ProfileManagerWidget::onSaveProfileClicked);
     chActionRow->addWidget(btnSaveProf);
+
     chVBox->addLayout(chActionRow);
 
     m_lblGoldenCaptureStatus = new QLabel(
-        m_isHostMode
-            ? "İpucu: Profil ve frekansları düzenleyip kaydedebilir, Golden C/N ve POW değerlerini elle girebilir veya Referans DRX'ten otomatik ölçüm alabilirsiniz."
-            : "İpucu: İstasyon için yeni uydu profili oluşturabilir, frekans (MHz), sembol hızı (kS/s) ve polarizasyon (V/H) ekleyip merkezi veritabanına kaydedebilirsiniz.",
+        "İpucu: 'Golden C/N' ve 'Golden POW' sütunlarına doğrudan sabit referans değerleri yazabilir veya alıcıdan 'Golden Sample Ölçümü Al' butonuyla belirli süre örneğini alıp kaydedebilirsiniz. İki yöntem de aynı profil referans tablosunda saklanır ve yukarıdaki mini grafikte anlık görüntülenir.",
         grpChannels);
     m_lblGoldenCaptureStatus->setWordWrap(true);
     m_lblGoldenCaptureStatus->setStyleSheet("color: #A7C4B5; font-size: 8.5pt;");
@@ -208,6 +258,80 @@ void ProfileManagerWidget::setupUi() {
 
     splitHBox->addWidget(grpChannels, 1);
     rootVBox->addLayout(splitHBox, 1);
+}
+
+void ProfileManagerWidget::setupMiniPlot() {
+    if (!m_miniPlot) return;
+    m_miniPlot->setBackground(QBrush(QColor("#181825")));
+    m_miniPlot->setFixedHeight(160);
+
+    m_miniPlot->xAxis->setBasePen(QPen(QColor("#45475A")));
+    m_miniPlot->yAxis->setBasePen(QPen(QColor("#45475A")));
+    m_miniPlot->xAxis->setTickPen(QPen(QColor("#45475A")));
+    m_miniPlot->yAxis->setTickPen(QPen(QColor("#45475A")));
+    m_miniPlot->xAxis->setTickLabelColor(QColor("#CDD6F4"));
+    m_miniPlot->yAxis->setTickLabelColor(QColor("#CDD6F4"));
+    m_miniPlot->xAxis->setLabelColor(QColor("#A6E3A1"));
+    m_miniPlot->yAxis->setLabelColor(QColor("#A6E3A1"));
+    m_miniPlot->xAxis->setLabel("Transponder / Kanal No");
+    m_miniPlot->yAxis->setLabel("Golden C/N (dB)");
+    m_miniPlot->xAxis->grid()->setPen(QPen(QColor("#313244"), 1, Qt::DotLine));
+    m_miniPlot->yAxis->grid()->setPen(QPen(QColor("#313244"), 1, Qt::DotLine));
+
+    // Graph 0: Golden C/N curve
+    m_miniPlot->addGraph();
+    m_miniPlot->graph(0)->setPen(QPen(QColor("#34D399"), 2));
+    m_miniPlot->graph(0)->setBrush(QBrush(QColor(52, 211, 153, 30)));
+    m_miniPlot->graph(0)->setScatterStyle(QCPScatterStyle(QCPScatterStyle::ssCircle, QPen(QColor("#FFFFFF"), 2), QBrush(QColor("#10B981")), 7));
+    m_miniPlot->graph(0)->setName("Golden C/N");
+
+    // Graph 1: Upper Tolerance Band
+    m_miniPlot->addGraph();
+    m_miniPlot->graph(1)->setPen(QPen(QColor("#38BDF8"), 1, Qt::DashLine));
+    m_miniPlot->graph(1)->setName("+Tolerans");
+
+    // Graph 2: Lower Tolerance Band
+    m_miniPlot->addGraph();
+    m_miniPlot->graph(2)->setPen(QPen(QColor("#F87171"), 1, Qt::DashLine));
+    m_miniPlot->graph(2)->setName("-Tolerans");
+
+    m_miniPlot->xAxis->setRange(0.5, 10.5);
+    m_miniPlot->yAxis->setRange(0.0, 20.0);
+}
+
+void ProfileManagerWidget::updateMiniPlot() {
+    if (!m_miniPlot || !m_tableProfileChannels) return;
+
+    const int rowCount = m_tableProfileChannels->rowCount();
+    QVector<double> xKeys, yCn, yUpper, yLower;
+    double maxCn = 15.0;
+
+    for (int r = 0; r < rowCount; ++r) {
+        double x = r + 1;
+        double cn = 0.0;
+        double tol = 1.50;
+
+        if (auto *wGcn = qobject_cast<QDoubleSpinBox*>(m_tableProfileChannels->cellWidget(r, 6))) {
+            cn = wGcn->value();
+        }
+        if (auto *wTol = qobject_cast<QDoubleSpinBox*>(m_tableProfileChannels->cellWidget(r, 5))) {
+            tol = wTol->value();
+        }
+
+        xKeys.append(x);
+        yCn.append(cn);
+        yUpper.append(cn + tol);
+        yLower.append(qMax(0.0, cn - tol));
+        if (cn + tol > maxCn) maxCn = cn + tol;
+    }
+
+    m_miniPlot->xAxis->setRange(0.5, qMax(5.5, rowCount + 0.5));
+    m_miniPlot->yAxis->setRange(0.0, maxCn + 2.0);
+
+    m_miniPlot->graph(0)->setData(xKeys, yCn);
+    m_miniPlot->graph(1)->setData(xKeys, yUpper);
+    m_miniPlot->graph(2)->setData(xKeys, yLower);
+    m_miniPlot->replot();
 }
 
 void ProfileManagerWidget::setActiveReferenceMode(ReferenceMode mode) {
@@ -296,6 +420,7 @@ void ProfileManagerWidget::populateChannelRow(int row, const ChannelConfig &ch) 
     spinTol->setAlignment(Qt::AlignCenter);
     spinTol->setSuffix(" dB");
     spinTol->setValue(qBound(0.10, ch.toleranceDb, 10.00));
+    connect(spinTol, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ProfileManagerWidget::updateMiniPlot);
     m_tableProfileChannels->setCellWidget(row, 5, spinTol);
 
     // Golden C/N (dB)
@@ -306,6 +431,7 @@ void ProfileManagerWidget::populateChannelRow(int row, const ChannelConfig &ch) 
     spinGcn->setAlignment(Qt::AlignCenter);
     spinGcn->setSuffix(" dB");
     spinGcn->setValue(qBound(0.0, ch.goldenCnDb, 40.0));
+    connect(spinGcn, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ProfileManagerWidget::updateMiniPlot);
     m_tableProfileChannels->setCellWidget(row, 6, spinGcn);
 
     // Golden Power (dBm)
@@ -402,6 +528,7 @@ void ProfileManagerWidget::onProfileSelected(int row) {
     for (int i = 0; i < p.channels.size(); ++i) {
         populateChannelRow(i, p.channels[i]);
     }
+    updateMiniPlot();
 }
 
 void ProfileManagerWidget::onNewProfileClicked() {
@@ -483,6 +610,7 @@ void ProfileManagerWidget::onAddChannelRowClicked() {
     ch.polarization = "V";
     ch.toleranceDb = m_spinProfTol ? m_spinProfTol->value() : 1.50;
     populateChannelRow(row, ch);
+    updateMiniPlot();
 
     m_tableProfileChannels->scrollToBottom();
 }
@@ -502,6 +630,7 @@ void ProfileManagerWidget::onRemoveChannelRowClicked() {
             it->setText(QString::number(r + 1));
         }
     }
+    updateMiniPlot();
 }
 
 void ProfileManagerWidget::onSaveProfileClicked() {
@@ -527,13 +656,6 @@ void ProfileManagerWidget::onSaveProfileClicked() {
 
     for (int r = 0; r < m_tableProfileChannels->rowCount(); ++r) {
         ChannelConfig ch = readChannelFromRow(r, p.defaultToleranceDb);
-        // Keep Admin baseline Golden Sample and tolerance values when editing
-        if (!m_isHostMode && r < prevChannels.size()) {
-            ch.toleranceDb = prevChannels[r].toleranceDb;
-            ch.goldenCnDb = prevChannels[r].goldenCnDb;
-            ch.goldenPowDbm = prevChannels[r].goldenPowDbm;
-            ch.hasGoldenSample = prevChannels[r].hasGoldenSample;
-        }
         p.channels.append(ch);
     }
 
@@ -558,12 +680,11 @@ void ProfileManagerWidget::onReferenceTelemetryReceived(double powDbm, double cn
 }
 
 void ProfileManagerWidget::onStartGoldenCaptureClicked() {
-    if (!m_isHostMode) return;
-
     if (m_goldenCaptureActive) {
         m_goldenCaptureActive = false;
         m_goldenStepTimer.stop();
-        m_btnGoldenCapture->setText("📸 Referanstan Golden Sample Ölç");
+        m_btnGoldenCapture->setText("📸 Golden Sample Ölçümü Al");
+        m_btnGoldenCapture->setStyleSheet("background-color: #D97706; color: #FFFFFF; border: none; border-radius: 4px; padding: 7px 12px; font-weight: bold;");
         m_lblGoldenCaptureStatus->setText("Golden Sample ölçümü kullanıcı tarafından durduruldu.");
         return;
     }
@@ -571,12 +692,13 @@ void ProfileManagerWidget::onStartGoldenCaptureClicked() {
     int row = m_listProfiles ? m_listProfiles->currentRow() : -1;
     if (row < 0 || row >= m_profiles.size()) return;
 
-    bool refReady = (m_refWebClient && m_refWebClient->isReachable()) ||
+    DrxWebClient *client = activeCaptureClient();
+    bool refReady = (client && client->isReachable()) ||
                     (m_refSerial && m_refSerial->isConnected());
     if (!refReady) {
-        QMessageBox::warning(this, "Referans DRX Bağlı Değil",
-                             "Golden Sample ölçümü almak için Referans DRX9000 cihazının Ethernet (Ping OK) veya RS232 üzerinden bağlı olması gerekir.\n\n"
-                             "İpucu: Tablodaki Golden C/N ve Golden POW sütunlarını elle de düzenleyip kaydedebilirsiniz.");
+        QMessageBox::warning(this, "DRX Alıcısı Bağlı Değil",
+                             "Golden Sample ölçümü alabilmek için seçilen DRX alıcısının (DUT veya Referans) Ethernet veya RS232 üzerinden bağlı olması gerekir.\n\n"
+                             "İpucu: Canlı cihaz bağlı değilse tablodaki 'Golden C/N' ve 'Golden POW' sütunlarına doğrudan sabit değer girip kaydedebilirsiniz.");
         return;
     }
 
@@ -586,6 +708,7 @@ void ProfileManagerWidget::onStartGoldenCaptureClicked() {
     m_goldenCaptureProfileId = m_profiles[row].id;
     m_goldenCaptureRow = 0;
     m_btnGoldenCapture->setText("⏹ Ölçümü Durdur");
+    m_btnGoldenCapture->setStyleSheet("background-color: #DC2626; color: #FFFFFF; border: none; border-radius: 4px; padding: 7px 12px; font-weight: bold;");
     triggerGoldenCaptureCurrentRow();
 }
 
@@ -595,22 +718,37 @@ void ProfileManagerWidget::triggerGoldenCaptureCurrentRow() {
 
     m_goldenCnSamples.clear();
     m_goldenPowSamples.clear();
+    const int sampleSec = m_spinSampleDuration ? m_spinSampleDuration->value() : 5;
     m_lblGoldenCaptureStatus->setText(
-        QString("⏳ Ölçülüyor [%1/%2]: %3 (%4 MHz %5)...")
+        QString("⏳ Ölçülüyor [%1/%2]: %3 (%4 MHz %5) - %6 sn örnekleniyor...")
             .arg(m_goldenCaptureRow + 1)
             .arg(m_tableProfileChannels->rowCount())
-            .arg(ch.channelName).arg(ch.frequencyMhz).arg(ch.polarization));
+            .arg(ch.channelName).arg(ch.frequencyMhz).arg(ch.polarization)
+            .arg(sampleSec));
 
-    if (m_refWebClient && m_refWebClient->isReachable()) {
-        m_refWebClient->sendTune(ch.frequencyMhz, ch.symbolRate, ch.polarization);
-        QTimer::singleShot(900, this, [this]() { if (m_goldenCaptureActive && m_refWebClient) m_refWebClient->requestStatus(); });
-        QTimer::singleShot(1600, this, [this]() { if (m_goldenCaptureActive && m_refWebClient) m_refWebClient->requestStatus(); });
-    }
-    if (m_refSerial && m_refSerial->isConnected()) {
+    setGoldenCellsOnRow(m_goldenCaptureRow, 0.0, 0.0, "ÖLÇÜLÜYOR...", QColor("#F59E0B"));
+
+    DrxWebClient *client = activeCaptureClient();
+    if (client && client->isReachable()) {
+        client->sendTune(ch.frequencyMhz, ch.symbolRate, ch.polarization);
+        for (int t = 800; t < sampleSec * 1000; t += 450) {
+            QTimer::singleShot(t, this, [this, client]() {
+                if (m_goldenCaptureActive && client && client->isReachable()) {
+                    client->requestStatus();
+                }
+            });
+        }
+    } else if (m_refSerial && m_refSerial->isConnected()) {
         m_refSerial->sendTune(ch.frequencyMhz, ch.symbolRate, ch.polarization);
-        QTimer::singleShot(1000, this, [this]() { if (m_goldenCaptureActive && m_refSerial) m_refSerial->requestStatus(); });
+        for (int t = 800; t < sampleSec * 1000; t += 450) {
+            QTimer::singleShot(t, this, [this]() {
+                if (m_goldenCaptureActive && m_refSerial && m_refSerial->isConnected()) {
+                    m_refSerial->requestStatus();
+                }
+            });
+        }
     }
-    m_goldenStepTimer.start(2400);
+    m_goldenStepTimer.start(sampleSec * 1000);
 }
 
 void ProfileManagerWidget::onGoldenCaptureStepTimeout() {
@@ -620,6 +758,7 @@ void ProfileManagerWidget::onGoldenCaptureStepTimeout() {
         double avgCn = std::accumulate(m_goldenCnSamples.begin(), m_goldenCnSamples.end(), 0.0) / m_goldenCnSamples.size();
         double avgPow = std::accumulate(m_goldenPowSamples.begin(), m_goldenPowSamples.end(), 0.0) / m_goldenPowSamples.size();
         setGoldenCellsOnRow(m_goldenCaptureRow, avgCn, avgPow, "✔ ÖLÇÜLDÜ", QColor("#34D399"));
+        updateMiniPlot();
 
         int chNo = m_goldenCaptureRow + 1;
         DbManager::instance().updateChannelGoldenSample(m_goldenCaptureProfileId, chNo, avgCn, avgPow);
@@ -636,8 +775,10 @@ void ProfileManagerWidget::onGoldenCaptureStepTimeout() {
         triggerGoldenCaptureCurrentRow();
     } else {
         m_goldenCaptureActive = false;
-        m_btnGoldenCapture->setText("📸 Referanstan Golden Sample Ölç");
+        m_btnGoldenCapture->setText("📸 Golden Sample Ölçümü Al");
+        m_btnGoldenCapture->setStyleSheet("background-color: #D97706; color: #FFFFFF; border: none; border-radius: 4px; padding: 7px 12px; font-weight: bold;");
         m_lblGoldenCaptureStatus->setText("✔ Tüm kanallar için Golden Sample ölçümü tamamlandı ve veritabanına kaydedildi!");
+        updateMiniPlot();
         reloadProfiles(m_goldenCaptureProfileId);
         emit profilesChanged();
         QMessageBox::information(this, "Golden Sample Tamamlandı",

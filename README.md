@@ -92,6 +92,10 @@ flowchart TD
 - **Otomatik MariaDB/MySQL Entegrasyonu:** Sunucu ilk açılışta veritabanı servisini ve portlarını kontrol eder, eksikse tek tıkla sessiz kurulumunu yapar ve fabrika test şemasını başlatır.
 - **Kurumsal Web Yönetim ve Filo Platformu (Port: 8080):** Bağımsız MariaDB sunucularında veya uzak fabrika ağında (`http://localhost:8080`) çalışan 8 modüllü modern SPA konsolu. Çoklu Host sunucu ve İstasyon filo takibi (`cluster_nodes`), masaüstü uygulamasıyla ortak kullanıcı & RBAC yönetimi, 10 kanal ölçüm detayları inceleme, canlı mutex kilit monitörü ve F9 etkileşimli SQL konsolu içerir.
 - **Resmi Excel (XLSX) Kalite Raporlama:** Host ekranından tek tıkla iş emirleri, test geçmişi ve tolerans analizleri profesyonel Excel formatında dışa aktarılır.
+- **Ses Kaydı Tarzı Canlı Golden Ölçüm Kaydı & Mini Grafik:** Hem Host hem İstasyon PC'lerde, ses kaydeder gibi tek tıkla başlatılıp durdurulan canlı referans ölçüm kaydı (C/N ve Güç zaman serisi) veya doğrudan sabit referans değeri girişi. Tabloda tıklanan her ölçüm satırı entegre `QCustomPlot` mini-grafiğinde ortalama referans çizgisi ve tolerans bantları ile anlık olarak görselleştirilir.
+- **DRX9000 Donanım Simülatörü ve Test Motoru (`tools/drx_simulator`):** Fiziksel cihaza ihtiyaç duymadan HTTP CGI (`POST /cgi-bin/drx.cgi`) protokolünü birebir taklit eden dahili simülatör. Anlık zaman manipülasyonu, 8 farklı hazır RF senaryosu (Stabil, Düşük C/N, Sinyal Kaybı vb.) ve manuel kaydırıcılarla canlı test imkânı.
+- **Animasyonlu DRX Cihaz Saati & Telemetri Takibi:** Cihaza bağlanıldığında `alarmstatus` içerisindeki `st_current_time` ve yerel sistem saati sağ üst bilgi rozetine yansıtılır; her güncellemede yumuşak pulse animasyonu ile canlı akış gösterilir.
+- **F12 Geliştirici, REST API & SQL Tablo Tarayıcı Konsolu:** Session key doğrulaması, CGI istek-yanıt analizi ve doğrudan veritabanı tablolarının içeriğini listeleyen zengin debug arayüzü.
 
 ---
 
@@ -141,6 +145,7 @@ DRX-Antenna-Test/
 │
 └── tools/                           # Dağıtım ve kurulum araçları
     ├── deploy/                      # Windeployqt ve otomatik paketleme scriptleri
+    ├── drx_simulator/               # Bağımsız DRX9000 Web CGI & RF Telemetri Simülatörü
     ├── installer/                   # Inno Setup 7 scripti (neta_setup.iss)
     ├── mariadb_portable/            # Taşınabilir MariaDB 10.11 sıfır-kurulum motoru
     └── sqldrivers/                  # Hazır 32-bit QMYSQL sürücüleri (libmysql.dll)

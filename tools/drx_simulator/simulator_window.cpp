@@ -51,6 +51,10 @@ SimulatorWindow::SimulatorWindow(QWidget *parent)
     m_playTimer->setInterval(m_spinInterval->value());
     m_playTimer->start();
 
+    m_clockTimer = new QTimer(this);
+    connect(m_clockTimer, &QTimer::timeout, this, &SimulatorWindow::onSimClockTimerTick);
+    m_clockTimer->start(1000);
+
     appendLog(QStringLiteral("Simülatör hazır. Grafik üzerinde nokta çizip 'TCP Yayını Başlat' butonuna basınız."));
 }
 
@@ -180,9 +184,39 @@ void SimulatorWindow::setupUi() {
     rootLay->addWidget(netGroup);
 
     // =========================================================================
+    // 1.5. SIMULATED TIME BAR
+    // =========================================================================
+    auto *timeGroup = new QGroupBox(QStringLiteral("🕒 DRX Cihaz Saati & Zaman Simülasyonu"), central);
+    auto *timeLay = new QHBoxLayout(timeGroup);
+    timeLay->setContentsMargins(10, 6, 10, 6);
+    timeLay->setSpacing(10);
+
+    timeLay->addWidget(new QLabel(QStringLiteral("Cihaz Saati:")));
+    m_dtSimTime = new QDateTimeEdit(QDateTime::currentDateTime(), timeGroup);
+    m_dtSimTime->setDisplayFormat(QStringLiteral("hh:mm:ss - dd/MM/yyyy"));
+    m_dtSimTime->setCalendarPopup(true);
+    m_dtSimTime->setMinimumWidth(190);
+    m_dtSimTime->setStyleSheet("background-color: #1E293B; color: #38BDF8; font-weight: bold; padding: 4px; border: 1px solid #475569; border-radius: 4px;");
+    connect(m_dtSimTime, &QDateTimeEdit::dateTimeChanged, this, &SimulatorWindow::onSimTimeEdited);
+    timeLay->addWidget(m_dtSimTime);
+
+    m_chkAutoAdvance = new QCheckBox(QStringLiteral("⏱️ Zamanı Otomatik İlerlet"), timeGroup);
+    m_chkAutoAdvance->setChecked(true);
+    connect(m_chkAutoAdvance, &QCheckBox::toggled, this, &SimulatorWindow::onSimTimeEdited);
+    timeLay->addWidget(m_chkAutoAdvance);
+
+    m_btnResetTime = new QPushButton(QStringLiteral("🔄 Gerçek Zamana Eşitle"), timeGroup);
+    m_btnResetTime->setStyleSheet("QPushButton { background-color: #0284C7; color: white; border: none; border-radius: 4px; padding: 4px 10px; font-weight: bold; }");
+    connect(m_btnResetTime, &QPushButton::clicked, this, &SimulatorWindow::onResetSimTimeToNow);
+    timeLay->addWidget(m_btnResetTime);
+
+    timeLay->addStretch();
+    rootLay->addWidget(timeGroup);
+
+    // =========================================================================
     // 2. CURVE EDITOR & PLAYBACK TOOLBAR
     // =========================================================================
-    auto *toolGroup = new QGroupBox(QStringLiteral("Etkileşimli Grafik Editörü & Zaman Akışı"), central);
+    auto *toolGroup = new QGroupBox(QStringLiteral("Etkileşimli Grafik Editörü, Şablonlar & Doğrudan Ayar"), central);
     auto *toolVBox = new QVBoxLayout(toolGroup);
     toolVBox->setSpacing(6);
 
@@ -210,12 +244,17 @@ void SimulatorWindow::setupUi() {
     });
 
     barRow1->addSpacing(10);
-    barRow1->addWidget(new QLabel(QStringLiteral("Hazır Senaryo:")));
+    barRow1->addWidget(new QLabel(QStringLiteral("Hazır Şablon:")));
     m_comboPreset = new QComboBox(toolGroup);
-    m_comboPreset->addItem(QStringLiteral("Normal Kararlı (PASS)"), static_cast<int>(SimCurveModel::PresetType::NormalStable));
-    m_comboPreset->addItem(QStringLiteral("Ortada C/N Düşüşü (FAIL Testi)"), static_cast<int>(SimCurveModel::PresetType::MiddleCnDropFault));
-    m_comboPreset->addItem(QStringLiteral("Kısa Sinyal Kopması (LOCK Loss)"), static_cast<int>(SimCurveModel::PresetType::BriefSignalLoss));
+    m_comboPreset->addItem(QStringLiteral("Normal Kararlı (PASS - 14.5 dB)"), static_cast<int>(SimCurveModel::PresetType::NormalStable));
+    m_comboPreset->addItem(QStringLiteral("Yüksek Kalite Sinyal (PASS - 16.5 dB)"), static_cast<int>(SimCurveModel::PresetType::HighSignalPass));
+    m_comboPreset->addItem(QStringLiteral("Sınırda Sinyal (PASS - 9.5 dB)"), static_cast<int>(SimCurveModel::PresetType::MarginalSignal));
+    m_comboPreset->addItem(QStringLiteral("Düşük C/N Hatası (FAIL - 7.2 dB)"), static_cast<int>(SimCurveModel::PresetType::LowCnFail));
+    m_comboPreset->addItem(QStringLiteral("Sinyal Yok (NO LOCK - 0 dB)"), static_cast<int>(SimCurveModel::PresetType::CompleteLoss));
+    m_comboPreset->addItem(QStringLiteral("Ortada C/N Düşüşü (Dinamik FAIL)"), static_cast<int>(SimCurveModel::PresetType::MiddleCnDropFault));
+    m_comboPreset->addItem(QStringLiteral("Kısa Sinyal Kopması (Dinamik LOCK Loss)"), static_cast<int>(SimCurveModel::PresetType::BriefSignalLoss));
     m_comboPreset->addItem(QStringLiteral("Kademeli Sinyal Zayıflaması"), static_cast<int>(SimCurveModel::PresetType::SteppedDecay));
+    connect(m_comboPreset, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SimulatorWindow::onApplyPreset);
     barRow1->addWidget(m_comboPreset);
 
     auto *btnApplyPreset = new QPushButton(QStringLiteral("Şablonu Yükle"), toolGroup);
@@ -243,6 +282,54 @@ void SimulatorWindow::setupUi() {
     barRow1->addWidget(btnExport);
 
     toolVBox->addLayout(barRow1);
+
+    // Row 1.5: Direct Telemetry Tuning & Static Mode
+    auto *directRow = new QHBoxLayout();
+    directRow->setSpacing(8);
+
+    m_chkStaticMode = new QCheckBox(QStringLiteral("📌 Sabit Değer Yayını (Döngüsüz)"), toolGroup);
+    m_chkStaticMode->setToolTip(QStringLiteral("İşaretlendiğinde eğri oynatma durdurulur ve aşağıdaki sabit değerler sürekli yayına aktarılır."));
+    m_chkStaticMode->setStyleSheet("color: #FBBF24; font-weight: bold;");
+    connect(m_chkStaticMode, &QCheckBox::toggled, this, &SimulatorWindow::onDirectValueChanged);
+    directRow->addWidget(m_chkStaticMode);
+
+    directRow->addWidget(new QLabel(QStringLiteral("Canlı C/N:")));
+    m_spinDirectCn = new QDoubleSpinBox(toolGroup);
+    m_spinDirectCn->setRange(0.0, 30.0);
+    m_spinDirectCn->setSingleStep(0.1);
+    m_spinDirectCn->setSuffix(QStringLiteral(" dB"));
+    m_spinDirectCn->setValue(14.50);
+    m_spinDirectCn->setFixedWidth(90);
+    connect(m_spinDirectCn, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &SimulatorWindow::onDirectValueChanged);
+    directRow->addWidget(m_spinDirectCn);
+
+    directRow->addWidget(new QLabel(QStringLiteral("Canlı Güç:")));
+    m_spinDirectPower = new QDoubleSpinBox(toolGroup);
+    m_spinDirectPower->setRange(-100.0, 0.0);
+    m_spinDirectPower->setSingleStep(0.5);
+    m_spinDirectPower->setSuffix(QStringLiteral(" dBm"));
+    m_spinDirectPower->setValue(-42.00);
+    m_spinDirectPower->setFixedWidth(100);
+    connect(m_spinDirectPower, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &SimulatorWindow::onDirectValueChanged);
+    directRow->addWidget(m_spinDirectPower);
+
+    m_chkDirectSignal = new QCheckBox(QStringLiteral("Taşıyıcı"), toolGroup);
+    m_chkDirectSignal->setChecked(true);
+    connect(m_chkDirectSignal, &QCheckBox::toggled, this, &SimulatorWindow::onDirectValueChanged);
+    directRow->addWidget(m_chkDirectSignal);
+
+    m_chkDirectVideo = new QCheckBox(QStringLiteral("Video"), toolGroup);
+    m_chkDirectVideo->setChecked(true);
+    connect(m_chkDirectVideo, &QCheckBox::toggled, this, &SimulatorWindow::onDirectValueChanged);
+    directRow->addWidget(m_chkDirectVideo);
+
+    m_chkDirectAudio = new QCheckBox(QStringLiteral("Ses"), toolGroup);
+    m_chkDirectAudio->setChecked(true);
+    connect(m_chkDirectAudio, &QCheckBox::toggled, this, &SimulatorWindow::onDirectValueChanged);
+    directRow->addWidget(m_chkDirectAudio);
+
+    directRow->addStretch();
+    toolVBox->addLayout(directRow);
 
     // Row 2: Playback & Interactive Curve Widget
     auto *barRow2 = new QHBoxLayout();
@@ -462,6 +549,9 @@ void SimulatorWindow::onRewindPlayback() {
 }
 
 void SimulatorWindow::onPlaybackTick() {
+    if (m_chkStaticMode && m_chkStaticMode->isChecked()) {
+        return; // In static mode, do not cycle curve steps
+    }
     if (m_points.isEmpty()) return;
     int nextIdx = m_playIndex + 1;
     if (nextIdx >= m_points.size()) {
@@ -486,9 +576,36 @@ void SimulatorWindow::setActivePlayIndex(int index) {
 }
 
 void SimulatorWindow::syncLiveSampleToServer() {
+    if (m_chkStaticMode && m_chkStaticMode->isChecked()) {
+        onDirectValueChanged();
+        return;
+    }
     if (m_points.isEmpty() || m_playIndex < 0 || m_playIndex >= m_points.size()) return;
     const SimTelemetryPoint &pt = m_points.at(m_playIndex);
     m_server->setLiveSample(pt);
+
+    // Sync direct adjustment controls to active sample
+    if (m_spinDirectCn && !m_spinDirectCn->hasFocus()) {
+        m_spinDirectCn->blockSignals(true);
+        m_spinDirectCn->setValue(pt.cnDb);
+        m_spinDirectCn->blockSignals(false);
+    }
+    if (m_spinDirectPower && !m_spinDirectPower->hasFocus()) {
+        m_spinDirectPower->blockSignals(true);
+        m_spinDirectPower->setValue(pt.powerDbm);
+        m_spinDirectPower->blockSignals(false);
+    }
+    if (m_chkDirectSignal && m_chkDirectVideo && m_chkDirectAudio) {
+        m_chkDirectSignal->blockSignals(true);
+        m_chkDirectVideo->blockSignals(true);
+        m_chkDirectAudio->blockSignals(true);
+        m_chkDirectSignal->setChecked(pt.signalLock);
+        m_chkDirectVideo->setChecked(pt.videoLock);
+        m_chkDirectAudio->setChecked(pt.audioLock);
+        m_chkDirectSignal->blockSignals(false);
+        m_chkDirectVideo->blockSignals(false);
+        m_chkDirectAudio->blockSignals(false);
+    }
 
     m_lblLiveStep->setText(QStringLiteral("Adım: #%1 / %2").arg(m_playIndex).arg(m_points.size() - 1));
     m_lblLiveCn->setText(QStringLiteral("C/N: %1 dB").arg(pt.cnDb, 0, 'f', 2));
@@ -618,6 +735,59 @@ void SimulatorWindow::onTableCellChanged(int row, int col) {
     }
 }
 
+void SimulatorWindow::onSimTimeEdited() {
+    if (!m_dtSimTime || !m_chkAutoAdvance) return;
+    m_server->setSimulatedTime(m_dtSimTime->dateTime(), m_chkAutoAdvance->isChecked());
+}
+
+void SimulatorWindow::onResetSimTimeToNow() {
+    if (!m_dtSimTime) return;
+    QDateTime now = QDateTime::currentDateTime();
+    m_dtSimTime->blockSignals(true);
+    m_dtSimTime->setDateTime(now);
+    m_dtSimTime->blockSignals(false);
+    m_server->setSimulatedTime(now, m_chkAutoAdvance ? m_chkAutoAdvance->isChecked() : true);
+    appendLog(QStringLiteral("Simülasyon saati anlık gerçek zamana eşitlendi: %1").arg(now.toString("hh:mm:ss - dd/MM/yyyy")));
+}
+
+void SimulatorWindow::onSimClockTimerTick() {
+    if (!m_chkAutoAdvance || !m_chkAutoAdvance->isChecked() || !m_dtSimTime) return;
+    if (m_dtSimTime->hasFocus()) return;
+
+    m_dtSimTime->blockSignals(true);
+    m_dtSimTime->setDateTime(m_server->currentSimulatedTime());
+    m_dtSimTime->blockSignals(false);
+}
+
+void SimulatorWindow::onDirectValueChanged() {
+    if (!m_spinDirectCn || !m_spinDirectPower || !m_chkDirectSignal) return;
+
+    SimTelemetryPoint pt;
+    pt.cnDb = m_spinDirectCn->value();
+    pt.powerDbm = m_spinDirectPower->value();
+    pt.signalLock = m_chkDirectSignal->isChecked();
+    pt.videoLock = m_chkDirectVideo->isChecked();
+    pt.audioLock = m_chkDirectAudio->isChecked();
+    pt.ber = (pt.signalLock && pt.videoLock) ? "1.0E-7" : (pt.signalLock ? "4.2E-3" : "1.0E-1");
+    pt.note = QStringLiteral("Kullanıcı Ayarı");
+
+    m_server->setLiveSample(pt);
+
+    if (m_chkStaticMode && m_chkStaticMode->isChecked()) {
+        m_lblLiveStep->setText(QStringLiteral("Adım: SABİT"));
+    }
+    m_lblLiveCn->setText(QStringLiteral("C/N: %1 dB").arg(pt.cnDb, 0, 'f', 2));
+    m_lblLivePower->setText(QStringLiteral("Güç: %1 dBm").arg(pt.powerDbm, 0, 'f', 2));
+
+    QString lockStr = QStringLiteral("S:%1 V:%2 A:%3")
+                          .arg(pt.signalLock ? "OK" : "YOK")
+                          .arg(pt.videoLock ? "OK" : "YOK")
+                          .arg(pt.audioLock ? "OK" : "YOK");
+    m_lblLiveLock->setText(QStringLiteral("Kilit: %1 (Manuel)").arg(lockStr));
+    m_lblLiveLock->setStyleSheet(pt.isFaulty() ? "color: #F87171; font-weight: bold;"
+                                               : "color: #34D399; font-weight: bold;");
+}
+
 void SimulatorWindow::onApplyPreset() {
     const auto preset = static_cast<SimCurveModel::PresetType>(m_comboPreset->currentData().toInt());
     const int count = qMax(10, m_points.size());
@@ -625,6 +795,33 @@ void SimulatorWindow::onApplyPreset() {
     m_curveWidget->setCurveData(&m_points);
     rebuildTable();
     setActivePlayIndex(0);
+
+    // Sync direct adjustment controls to first point of preset
+    if (!m_points.isEmpty()) {
+        const SimTelemetryPoint &p0 = m_points.first();
+        if (m_spinDirectCn) {
+            m_spinDirectCn->blockSignals(true);
+            m_spinDirectCn->setValue(p0.cnDb);
+            m_spinDirectCn->blockSignals(false);
+        }
+        if (m_spinDirectPower) {
+            m_spinDirectPower->blockSignals(true);
+            m_spinDirectPower->setValue(p0.powerDbm);
+            m_spinDirectPower->blockSignals(false);
+        }
+        if (m_chkDirectSignal && m_chkDirectVideo && m_chkDirectAudio) {
+            m_chkDirectSignal->blockSignals(true);
+            m_chkDirectVideo->blockSignals(true);
+            m_chkDirectAudio->blockSignals(true);
+            m_chkDirectSignal->setChecked(p0.signalLock);
+            m_chkDirectVideo->setChecked(p0.videoLock);
+            m_chkDirectAudio->setChecked(p0.audioLock);
+            m_chkDirectSignal->blockSignals(false);
+            m_chkDirectVideo->blockSignals(false);
+            m_chkDirectAudio->blockSignals(false);
+        }
+    }
+
     appendLog(QStringLiteral("Şablon uygulandı: %1 (%2 adım)").arg(m_comboPreset->currentText()).arg(count));
 }
 

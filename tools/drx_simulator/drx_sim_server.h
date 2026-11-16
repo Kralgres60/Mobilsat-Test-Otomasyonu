@@ -88,6 +88,19 @@ public:
     void expireSessionKey();
 
     /**
+     * @brief Sets the simulated device clock and auto-advancing behavior.
+     * @param dt Base datetime to simulate. If invalid, current system time is used.
+     * @param autoAdvance If true, time automatically ticks forward from dt. If false, it remains fixed.
+     */
+    void setSimulatedTime(const QDateTime &dt, bool autoAdvance = true);
+
+    /**
+     * @brief Gets the current simulated device clock.
+     * @return Simulated QDateTime.
+     */
+    QDateTime currentSimulatedTime() const;
+
+    /**
      * @brief Resets total handled request counter to zero.
      */
     void resetRequestCount() { m_requestCount = 0; }
@@ -145,6 +158,10 @@ private:
     QString m_currentPol        = "H";
     bool    m_isTuning          = false;
     quint64 m_requestCount      = 0;
+
+    QDateTime m_simTime = QDateTime::currentDateTime();
+    bool      m_timeAutoAdvance = true;
+    qint64    m_simTimeBaseOffsetMs = 0;
 };
 
 #endif // DRX_SIM_SERVER_H

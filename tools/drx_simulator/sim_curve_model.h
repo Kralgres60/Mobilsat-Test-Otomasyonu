@@ -45,7 +45,11 @@ public:
      * @brief Built-in RF curve profiles for rapid fault testing.
      */
     enum class PresetType {
-        NormalStable,       ///< Steady 14.5 dB C/N, -42 dBm, full locks (PASS profile)
+        NormalStable,       ///< Steady 14.5 dB C/N, -42 dBm, full locks (Standard PASS)
+        HighSignalPass,     ///< High 16.5 dB C/N, -38 dBm, full locks (Excellent PASS)
+        MarginalSignal,     ///< Marginal 9.5 dB C/N, -52 dBm, full locks (Borderline PASS)
+        LowCnFail,          ///< Low 7.2 dB C/N, -56 dBm, video lost (FAIL profile)
+        CompleteLoss,       ///< 0.0 dB C/N, -85 dBm, unlocked (NO LOCK / Complete Loss)
         MiddleCnDropFault,  ///< Smooth C/N dip in middle steps to trigger FAIL detection
         BriefSignalLoss,    ///< Temporary lock drop (Signal/Video/Audio cross) mid-stream
         SteppedDecay        ///< Gradual signal degradation across steps

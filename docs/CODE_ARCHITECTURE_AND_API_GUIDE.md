@@ -272,9 +272,9 @@ Host PC üzerinde `:9100` portundan dinleme yapar. İstasyonların bağlantılar
 - **`TestHistoryWidget`**: İki sekmeli kurumsal raporlama ve veri analiz arayüzüdür:
   - **Sekme 1 (Test Koşumları):** Tüm test geçmişini filtreler, PASS/FAIL durumunu gösterir, tek tıkla Excel'e `.xlsx` aktarır veya Excel'den içe aktarır.
   - **Sekme 2 (SQL Tablo Tarayıcısı):** Veritabanındaki tüm SQL tablolarını arayüzden inceleme, arama ve filtreleme olanağı sunar (`db_viewer_widget` bu bileşene entegre edilmiştir).
-- **`ProfileManagerWidget`**: 10 transponderlık uydu test frekanslarını ve tolerans limitlerini düzenleme penceresi.
+- **`ProfileManagerWidget`**: 10 transponderlık uydu test frekanslarını ve tolerans limitlerini düzenleme penceresidir. İstasyon ve Yönetici PC'lerde hem doğrudan elle sabit referans (Golden C/N, POW, Tolerans) girmeye hem de bağlı DRX alıcısından (DUT veya Referans) belirlenen süre boyunca canlı Golden Sample ölçümü alıp kaydetmeye olanak tanır; transponder referans eğrisini görselleştiren entegre bir mini grafiğe (`QCustomPlot`) sahiptir.
 - **`StyleHelper`**: Kurumsal NETA koyu/açık modern QSS tema şablonlarını, kart görünümlerini ve buton stillerini uygular.
-- **`QCustomPlot`**: Canlı RF sinyal eğrilerini ve delta sapmalarını çizen grafik bileşeni.
+- **`QCustomPlot`**: Canlı RF sinyal eğrilerini, profil referans mini grafiklerini ve delta sapmalarını çizen grafik bileşeni.
 
 ### İstemci / Test İstasyonu Arayüzü (`src/ui/client/`)
 - **`ClientWindow`**: Test operatörünün çalıştığı ana ekrandır. DUT antenin barkodunu okutma, testi başlatma/durdurma, 10 kanalın canlı kilit ve C/N durumunu izleme olanağı tanır. Menü çubuğundan `F12` ile Geliştirici Konsolu'na doğrudan erişim sunar.

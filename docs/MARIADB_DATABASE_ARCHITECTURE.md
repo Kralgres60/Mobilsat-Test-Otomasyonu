@@ -131,6 +131,8 @@ erDiagram
         decimal golden_cn_db
         decimal golden_pow_dbm
         decimal tolerance_db
+        int duration_sec
+        mediumtext sample_data
         timestamp updated_at
     }
     cluster_nodes {
@@ -245,5 +247,16 @@ The platform features a modern dark-theme responsive sidebar with 8 dedicated op
 
 8. **📜 Denetim İzi (Audit Logs & Security Trail):**
    - Complete traceability of logins, logouts, work order updates, user creations, and test runs.
+
+---
+
+## 8. Golden Reference Measurements and Time-Series Data (`golden_frequencies`)
+
+The `golden_frequencies` table supports two flexible reference paradigms:
+
+1. **Fixed Reference Values:** Operators can type fixed baseline numbers (`golden_cn_db`, `golden_pow_dbm`, `tolerance_db`) without transponder frequency constraints.
+2. **Audio-Style Live Recording:** Operators start an audio-like live session ("🔴 Canlı Ölçüm Kaydını Başlat") which streams telemetry from the connected Golden DRX9000 device at 200ms intervals. The session computes real-time averages and stores serialized curve points (`sample_data` as comma-separated values) along with the recorded duration (`duration_sec`).
+
+Selecting any row in the Host UI or Station UI parses `sample_data` and renders an interactive `QCustomPlot` mini-graph visualizing the actual signal trajectory, baseline mean line, and tolerance envelope.
    - Traceable by operator username, originating station IP/ID, and timestamp.
 

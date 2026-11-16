@@ -11,6 +11,8 @@
 #include <QMainWindow>
 #include <QComboBox>
 #include <QSpinBox>
+#include <QDoubleSpinBox>
+#include <QDateTimeEdit>
 #include <QCheckBox>
 #include <QPushButton>
 #include <QLabel>
@@ -57,6 +59,10 @@ private slots:
     void onInjectVideoLoss();
     void onRestoreNormalPoint();
     void onJumpToSelectedStep();
+    void onSimTimeEdited();
+    void onResetSimTimeToNow();
+    void onSimClockTimerTick();
+    void onDirectValueChanged();
     void onRequestHandled(quint64 totalCount, const QString &peerIp, const QString &actionTag);
     void onServerTuned(int freqMhz, int symbolRate, const QString &pol);
     void appendLog(const QString &msg);
@@ -85,6 +91,20 @@ private:
     QPushButton *m_btnStartStop  = nullptr;
     QLabel      *m_lblTcpStatus  = nullptr;
     QLabel      *m_lblEndpoint   = nullptr;
+
+    // Simulated Time Controls
+    QDateTimeEdit *m_dtSimTime      = nullptr;
+    QCheckBox     *m_chkAutoAdvance = nullptr;
+    QPushButton   *m_btnResetTime   = nullptr;
+    QTimer        *m_clockTimer     = nullptr;
+
+    // Direct Live Telemetry Tuning
+    QDoubleSpinBox *m_spinDirectCn     = nullptr;
+    QDoubleSpinBox *m_spinDirectPower  = nullptr;
+    QCheckBox      *m_chkDirectSignal  = nullptr;
+    QCheckBox      *m_chkDirectVideo   = nullptr;
+    QCheckBox      *m_chkDirectAudio   = nullptr;
+    QCheckBox      *m_chkStaticMode    = nullptr;
 
     // Curve & Playback Controls
     QPushButton *m_btnEditCn     = nullptr;

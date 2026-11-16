@@ -67,6 +67,23 @@ void DrxSimServer::setLiveSample(const SimTelemetryPoint &sample) {
     m_liveSample = sample;
 }
 
+void DrxSimServer::setSimulatedTime(const QDateTime &dt, bool autoAdvance) {
+    m_simTime = dt.isValid() ? dt : QDateTime::currentDateTime();
+    m_timeAutoAdvance = autoAdvance;
+    m_simTimeBaseOffsetMs = QDateTime::currentMSecsSinceEpoch() - m_simTime.toMSecsSinceEpoch();
+}
+
+QDateTime DrxSimServer::currentSimulatedTime() const {
+    if (!m_simTime.isValid()) {
+        return QDateTime::currentDateTime();
+    }
+    if (m_timeAutoAdvance) {
+        qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+        return QDateTime::fromMSecsSinceEpoch(nowMs - m_simTimeBaseOffsetMs);
+    }
+    return m_simTime;
+}
+
 void DrxSimServer::expireSessionKey() {
     m_forceAccessDenied = true;
     emit logMessage(QStringLiteral("[AUTH] SessionKey geçersiz kılındı; sonraki istekte access=denied dönecek."));
@@ -295,7 +312,7 @@ QJsonObject DrxSimServer::buildAlarmStatusJson() const {
     };
 
     // Format strictly matches DRX9000 real hardware: "09:11:45 - 22/09/2026"
-    QString curTimeStr = QDateTime::currentDateTime().toString("hh:mm:ss - dd/MM/yyyy");
+    QString curTimeStr = currentSimulatedTime().toString("hh:mm:ss - dd/MM/yyyy");
     addEl("st_current_time", "Saat", curTimeStr);
     addEl("st_channel", "Kanal", resolveChannelName(m_currentFreqMhz, m_currentPol));
     addEl("st_signal", "Sinyal", sigLock ? "tick" : "cross");

@@ -18,22 +18,24 @@
 #include <QLabel>
 #include <QTimer>
 #include <QVector>
+#include <QSpinBox>
 #include "core/data_models.h"
 #include "hardware/data_transfer.h"
+#include "ui/common/qcustomplot.h"
 
 /**
  * @class ProfileManagerWidget
  * @brief Provides satellite profile creation/editing, transponder frequency list management,
- *        and optional Host-side Reference Mode + Golden Sample auto-capture calibration.
+ *        Golden Sample manual reference configuration or live duration-based sampling, and mini reference curve plot.
  */
 class ProfileManagerWidget : public QWidget {
     Q_OBJECT
 public:
     /**
      * @brief Constructs the profile and frequency manager widget.
-     * @param isHostMode Enables Administrator Reference Mode switch and live Golden Sample capture
-     * @param refWeb Optional Reference DRX Web CGI client (used when isHostMode is true)
-     * @param refSerial Optional Reference DRX RS232 worker (used when isHostMode is true)
+     * @param isHostMode Enables Administrator Reference Mode switch
+     * @param refWeb Optional Reference DRX Web CGI client
+     * @param refSerial Optional Reference DRX RS232 worker
      * @param parent Parent widget
      */
     explicit ProfileManagerWidget(bool isHostMode = false,
@@ -46,6 +48,9 @@ public:
 
     /** @brief Syncs the Reference Mode selector UI (Host mode only). */
     void setActiveReferenceMode(ReferenceMode mode);
+
+    /** @brief Sets DRX client sources for Golden Sample sampling on Station or Host. */
+    void setReceiverClients(DrxWebClient *dutWeb, DrxWebClient *refWeb = nullptr, SerialWorker *refSerial = nullptr);
 
 public slots:
     /** @brief Feeds incoming live Reference DRX telemetry samples during Golden Sample capture. */
@@ -72,12 +77,16 @@ private slots:
 
 private:
     void setupUi();
+    void setupMiniPlot();
+    void updateMiniPlot();
     void populateChannelRow(int row, const ChannelConfig &ch);
     ChannelConfig readChannelFromRow(int row, double fallbackTol) const;
     void setGoldenCellsOnRow(int row, double cnDb, double powDbm, const QString &statusText, const QColor &statusColor);
     void triggerGoldenCaptureCurrentRow();
+    DrxWebClient* activeCaptureClient() const;
 
     bool m_isHostMode = false;
+    DrxWebClient *m_dutWebClient = nullptr;
     DrxWebClient *m_refWebClient = nullptr;
     SerialWorker *m_refSerial = nullptr;
 
@@ -88,6 +97,9 @@ private:
     QLineEdit      *m_txtOrbitalPos         = nullptr;
     QDoubleSpinBox *m_spinProfTol           = nullptr;
     QTableWidget   *m_tableProfileChannels  = nullptr;
+    QCustomPlot    *m_miniPlot              = nullptr;
+    QComboBox      *m_comboReceiverSource   = nullptr;
+    QSpinBox       *m_spinSampleDuration    = nullptr;
     QPushButton    *m_btnGoldenCapture      = nullptr;
     QLabel         *m_lblGoldenCaptureStatus = nullptr;
 

@@ -211,3 +211,25 @@ In Algorithm 1 (`NETA_ALGORITMA_1_FOUR_PC`), the Host (`HostWindow` + `TcpServer
 - `src/network/tcp_client.h` / `src/network/tcp_client.cpp`
 - `src/network/udp_beacon.h` / `src/network/udp_beacon.cpp`
 - `src/core/test_state_machine.h` / `src/core/test_state_machine.cpp`
+- `tools/drx_simulator/drx_sim_server.h` / `tools/drx_simulator/drx_sim_server.cpp`
+- `src/ui/debug/debug_runner_window.h` / `src/ui/debug/debug_runner_window.cpp`
+
+---
+
+## 6. DRX9000 Hardware Simulator (`tools/drx_simulator`)
+
+When physical DRX9000 hardware is unavailable, the standalone simulator emulates the receiver's full HTTP Web CGI protocol (`POST /cgi-bin/drx.cgi`):
+
+- **Embedded HTTP Server:** Listens on configurable port (default `:80` or `:8088`).
+- **Dynamic Session Authentication:** Generates valid numeric `sessionkey` values and validates incoming queries against the active key.
+- **Clock Emulation:** Implements dynamic `st_current_time` starting from system real-time, with operator controls to freeze, advance, or adjust the device clock for testing latency drift.
+- **RF Curve Presets:** Features 8 pre-programmed scenarios (Normal Stable, High Signal Pass, Marginal Signal, Low C/N Fail, Complete Signal Loss, Mid-Test Drop, Brief Glitch, Stepped Decay) plus manual sliders for direct live RF manipulation.
+
+---
+
+## 7. Interactive REST API Debug Console
+
+Accessible via **F12** Developer Tools or the Debug menu:
+- Allows operators to test `login`, `freq`, `alarmStatus`, and `deviceInfo` endpoints against real hardware or the simulator.
+- Displays raw HTTP request and response payloads with microsecond timestamps.
+- Includes an integrated database table inspector to browse `users`, `satellite_profiles`, `profile_channels`, `test_runs`, `golden_frequencies`, and `audit_logs` directly.

@@ -741,7 +741,8 @@ void ClientWindow::setupGraphPage() {
 }
 
 void ClientWindow::setupProfilesPage() {
-    m_profileManager = new ProfileManagerWidget(false, nullptr, nullptr, this);
+    m_profileManager = new ProfileManagerWidget(false, &m_refWebClient, nullptr, this);
+    m_profileManager->setReceiverClients(&m_dutWebClient, &m_refWebClient, nullptr);
     connect(m_profileManager, &ProfileManagerWidget::profilesChanged,
             this, &ClientWindow::loadWorkOrdersAndProfiles);
     connect(m_profileManager, &ProfileManagerWidget::logMessage,

@@ -1,7 +1,7 @@
 /**
  * @file golden_reference_widget.h
- * @brief Host-only Reference Mode controller and frequency-based Golden Sample calibration manager.
- *        Contains NO satellite profile management (profiles belong strictly to Client stations).
+ * @brief Host-only Reference Mode controller and direct measurement-based Golden Sample manager.
+ *        Supports live audio-like recording, direct fixed value entry, and mini-graph curve inspection.
  * @author Semi Eren Gökyıldız
  * @copyright Copyright (C) 2026 NETA Elektronik A.Ş.
  */
@@ -14,38 +14,42 @@
 #include <QTableWidget>
 #include <QPushButton>
 #include <QLabel>
+#include <QLineEdit>
+#include <QDoubleSpinBox>
 #include <QTimer>
 #include <QVector>
 #include "core/data_models.h"
 #include "hardware/data_transfer.h"
+#include "ui/common/qcustomplot.h"
 
 /**
  * @class GoldenReferenceWidget
- * @brief Administrator panel for switching Reference Mode (Live vs Golden Sample) and measuring/storing
- *        per-frequency Golden Sample reference baselines independently of station profiles.
+ * @brief Administrator panel for switching Reference Mode (Live vs Golden Sample) and managing direct
+ *        Golden Reference measurements via live audio-like recording or fixed baseline entry with mini-graph analysis.
  */
 class GoldenReferenceWidget : public QWidget {
     Q_OBJECT
 public:
     /**
      * @brief Constructs the Host Golden Reference manager.
-     * @param refWeb Reference DRX Web CGI client
-     * @param refSerial Optional Reference DRX RS232 worker
-     * @param parent Parent widget
+     * @param refWeb Reference DRX Web CGI client.
+     * @param refSerial Optional Reference DRX RS232 worker.
+     * @param parent Optional parent widget.
      */
     explicit GoldenReferenceWidget(DrxWebClient *refWeb, SerialWorker *refSerial, QWidget *parent = nullptr);
+    ~GoldenReferenceWidget() override = default;
 
-    /** @brief Reloads stored frequency Golden Sample records from MariaDB. */
+    /** @brief Reloads stored Golden Sample reference records from database. */
     void reloadFrequencies();
 
     /** @brief Synchronizes the Reference Mode combo selector. */
     void setActiveReferenceMode(ReferenceMode mode);
 
-    /** @brief Returns true while automated Golden Sample frequency capture is running. */
-    bool isCaptureActive() const { return m_captureActive; }
+    /** @brief Returns true while live measurement recording is active. */
+    bool isCaptureActive() const { return m_isRecording; }
 
 public slots:
-    /** @brief Accumulates live Reference DRX telemetry samples during calibration capture. */
+    /** @brief Accumulates incoming live Reference DRX telemetry samples during live recording. */
     void onReferenceTelemetryReceived(double powDbm, double cnDb);
 
 signals:
@@ -56,32 +60,54 @@ signals:
 
 private slots:
     void onApplyRefModeClicked();
-    void onAddRowClicked();
-    void onRemoveRowClicked();
+    void onToggleLiveRecordClicked();
+    void onRecordTick();
+    void onAddFixedMeasurementClicked();
+    void onRemoveSelectedRowClicked();
     void onSaveAllClicked();
-    void onStartCaptureClicked();
-    void onCaptureStepTimeout();
+    void onTableSelectionChanged();
 
 private:
     void setupUi();
+    void setupMiniPlot();
+    void updateMiniPlotForRecord(const GoldenFrequencyRecord &rec);
     void populateRow(int row, const GoldenFrequencyRecord &rec);
     GoldenFrequencyRecord readRow(int row) const;
-    void triggerCaptureForCurrentRow();
 
     DrxWebClient *m_refWebClient = nullptr;
-    SerialWorker *m_refSerial = nullptr;
+    SerialWorker *m_refSerial    = nullptr;
 
+    // Reference Mode Selector
     QComboBox    *m_comboRefMode = nullptr;
-    QTableWidget *m_tableFreqs   = nullptr;
-    QPushButton  *m_btnCapture   = nullptr;
-    QLabel       *m_lblStatus    = nullptr;
+
+    // Live Recording Controls ("Ses kaydeder gibi")
+    QPushButton  *m_btnLiveRecord       = nullptr;
+    QLabel       *m_lblLiveRecordStatus = nullptr;
+
+    // Direct Fixed Value Entry Controls
+    QLineEdit      *m_txtFixedLabel = nullptr;
+    QDoubleSpinBox *m_spinFixedCn   = nullptr;
+    QDoubleSpinBox *m_spinFixedPow  = nullptr;
+    QDoubleSpinBox *m_spinFixedTol  = nullptr;
+    QPushButton    *m_btnAddFixed   = nullptr;
+
+    // Measurements Table
+    QTableWidget *m_tableMeasurements = nullptr;
+    QLabel       *m_lblStatus         = nullptr;
+
+    // Visual Mini Graph
+    QLabel      *m_lblPlotTitle = nullptr;
+    QCustomPlot *m_miniPlot     = nullptr;
+
+    // Recording State
+    bool            m_isRecording         = false;
+    int             m_recordingElapsedSec = 0;
+    QTimer          m_recordTimer;
+    QVector<double> m_currentRecCn;
+    QVector<double> m_currentRecPow;
+    QVector<double> m_currentRecTime;
 
     QVector<GoldenFrequencyRecord> m_records;
-    bool            m_captureActive = false;
-    int             m_captureRow    = 0;
-    QVector<double> m_cnSamples;
-    QVector<double> m_powSamples;
-    QTimer          m_stepTimer;
 };
 
 #endif // GOLDEN_REFERENCE_WIDGET_H
