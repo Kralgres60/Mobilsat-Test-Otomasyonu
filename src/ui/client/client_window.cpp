@@ -984,18 +984,45 @@ void ClientWindow::setupPlot() {
     m_plot->yAxis->setTickLabelColor(QColor("#E6F4EE"));
     m_plot->xAxis->grid()->setPen(QPen(QColor("#1A3D2B"), 1, Qt::DotLine));
     m_plot->yAxis->grid()->setPen(QPen(QColor("#1A3D2B"), 1, Qt::DotLine));
-    m_plot->xAxis->setLabel("Örneklem Sayısı (Zaman)");
+    m_plot->xAxis->setLabel("Örneklem Sayısı (Zaman / 200ms)");
     m_plot->yAxis->setLabel("C/N Sinyal Kalitesi (dB)");
     m_plot->xAxis->setLabelColor(QColor("#A7C4B5"));
     m_plot->yAxis->setLabelColor(QColor("#A7C4B5"));
 
+    // Graph 0: Live DUT Antenna
     m_plot->addGraph();
     m_plot->graph(0)->setPen(QPen(QColor("#34D399"), 2.5));
     m_plot->graph(0)->setName("DUT C/N (Test Anteni)");
 
+    // Graph 1: Live Reference Dish
     m_plot->addGraph();
-    m_plot->graph(1)->setPen(QPen(QColor("#FBBF24"), 2.5));
-    m_plot->graph(1)->setName("REF C/N (Referans Çanak)");
+    m_plot->graph(1)->setPen(QPen(QColor("#60A5FA"), 2.0));
+    m_plot->graph(1)->setName("REF C/N (Canlı Referans)");
+
+    // Graph 2: Golden Sample Baseline Overlay Curve
+    m_plot->addGraph();
+    QPen goldenPen(QColor("#F59E0B"), 2.0, Qt::DashLine);
+    m_plot->graph(2)->setPen(goldenPen);
+    m_plot->graph(2)->setName("🌟 Golden Referans Eğrisi");
+    m_plot->graph(2)->setVisible(false);
+
+    // Graph 3: Upper Tolerance Bound (+Tol)
+    m_plot->addGraph();
+    QPen upperPen(QColor(239, 68, 68, 160), 1.2, Qt::DotLine);
+    m_plot->graph(3)->setPen(upperPen);
+    m_plot->graph(3)->setName("Tolerans Üst Sınır (+Tol)");
+    m_plot->graph(3)->setVisible(false);
+
+    // Graph 4: Lower Tolerance Bound (-Tol)
+    m_plot->addGraph();
+    QPen lowerPen(QColor(239, 68, 68, 160), 1.2, Qt::DotLine);
+    m_plot->graph(4)->setPen(lowerPen);
+    m_plot->graph(4)->setName("Tolerans Alt Sınır (-Tol)");
+    m_plot->graph(4)->setVisible(false);
+
+    // Tolerance corridor: fill area between graph 3 and graph 4
+    m_plot->graph(3)->setChannelFillGraph(m_plot->graph(4));
+    m_plot->graph(3)->setBrush(QBrush(QColor(245, 158, 11, 20)));
 
     m_plot->legend->setVisible(true);
     m_plot->legend->setBrush(QBrush(QColor(10, 31, 23, 220)));
@@ -1003,7 +1030,76 @@ void ClientWindow::setupPlot() {
     m_plot->legend->setTextColor(QColor("#E6F4EE"));
 
     m_plot->xAxis->setRange(0, 30);
-    m_plot->yAxis->setRange(0, 20);
+    m_plot->yAxis->setRange(0, 22);
+    m_plot->replot();
+}
+
+void ClientWindow::loadGoldenOverlayCurve(const GoldenFrequencyRecord &rec) {
+    if (!m_plot) return;
+
+    m_isGoldenModeActive = true;
+    m_activeGoldenRecord = rec;
+
+    m_plot->graph(2)->data()->clear();
+    m_plot->graph(3)->data()->clear();
+    m_plot->graph(4)->data()->clear();
+
+    double tol = rec.toleranceDb > 0 ? rec.toleranceDb : m_currentProfile.defaultToleranceDb;
+    if (tol <= 0) tol = 1.0;
+
+    QVector<double> xVals, yVals, upperVals, lowerVals;
+
+    QString rawSamples = rec.sampleData.trimmed();
+    if (!rawSamples.isEmpty()) {
+        QStringList tokens = rawSamples.split(',', Qt::SkipEmptyParts);
+        for (int i = 0; i < tokens.size(); ++i) {
+            bool ok = false;
+            double v = tokens[i].trimmed().toDouble(&ok);
+            if (ok) {
+                xVals.append(i);
+                yVals.append(v);
+                upperVals.append(v + tol);
+                lowerVals.append(v - tol);
+            }
+        }
+    }
+
+    // If no curve samples available (e.g. fixed value baseline), synthesize a flat corridor
+    if (xVals.isEmpty()) {
+        double baseline = rec.goldenCnDb > 0 ? rec.goldenCnDb : 12.0;
+        int pts = qMax(15, rec.durationSec > 0 ? rec.durationSec * 5 : 25);
+        for (int i = 0; i <= pts; ++i) {
+            xVals.append(i);
+            yVals.append(baseline);
+            upperVals.append(baseline + tol);
+            lowerVals.append(baseline - tol);
+        }
+    }
+
+    m_plot->graph(2)->setData(xVals, yVals);
+    m_plot->graph(3)->setData(xVals, upperVals);
+    m_plot->graph(4)->setData(xVals, lowerVals);
+
+    m_plot->graph(1)->setVisible(false); // Hide live reference when overlaying golden
+    m_plot->graph(2)->setVisible(true);
+    m_plot->graph(3)->setVisible(true);
+    m_plot->graph(4)->setVisible(true);
+
+    int maxPts = qMax(30, xVals.size() + 5);
+    m_plot->xAxis->setRange(0, maxPts);
+    m_plot->replot();
+}
+
+void ClientWindow::clearGoldenOverlay() {
+    if (!m_plot) return;
+    m_isGoldenModeActive = false;
+    m_plot->graph(2)->data()->clear();
+    m_plot->graph(3)->data()->clear();
+    m_plot->graph(4)->data()->clear();
+    m_plot->graph(2)->setVisible(false);
+    m_plot->graph(3)->setVisible(false);
+    m_plot->graph(4)->setVisible(false);
+    m_plot->graph(1)->setVisible(true); // Re-enable live reference
     m_plot->replot();
 }
 
@@ -1156,6 +1252,7 @@ void ClientWindow::onReferenceModeChanged(ReferenceMode mode) {
         }
         reloadGoldenRecordsList();
     } else {
+        clearGoldenOverlay();
         if (m_comboGoldenRecord) {
             m_comboGoldenRecord->setEnabled(false);
             m_comboGoldenRecord->blockSignals(true);
@@ -1230,6 +1327,7 @@ void ClientWindow::onGoldenRecordComboChanged(int /*index*/) {
         if (m_stateMachine) {
             m_stateMachine->setSelectedGoldenRecord(selected);
         }
+        loadGoldenOverlayCurve(selected);
         if (m_lblTestModeHint) {
             if (selected.durationSec > 0) {
                 m_lblTestModeHint->setText(QString("⏱️ Canlı Kayıt Seçildi: Her frekans bu kaydın süresi olan %1 saniye test edilecektir (Ref: %2 dB, POW: %3 dBm).")
@@ -1246,6 +1344,7 @@ void ClientWindow::onGoldenRecordComboChanged(int /*index*/) {
             }
         }
     } else {
+        clearGoldenOverlay();
         if (m_lblTestModeHint) {
             m_lblTestModeHint->setText("⚠️ Kayıtlı Golden Reference ölçümü bulunmuyor.");
             m_lblTestModeHint->setStyleSheet("color: #EF4444; font-size: 8.5pt;");
@@ -1602,6 +1701,12 @@ void ClientWindow::onStartTestClicked() {
     resetLiveTelemetryPills();
     onClearGraphClicked();
 
+    if (activeRefMode == ReferenceMode::GoldenSample && selectedGolden.id > 0) {
+        loadGoldenOverlayCurve(selectedGolden);
+    } else {
+        clearGoldenOverlay();
+    }
+
     m_resultBannerFrame->setStyleSheet("background-color: #112D21; border: 2px solid #10B981; border-radius: 6px; padding: 10px;");
     m_lblOverallResult->setText("TEST DEVAM EDİYOR");
     m_lblOverallResult->setStyleSheet("font-size: 20pt; font-weight: bold; color: #34D399;");
@@ -1685,8 +1790,15 @@ void ClientWindow::onChannelSampleUpdated(int channelNo, double dutCn, double du
 
     int count = m_plot->graph(0)->dataCount();
     m_plot->graph(0)->addData(count, dutCn);
-    m_plot->graph(1)->addData(count, refCn);
-    m_plot->xAxis->setRange(qMax(0, count - 30), count + 5);
+    if (!m_isGoldenModeActive) {
+        m_plot->graph(1)->addData(count, refCn);
+    }
+
+    int maxPts = count;
+    if (m_isGoldenModeActive && m_plot->graph(2)->dataCount() > maxPts) {
+        maxPts = m_plot->graph(2)->dataCount();
+    }
+    m_plot->xAxis->setRange(0, qMax(30, maxPts + 5));
     m_plot->replot();
 }
 
@@ -1847,8 +1959,15 @@ void ClientWindow::onClearGraphClicked() {
     if (!m_plot) return;
     m_plot->graph(0)->data()->clear();
     m_plot->graph(1)->data()->clear();
-    m_plot->xAxis->setRange(0, 30);
-    m_plot->replot();
+    if (m_isGoldenModeActive && m_activeGoldenRecord.id > 0) {
+        loadGoldenOverlayCurve(m_activeGoldenRecord);
+    } else {
+        m_plot->graph(2)->data()->clear();
+        m_plot->graph(3)->data()->clear();
+        m_plot->graph(4)->data()->clear();
+        m_plot->xAxis->setRange(0, 30);
+        m_plot->replot();
+    }
 }
 
 void ClientWindow::onClearLogClicked() {

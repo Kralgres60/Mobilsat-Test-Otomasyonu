@@ -115,6 +115,8 @@ private:
     void setupEngineerSettingsPage();
     void setupLogsPage();
     void setupPlot();
+    void loadGoldenOverlayCurve(const GoldenFrequencyRecord &rec);
+    void clearGoldenOverlay();
     void loadWorkOrdersAndProfiles();
     void populateChannelTable();
     void resetLiveTelemetryPills();
@@ -171,6 +173,8 @@ private:
     QPushButton *m_btnStartTest     = nullptr;
     QPushButton *m_btnAbortTest     = nullptr;
     QVector<GoldenFrequencyRecord> m_cachedGoldenRecords; ///< Cached Golden Reference measurement records
+    GoldenFrequencyRecord m_activeGoldenRecord;          ///< Active Golden Reference record for curve overlay
+    bool m_isGoldenModeActive = false;                   ///< Indicates if Golden Reference overlay is displayed
 
     // 3x3 Live RF Telemetry Pastel Pills (Page 0)
     QLabel *m_lblLiveChannel   = nullptr;
