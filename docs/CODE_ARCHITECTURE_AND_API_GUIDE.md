@@ -130,19 +130,26 @@ Tüm sistemde paylaşılan ana veri yapılarını ve JSON serileştirme fonksiyo
 
 ### `TestStateMachine` (`test_state_machine.h` / `test_state_machine.cpp`)
 - **Görevi:** 10 transponder kanalının ardışık otomatik test sürecini yöneten durum makinesi.
+- **Test ve Referans Modları:**
+  - **Canlı Test (`ReferenceMode::LiveReference`):** Test masası, fiziksel referans çanak anten (Host PC veya doğrudan Ethernet) ile eşzamanlı çalışır. Donanım kilidi talep edilir. Her kanal için varsayılan dwell süresi (`sampleDurationSec`) uygulanır.
+  - **Kayıtlı Test (`ReferenceMode::GoldenSample`):** Operatörün ana ekrandan seçtiği kayıtlı Golden Reference ölçümü baz alınır. Donanımsal anten kilidi gerekmez, test anında başlar:
+    - *Canlı Kayıt ise (`durationSec > 0`):* Kanal test süresi kaydın kendi süresi kadar (örn. 15 sn) sürer.
+    - *Sabit Kayıt ise (`durationSec == 0`):* Varsayılan test süresi (`sampleDurationSec`) uygulanır ve girilen sabit eşik (C/N, Güç, Tolerans) ile karşılaştırma yapılır.
 - **Adımlar:**
-  1. `Idle` ➔ Barkod tarama ve test başlatma (`startTest()`).
-  2. `AcquiringLock` ➔ Host'tan referans almaç kilidi talep etme.
-  3. `ConfiguringFrequencies` ➔ DUT ve Referans almacı hedef frekansa ayarlama (`setFrequency()`).
-  4. `MeasuringDUT` & `MeasuringRef` ➔ Telemetri ve kilit durumu sorgulama (`queryStatus()`, `queryTelemetry()`).
-  5. `Comparing` ➔ Delta hesaplama ($\Delta = \text{Ref}_{\text{C/N}} - \text{DUT}_{\text{C/N}}$).
-  6. `ReleasingLock` ➔ Kanal tamamlanınca kilidi iade etme.
-  7. `Finished` ➔ Sonuçları MariaDB'ye kaydetme (`DbManager::insertTestRun()`) ve raporlama.
+  1. `Idle` ➔ Barkod tarama, test modu seçimi ve test başlatma (`startTest()`).
+  2. `WaitingForLock` ➔ Canlı test ise kilit talep etme, kayıtlı test ise doğrudan başlatma.
+  3. `TuningChannel` ➔ DUT almacı hedef frekansa ayarlama (`sendTune()`).
+  4. `WaitingCarrierLock` ➔ Taşıyıcı kilit (S:+) bekleme (6s zaman aşımı).
+  5. `SamplingTelemetry` ➔ Telemetri toplama (Kayıtlı canlı süresi veya varsayılan süre boyunca 250ms periyotla).
+  6. `EvaluatingChannel` ➔ Delta hesaplama ($\Delta = \text{DUT}_{\text{C/N}} - \text{Ref}_{\text{C/N}}$) ve tolerans denetimi.
+  7. `ReleasingLock` ➔ Canlı testte kilidi iade etme.
+  8. `Completed` / `Aborted` ➔ Sonuçları MariaDB'ye kaydetme (`DbManager::insertTestRun()`) ve raporlama.
 - **Sinyaller:**
-  - `channelStarted(int chNo, const TransponderConfig &cfg)`
-  - `channelCompleted(int chNo, const ChannelSampleResult &result)`
+  - `channelStarted(int chNo, const QString &chName, int freqMhz, const QString &pol)`
+  - `channelSampleUpdated(int chNo, double dutCn, double dutPow, double refCn, double refPow, double delta)`
+  - `channelCompleted(const ChannelSampleResult &result)`
   - `testFinished(const TestRunData &finalRun)`
-  - `stateChanged(TestState newState)`
+  - `stateChanged(TestState newState, const QString &stateName)`
 
 ### `DependencyInstaller` (`dependency_installer.h` / `dependency_installer.cpp`)
 - **Görevi:** Sistemde MariaDB / MySQL kurulu olup olmadığını veya yerel `tools/mariadb_portable` paketinin bulunup bulunmadığını kontrol eder. Eksik durumlarda arka planda sessizce kurulum veya servis başlatma işlemini icra eder.

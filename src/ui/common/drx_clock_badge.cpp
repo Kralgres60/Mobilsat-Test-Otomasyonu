@@ -53,17 +53,11 @@ void DrxClockBadge::updateTime(const QDateTime &deviceTime, const QDateTime &hos
         displayTime = cleanRaw.section(" - ", 0, 0).trimmed();
     }
 
-    // Build informative tooltip
-    qint64 dtMs = 0;
-    if (deviceTime.isValid() && hostTime.isValid()) {
-        dtMs = hostTime.toMSecsSinceEpoch() - deviceTime.toMSecsSinceEpoch();
-    }
+    // Build informative tooltip with both DRX device time and system instant time
     QString toolTipStr = QString("🛰️ DRX9000 Cihaz Saati: %1\n"
-                                 "💻 Bilgisayar Saati: %2\n"
-                                 "⏱️ Gecikme (Δt): %3 ms")
+                                 "💻 Sistem Anlık Saati: %2")
                              .arg(cleanRaw)
-                             .arg(hostTime.isValid() ? hostTime.toString("hh:mm:ss.zzz") : "--")
-                             .arg(dtMs);
+                             .arg(hostTime.isValid() ? hostTime.toString("dd.MM.yyyy hh:mm:ss.zzz") : QDateTime::currentDateTime().toString("dd.MM.yyyy hh:mm:ss.zzz"));
     m_lblClock->setToolTip(toolTipStr);
 
     // Animate only when time display ticks/changes

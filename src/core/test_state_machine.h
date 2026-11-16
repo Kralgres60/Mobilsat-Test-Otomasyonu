@@ -71,19 +71,35 @@ public:
     ReferenceMode referenceMode() const { return m_referenceMode; }
 
     /**
+     * @brief Sets the selected Golden Reference measurement record for comparison.
+     * @param rec Stored Golden Sample measurement record (live recorded or fixed value).
+     */
+    void setSelectedGoldenRecord(const GoldenFrequencyRecord &rec) { m_selectedGoldenRecord = rec; }
+
+    /**
+     * @brief Returns the currently active Golden Reference measurement record.
+     * @return Selected Golden Frequency record.
+     */
+    const GoldenFrequencyRecord& selectedGoldenRecord() const { return m_selectedGoldenRecord; }
+
+    /**
      * @brief Starts the automated multi-channel test sequence.
      * @param antennaSn Antenna serial number scanned from barcode
      * @param profile Satellite profile containing transponders
      * @param workOrderId Production work order ID
      * @param operatorId Station operator ID
      * @param testerName Mandatory tester name entered for this test (cannot be empty)
+     * @param refMode Reference mode (LiveReference or GoldenSample)
+     * @param selectedGolden Optional Golden Reference record for recorded test
      * @return true if started successfully; false if busy or mandatory fields missing
      */
     bool startTest(const QString &antennaSn,
                    const SatelliteProfileInfo &profile,
                    int workOrderId = 0,
                    int operatorId = 1,
-                   const QString &testerName = QString());
+                   const QString &testerName = QString(),
+                   ReferenceMode refMode = ReferenceMode::LiveReference,
+                   const GoldenFrequencyRecord &selectedGolden = GoldenFrequencyRecord());
 
     /**
      * @brief Aborts currently active test execution immediately.
@@ -132,6 +148,7 @@ private slots:
 
     void onDutStatus(bool signalLocked, bool videoProducing, bool audioProducing);
     void onDutTelemetry(double powerDbm, double cnDb, double ber);
+    void onDutTimestampReceived(const QDateTime &deviceTime, const QDateTime &hostTime, const QString &rawTimeStr);
     void onRefData(double refCn, double refPow, bool carrierLocked, bool videoLocked);
 
     void onCarrierTimeout();
@@ -180,6 +197,13 @@ private:
     double m_lastRefCn = 0.0;
     double m_lastRefPow = 0.0;
     ReferenceMode m_referenceMode = ReferenceMode::LiveReference;
+    GoldenFrequencyRecord m_selectedGoldenRecord; ///< Active Golden Reference record for recorded testing
+
+    // Time tracking & collection
+    QDateTime m_lastDutDeviceTime;
+    QDateTime m_lastDutHostTime;
+    QString   m_lastDutRawTimeStr;
+    QVector<QPair<QDateTime, QString>> m_channelTimeHistory; ///< Instant host time & DRX device time pairs
 };
 
 #endif // TEST_STATE_MACHINE_H

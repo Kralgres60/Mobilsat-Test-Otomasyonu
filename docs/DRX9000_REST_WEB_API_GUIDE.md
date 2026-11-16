@@ -152,7 +152,7 @@ Parsed by `extractElements()` which flattens `sections[].elements[]`:
 
 | `domid` | Alternative `caption` | Example Raw Value | Parsed Output & Description |
 |---|---|---|---|
-| `st_current_time` | `Saat`, `time` | `"09:11:45 - 22/09/2026"` | `deviceTime` (`QDateTime`). Also calculates $\Delta t = \text{HostTime} - \text{DeviceTime}$ for latency tracking. |
+| `st_current_time` | `Saat`, `time` | `"09:11:45 - 22/09/2026"` | `deviceTime` (`QDateTime`). Sistem gelen DRX cihaz saatini ve anlık PC sistem saatini eşzamanlı toplar ve loglara kaydeder ($\Delta t$ doğrudan farkı alınmaz, ileride hesaplanacaktır). |
 | `st_channel` | `Kanal`, `channel` | `"TV8"` / `"TRT 1 HD"` | `channelName` (String) |
 | `st_signal` | `Sinyal`, `signal` | `"tick"` / `"cross"` / `"?"` | `sigLock` (`bool`). `"tick"` = Locked, `"cross"` / `"?"` = Unlocked. |
 | `st_video` | `Video`, `video` | `"tick"` / `"cross"` | `vidLock` (`bool`) |

@@ -497,14 +497,20 @@ void Ethernet::handleAlarmStatusResponse(const QJsonObject &root) {
         else if (root.contains("st_current_time")) rawTimeStr = root.value("st_current_time").toString();
     }
 
-    // Process device vs host timestamps and delta time (dt)
+    // Process device vs host timestamps (fark şimdilik alınmıyor; ileride formülle hesaplanacak)
     m_lastHostTime = QDateTime::currentDateTime();
     m_lastDeviceTimeStr = rawTimeStr;
     m_lastDeviceTime = parseDrxDateTime(rawTimeStr);
-    if (m_lastDeviceTime.isValid()) {
-        m_lastDeltaTimeMs = m_lastHostTime.toMSecsSinceEpoch() - m_lastDeviceTime.toMSecsSinceEpoch();
-    } else {
-        m_lastDeltaTimeMs = 0;
+    m_lastDeltaTimeMs = 0;
+
+    // Collect paired timestamps for analysis and logging
+    TimestampPair pair;
+    pair.hostTime = m_lastHostTime;
+    pair.deviceTime = m_lastDeviceTime;
+    pair.rawDeviceTime = rawTimeStr;
+    m_timestampHistory.append(pair);
+    if (m_timestampHistory.size() > 1000) {
+        m_timestampHistory.removeFirst();
     }
 
     emit timestampReceived(m_lastDeviceTime, m_lastHostTime, m_lastDeviceTimeStr);

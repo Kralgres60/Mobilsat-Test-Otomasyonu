@@ -98,6 +98,8 @@ struct ChannelSampleResult {
     bool audioLocked = false;       ///< Audio stream locked flag (A:+)
     double toleranceDb = 1.50;      ///< Allowed tolerance limit (dB)
     QString status = "PENDING";     ///< Channel status: PENDING, PASS, FAIL, WARNING
+    QString drxDeviceTime;          ///< DRX9000 internal device clock string (st_current_time)
+    QDateTime sampleHostTime;       ///< Instant computer timestamp when sample was captured
 
     /** @brief Serializes sample result to JSON object. */
     QJsonObject toJson() const {
@@ -117,6 +119,8 @@ struct ChannelSampleResult {
         obj["audio_locked"] = audioLocked;
         obj["tolerance_db"] = toleranceDb;
         obj["status"] = status;
+        obj["drx_device_time"] = drxDeviceTime;
+        obj["sample_host_time"] = sampleHostTime.toString(Qt::ISODateWithMs);
         return obj;
     }
 
@@ -133,6 +137,15 @@ struct ChannelSampleResult {
         r.refCn = obj["ref_cn"].toDouble();
         r.refPow = obj["ref_pow"].toDouble();
         r.deltaDb = obj["delta_db"].toDouble();
+        r.carrierLocked = obj["carrier_locked"].toBool();
+        r.videoLocked = obj["video_locked"].toBool();
+        r.audioLocked = obj["audio_locked"].toBool();
+        r.toleranceDb = obj["tolerance_db"].toDouble(1.50);
+        r.status = obj["status"].toString();
+        r.drxDeviceTime = obj["drx_device_time"].toString();
+        r.sampleHostTime = QDateTime::fromString(obj["sample_host_time"].toString(), Qt::ISODateWithMs);
+        return r;
+    }
         r.carrierLocked = obj["carrier_locked"].toBool();
         r.videoLocked = obj["video_locked"].toBool();
         r.audioLocked = obj["audio_locked"].toBool();
@@ -162,6 +175,8 @@ struct TestRunData {
     double avgDeltaDb = 0.0;        ///< Arithmetic mean delta across all transponders (dB)
     double maxDeltaDb = 0.0;        ///< Worst-case maximum delta across all transponders (dB)
     QString notes;                  ///< Operator or system observations
+    QString lastDrxDeviceTime;      ///< DRX9000 device time recorded during the test run
+    QDateTime testEndTime;          ///< Test completion instant host timestamp
     QVector<ChannelSampleResult> channels; ///< Detailed results for all transponder channels
 
     /** @brief Serializes complete test run record to JSON object. */
@@ -177,6 +192,8 @@ struct TestRunData {
         obj["satellite_profile_id"] = satelliteProfileId;
         obj["profile_name"] = profileName;
         obj["timestamp"] = timestamp.toString(Qt::ISODate);
+        obj["test_end_time"] = testEndTime.toString(Qt::ISODateWithMs);
+        obj["last_drx_device_time"] = lastDrxDeviceTime;
         obj["duration_sec"] = durationSec;
         obj["overall_result"] = overallResult;
         obj["fail_reason"] = failReason;

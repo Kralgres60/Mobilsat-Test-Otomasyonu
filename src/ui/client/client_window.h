@@ -94,6 +94,12 @@ private slots:
     void onWorkOrderComboChanged(int index);
     /** @brief Updates station reference mode (Live vs Golden Sample) dictated by the Host. */
     void onReferenceModeChanged(ReferenceMode mode);
+    /** @brief Handles test mode combo box changes (Live Test vs Recorded Golden Test). */
+    void onTestModeComboChanged(int index);
+    /** @brief Handles Golden Reference record selection changes in recorded test mode. */
+    void onGoldenRecordComboChanged(int index);
+    /** @brief Reloads available Golden Reference measurement records from database. */
+    void reloadGoldenRecordsList();
 
     /** @brief Switches the right-side page stack to the index selected in the sidebar. */
     void onNavItemChanged(int index);
@@ -155,12 +161,16 @@ private:
     QPushButton *m_btnEthPingSync = nullptr;
 
     // Work Order & Barcode Controls (Page 0)
-    QComboBox  *m_comboOrders   = nullptr;
-    QComboBox  *m_comboProfiles = nullptr;
-    QLineEdit  *m_txtTesterName = nullptr;  ///< Mandatory per-test tester name (distinct from login username)
-    QLineEdit  *m_txtAntennaSn  = nullptr;
-    QPushButton *m_btnStartTest = nullptr;
-    QPushButton *m_btnAbortTest = nullptr;
+    QComboBox  *m_comboOrders       = nullptr;
+    QComboBox  *m_comboProfiles     = nullptr;
+    QComboBox  *m_comboTestMode     = nullptr; ///< Test mode selector ("Canlı Test" or "Kayıtlı Test")
+    QComboBox  *m_comboGoldenRecord = nullptr; ///< Saved Golden Reference measurements dropdown
+    QLabel     *m_lblTestModeHint   = nullptr; ///< Explanatory label showing test mode and duration
+    QLineEdit  *m_txtTesterName     = nullptr;  ///< Mandatory per-test tester name (distinct from login username)
+    QLineEdit  *m_txtAntennaSn      = nullptr;
+    QPushButton *m_btnStartTest     = nullptr;
+    QPushButton *m_btnAbortTest     = nullptr;
+    QVector<GoldenFrequencyRecord> m_cachedGoldenRecords; ///< Cached Golden Reference measurement records
 
     // 3x3 Live RF Telemetry Pastel Pills (Page 0)
     QLabel *m_lblLiveChannel   = nullptr;

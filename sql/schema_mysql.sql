@@ -134,18 +134,19 @@ INSERT INTO `reference_lock` (`id`, `locked_by_station`, `current_channel_no`)
 VALUES (1, 0, 0)
 ON DUPLICATE KEY UPDATE `id`=`id`;
 
--- 9. Yönetici PC Tarafından Ölçülen Frekans Bazlı Golden Sample Referans Havuzu
+-- 9. Yönetici PC Tarafından Ölçülen Doğrudan & Frekans Bazlı Golden Sample Referans Havuzu
 CREATE TABLE IF NOT EXISTS `golden_frequencies` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
-    `label` VARCHAR(64) NOT NULL DEFAULT '',
-    `frequency_mhz` INT NOT NULL,
-    `symbol_rate` INT NOT NULL,
-    `polarization` ENUM('V', 'H') NOT NULL,
+    `label` VARCHAR(100) NOT NULL DEFAULT '',
+    `frequency_mhz` INT NOT NULL DEFAULT 0,
+    `symbol_rate` INT NOT NULL DEFAULT 0,
+    `polarization` ENUM('V', 'H') NOT NULL DEFAULT 'V',
     `golden_cn_db` DECIMAL(5, 2) NOT NULL DEFAULT 0.00,
     `golden_pow_dbm` DECIMAL(6, 2) NOT NULL DEFAULT 0.00,
     `tolerance_db` DECIMAL(4, 2) NOT NULL DEFAULT 1.50,
-    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY `uk_golden_freq` (`frequency_mhz`, `symbol_rate`, `polarization`)
+    `duration_sec` INT NOT NULL DEFAULT 0,
+    `sample_data` MEDIUMTEXT DEFAULT NULL,
+    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
 -- 10. Ağ Sunucuları ve İstasyon Filosu (Cluster Nodes & Host Servers)

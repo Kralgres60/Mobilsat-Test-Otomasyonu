@@ -236,7 +236,7 @@ void DebugRunnerWindow::setupUi() {
     m_lblBer = makeBadge("BER: --", "#181825");
     m_lblEbN0 = makeBadge("Eb/N0: -- dB", "#181825");
     m_lblDeviceTime = makeBadge("Cihaz Saati: --", "#1E1E2E");
-    m_lblDeltaTime = makeBadge("Δt (Gecikme): -- ms", "#1E1E2E");
+    m_lblDeltaTime = makeBadge("Sistem Anlık Saati: --", "#1E1E2E");
 
     gridBadges->addWidget(m_lblCarrier, 0, 0);
     gridBadges->addWidget(m_lblVideo, 0, 1);
@@ -591,14 +591,8 @@ void DebugRunnerWindow::onTimestampReceived(const QDateTime &deviceTime, const Q
         m_lblDeviceTime->setText(QString("Cihaz Saati: %1").arg(rawTimeStr.isEmpty() ? "--" : rawTimeStr));
     }
     if (m_lblDeltaTime) {
-        if (deviceTime.isValid()) {
-            qint64 dtMs = hostTime.toMSecsSinceEpoch() - deviceTime.toMSecsSinceEpoch();
-            m_lblDeltaTime->setText(QString("Δt (Gecikme): %1 ms").arg(dtMs));
-            m_lblDeltaTime->setStyleSheet("background-color: #064E3B; color: #34D399; padding: 6px; border-radius: 4px; font-weight: bold;");
-        } else {
-            m_lblDeltaTime->setText("Δt (Gecikme): -- ms");
-            m_lblDeltaTime->setStyleSheet("background-color: #181825; color: #CDD6F4; padding: 6px; border-radius: 4px; font-weight: bold;");
-        }
+        m_lblDeltaTime->setText(QString("Sistem Anlık Saati: %1").arg(hostTime.isValid() ? hostTime.toString("hh:mm:ss.zzz") : "--"));
+        m_lblDeltaTime->setStyleSheet("background-color: #064E3B; color: #34D399; padding: 6px; border-radius: 4px; font-weight: bold;");
     }
 }
 

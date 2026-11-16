@@ -88,6 +88,16 @@ signals:
     void logMessage(const QString &message, bool isError);
 };
 
+/**
+ * @struct TimestampPair
+ * @brief Paired host receipt timestamp and DRX9000 internal clock reading.
+ */
+struct TimestampPair {
+    QDateTime hostTime;         ///< System/PC instant timestamp
+    QDateTime deviceTime;       ///< Parsed DRX9000 device timestamp
+    QString rawDeviceTime;      ///< Raw time string from DRX (st_current_time)
+};
+
 // =============================================================================
 // ETHERNET (WEB CGI + ICMP PING)
 // =============================================================================
@@ -140,6 +150,12 @@ public:
 
     /** @brief Get the raw unparsed device timestamp string from DRX alarmstatus JSON. @return Raw time string. */
     QString lastDeviceTimeString() const { return m_lastDeviceTimeStr; }
+
+    /** @brief Returns collected time pairs history. */
+    const QVector<TimestampPair>& timestampHistory() const { return m_timestampHistory; }
+
+    /** @brief Clears collected timestamp pairs. */
+    void clearTimestampHistory() { m_timestampHistory.clear(); }
 
     /** @brief Get the latency/clock difference in milliseconds (Host - Device). @return Delta time in ms. */
     qint64 lastDeltaTimeMs() const { return m_lastDeltaTimeMs; }
@@ -198,6 +214,7 @@ private:
     QDateTime m_lastHostTime;
     QString m_lastDeviceTimeStr;
     qint64 m_lastDeltaTimeMs = 0;
+    QVector<TimestampPair> m_timestampHistory;
 };
 
 // =============================================================================

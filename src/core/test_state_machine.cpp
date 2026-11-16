@@ -52,6 +52,10 @@ void TestStateMachine::setDataTransfers(DataTransfer *dutTransfer, DataTransfer 
                 [this](double pwr, double cn, double ber) {
                     onDutTelemetry(pwr, cn, ber);
                 });
+        connect(m_dutTransfer, &DataTransfer::timestampReceived, this,
+                [this](const QDateTime &devTime, const QDateTime &hTime, const QString &rawStr) {
+                    onDutTimestampReceived(devTime, hTime, rawStr);
+                });
     }
 
     if (m_refTransfer) {
@@ -97,7 +101,9 @@ bool TestStateMachine::startTest(const QString &antennaSn,
                                  const SatelliteProfileInfo &profile,
                                  int workOrderId,
                                  int operatorId,
-                                 const QString &testerName) {
+                                 const QString &testerName,
+                                 ReferenceMode refMode,
+                                 const GoldenFrequencyRecord &selectedGolden) {
     if (m_state != TestState::Idle && m_state != TestState::Completed && m_state != TestState::Aborted) {
         emit logMessage("Test is already running!");
         return false;
@@ -113,6 +119,8 @@ bool TestStateMachine::startTest(const QString &antennaSn,
         return false;
     }
 
+    m_referenceMode = refMode;
+    m_selectedGoldenRecord = selectedGolden;
     m_profile = profile;
     m_testRun = TestRunData();
     m_testRun.antennaSn = antennaSn;
@@ -129,36 +137,50 @@ bool TestStateMachine::startTest(const QString &antennaSn,
     m_currentChannelIndex = 0;
     m_totalTestTimer.restart();
 
-    emit logMessage(QString("Starting Automated Test: Tester=%1, Serial Number=%2, Profile=%3 (%4 Channels)")
-                        .arg(m_testRun.testerName, antennaSn, profile.profileName).arg(profile.channels.size()));
+    QString modeDesc = (m_referenceMode == ReferenceMode::GoldenSample)
+        ? QString("Kayıtlı Golden Test ('%1' - %2)")
+              .arg(m_selectedGoldenRecord.label.isEmpty() ? "Varsayılan" : m_selectedGoldenRecord.label)
+              .arg(m_selectedGoldenRecord.durationSec > 0 ? QString("%1 sn Canlı Kayıt").arg(m_selectedGoldenRecord.durationSec) : "Sabit Eşik")
+        : "Canlı Referans Anten Testi";
+
+    emit logMessage(QString("Starting Automated Test: Tester=%1, Serial Number=%2, Profile=%3 (%4 Channels), Mod=%5")
+                        .arg(m_testRun.testerName, antennaSn, profile.profileName).arg(profile.channels.size()).arg(modeDesc));
     AppLogger::instance().logProcess(
         QString("ST-%1").arg(m_testRun.stationId),
         "TEST_START",
-        QString("Tester=%1 | SN=%2 | Profile=%3 | Channels=%4")
-            .arg(m_testRun.testerName, antennaSn, profile.profileName).arg(profile.channels.size()));
+        QString("Tester=%1 | SN=%2 | Profile=%3 | Mode=%4")
+            .arg(m_testRun.testerName, antennaSn, profile.profileName, modeDesc));
 
-    changeState(TestState::WaitingForLock);
+    if (m_referenceMode == ReferenceMode::GoldenSample) {
+        emit logMessage(QString("[Kayıtlı Test] Golden Referans kullanılıyor: '%1' (%2 dB). Donanımsal anten kilidi aranmaz.")
+                            .arg(m_selectedGoldenRecord.label.isEmpty() ? "Kayıtlı Referans" : m_selectedGoldenRecord.label)
+                            .arg(m_selectedGoldenRecord.goldenCnDb, 0, 'f', 2));
+        changeState(TestState::WaitingForLock);
+        onLockGranted(90);
+    } else {
+        changeState(TestState::WaitingForLock);
 
 #if defined(NETA_ALGORITMA_2_THREE_PC)
-    int lockedBy = 0, curCh = 0;
-    int myStationId = AppConfig::instance().stationId();
-    if (DbManager::instance().tryAcquireDbLock(myStationId, lockedBy, curCh)) {
-        emit logMessage(QString("[Algorithm 2] Reference lock successfully acquired from MariaDB (Station %1).").arg(myStationId));
-        onLockGranted(AppConfig::instance().lockTimeoutSec());
-    } else {
-        emit waitingForLockUpdate(1, lockedBy);
-        emit logMessage(QString("[Algorithm 2] Reference DRX currently in use by Station %1 (Channel %2). Enqueued...").arg(lockedBy).arg(curCh));
-        m_dbLockRetryTimer.start(1000); // Poll lock table every second
-    }
+        int lockedBy = 0, curCh = 0;
+        int myStationId = AppConfig::instance().stationId();
+        if (DbManager::instance().tryAcquireDbLock(myStationId, lockedBy, curCh)) {
+            emit logMessage(QString("[Algorithm 2] Reference lock successfully acquired from MariaDB (Station %1).").arg(myStationId));
+            onLockGranted(AppConfig::instance().lockTimeoutSec());
+        } else {
+            emit waitingForLockUpdate(1, lockedBy);
+            emit logMessage(QString("[Algorithm 2] Reference DRX currently in use by Station %1 (Channel %2). Enqueued...").arg(lockedBy).arg(curCh));
+            m_dbLockRetryTimer.start(1000); // Poll lock table every second
+        }
 #else
-    // Algorithm 1: Request reference hardware lock over TCP from Central Host
-    if (m_netClient) {
-        m_netClient->requestLock(AppConfig::instance().lockTimeoutSec());
-    } else {
-        // Fallback for standalone / single-station testing
-        onLockGranted(90);
-    }
+        // Algorithm 1: Request reference hardware lock over TCP from Central Host
+        if (m_netClient) {
+            m_netClient->requestLock(AppConfig::instance().lockTimeoutSec());
+        } else {
+            // Fallback for standalone / single-station testing
+            onLockGranted(90);
+        }
 #endif
+    }
 
     return true;
 }
@@ -192,14 +214,16 @@ void TestStateMachine::abortTest(const QString &reason) {
         m_dutSerial->stopTunerLog();
     }
 
+    if (m_referenceMode != ReferenceMode::GoldenSample) {
 #if defined(NETA_ALGORITMA_2_THREE_PC)
-    DbManager::instance().releaseDbLock(AppConfig::instance().stationId());
-    emit logMessage(QString("[Algorithm 2] MariaDB reference lock released (Station %1).").arg(AppConfig::instance().stationId()));
+        DbManager::instance().releaseDbLock(AppConfig::instance().stationId());
+        emit logMessage(QString("[Algorithm 2] MariaDB reference lock released (Station %1).").arg(AppConfig::instance().stationId()));
 #else
-    if (m_netClient) {
-        m_netClient->releaseLock();
-    }
+        if (m_netClient) {
+            m_netClient->releaseLock();
+        }
 #endif
+    }
 
     m_testRun.overallResult = "ABORTED";
     m_testRun.failReason = reason;
@@ -250,6 +274,7 @@ void TestStateMachine::runCurrentChannel() {
     m_dutPowSamples.clear();
     m_refCnSamples.clear();
     m_refPowSamples.clear();
+    m_channelTimeHistory.clear();
 
     // 1. Send tune command to DUT DRX9000 (DataTransfer abstraction first, fallback to direct pointers)
     if (m_dutTransfer) {
@@ -264,32 +289,43 @@ void TestStateMachine::runCurrentChannel() {
     }
 
     // 2. Reference comparison handling:
-    //    - GoldenSample: look up Host-measured golden_frequencies by (freq, sr, pol) or channel fallback
+    //    - GoldenSample: use selected Golden Sample record (live or fixed), fallback to channel/pool
     //    - LiveReference: tune shared Reference DRX (via Host TCP in Alg 1, or direct LAN in Alg 2)
     if (m_referenceMode == ReferenceMode::GoldenSample) {
-        double gCn = ch.goldenCnDb;
-        double gPow = ch.goldenPowDbm;
+        double gCn = 0.0;
+        double gPow = 0.0;
         double gTol = ch.toleranceDb;
-        bool foundInPool = DbManager::instance().findGoldenSampleForChannel(
-            ch.frequencyMhz, ch.symbolRate, ch.polarization, gCn, gPow, gTol);
-        bool hasBaseline = foundInPool || ch.hasGoldenSample;
+
+        if (m_selectedGoldenRecord.id > 0) {
+            gCn = m_selectedGoldenRecord.goldenCnDb;
+            gPow = m_selectedGoldenRecord.goldenPowDbm;
+            if (m_selectedGoldenRecord.toleranceDb > 0.05) {
+                gTol = m_selectedGoldenRecord.toleranceDb;
+            }
+        } else {
+            gCn = ch.goldenCnDb;
+            gPow = ch.goldenPowDbm;
+            bool foundInPool = DbManager::instance().findGoldenSampleForChannel(
+                ch.frequencyMhz, ch.symbolRate, ch.polarization, gCn, gPow, gTol);
+            if (foundInPool && gTol > 0.05) {
+                m_profile.channels[m_currentChannelIndex].toleranceDb = gTol;
+            }
+        }
 
         m_lastRefCn = gCn;
         m_lastRefPow = gPow;
-        if (foundInPool && gTol > 0.05) {
-            m_profile.channels[m_currentChannelIndex].toleranceDb = gTol;
-        }
+        m_profile.channels[m_currentChannelIndex].toleranceDb = gTol;
         m_refCarrierLocked = true;
         m_refVideoLocked = true;
         m_refCnSamples.append(gCn);
         m_refPowSamples.append(gPow);
-        emit logMessage(QString("[Golden Sample] Kayıtlı frekans referansı kullanılıyor (%1 - %2 MHz %3): C/N=%4 dB | POW=%5 dBm%6")
-                            .arg(ch.channelName)
+        emit logMessage(QString("[Kayıtlı Test] Referans: '%1' (%2 MHz %3) -> C/N=%4 dB | POW=%5 dBm | Tolerans=±%6 dB")
+                            .arg(m_selectedGoldenRecord.label.isEmpty() ? ch.channelName : m_selectedGoldenRecord.label)
                             .arg(ch.frequencyMhz)
                             .arg(ch.polarization)
                             .arg(gCn, 0, 'f', 2)
                             .arg(gPow, 0, 'f', 2)
-                            .arg(hasBaseline ? "" : " [UYARI: Yönetici bu frekans için Golden ölçüm kaydetmemiş!]"));
+                            .arg(gTol, 0, 'f', 2));
     } else {
 #if defined(NETA_ALGORITMA_2_THREE_PC)
         // Algorithm 2: Update MariaDB lock heartbeat and tune shared Reference DRX9000 via Web CGI
@@ -327,9 +363,16 @@ void TestStateMachine::onDutStatus(bool signalLocked, bool videoProducing, bool 
         }
 
         int sampleSec = AppConfig::instance().sampleDurationSec();
+        if (m_referenceMode == ReferenceMode::GoldenSample && m_selectedGoldenRecord.id > 0 && m_selectedGoldenRecord.durationSec > 0) {
+            sampleSec = m_selectedGoldenRecord.durationSec;
+        }
         m_sampleDurationTimer.start(sampleSec * 1000);
         m_sampleTickTimer.start(250); // Sample telemetry at 250ms intervals
-        emit logMessage(QString("Carrier locked (S:+). Collecting telemetry samples for %1 seconds...").arg(sampleSec));
+        emit logMessage(QString("Taşıyıcı kilitlendi (S:+). Telemetri toplanıyor: %1 saniye (%2)...")
+                            .arg(sampleSec)
+                            .arg(m_referenceMode == ReferenceMode::GoldenSample
+                                     ? (m_selectedGoldenRecord.durationSec > 0 ? "Kayıtlı Canlı Süre" : "Sabit Kayıt - Varsayılan Süre")
+                                     : "Canlı Referans Anten Testi"));
     }
 }
 
@@ -349,6 +392,15 @@ void TestStateMachine::onDutTelemetry(double powerDbm, double cnDb, double /*ber
         double delta = cnDb - m_lastRefCn;
         const auto &ch = m_profile.channels[m_currentChannelIndex];
         emit channelSampleUpdated(ch.channelNo, cnDb, powerDbm, m_lastRefCn, m_lastRefPow, delta);
+    }
+}
+
+void TestStateMachine::onDutTimestampReceived(const QDateTime &deviceTime, const QDateTime &hostTime, const QString &rawTimeStr) {
+    m_lastDutDeviceTime = deviceTime;
+    m_lastDutHostTime = hostTime;
+    m_lastDutRawTimeStr = rawTimeStr;
+    if (m_state == TestState::SamplingTelemetry || m_state == TestState::WaitingCarrierLock) {
+        m_channelTimeHistory.append(qMakePair(hostTime, rawTimeStr));
     }
 }
 
@@ -432,6 +484,8 @@ void TestStateMachine::finishCurrentChannel() {
     }
 
     res.deltaDb = res.dutCn - res.refCn;
+    res.drxDeviceTime = m_lastDutRawTimeStr;
+    res.sampleHostTime = m_lastDutHostTime.isValid() ? m_lastDutHostTime : QDateTime::currentDateTime();
 
     // Tolerance Pass/Fail check
     if (!res.carrierLocked) {
@@ -450,23 +504,27 @@ void TestStateMachine::finishCurrentChannel() {
     AppLogger::instance().logProcess(
         QString("ST-%1").arg(m_testRun.stationId),
         "CHANNEL_RESULT",
-        QString("Ch=%1 (%2 MHz %3) | DUT=%4 dB | REF=%5 dB | Delta=%6 dB | Status=%7")
+        QString("Ch=%1 (%2 MHz %3) | DUT=%4 dB | REF=%5 dB | Delta=%6 dB | Status=%7 | SistemZamanı=%8 | DRXSaati=%9")
             .arg(res.channelName)
             .arg(res.frequencyMhz)
             .arg(res.polarization)
             .arg(res.dutCn, 0, 'f', 2)
             .arg(res.refCn, 0, 'f', 2)
             .arg(res.deltaDb, 0, 'f', 2)
-            .arg(res.status));
+            .arg(res.status)
+            .arg(res.sampleHostTime.toString("yyyy-MM-dd hh:mm:ss.zzz"))
+            .arg(res.drxDeviceTime.isEmpty() ? "--" : res.drxDeviceTime));
 
-    emit logMessage(QString("[%1/%2] %3 Evaluated: DUT=%4 dB, REF=%5 dB, Delta=%6 dB -> %7")
+    emit logMessage(QString("[%1/%2] %3 Bitti: DUT=%4 dB, REF=%5 dB, Delta=%6 dB -> %7 [Sistem: %8 | DRX: %9]")
                         .arg(m_currentChannelIndex + 1)
                         .arg(m_profile.channels.size())
                         .arg(res.channelName)
                         .arg(res.dutCn, 0, 'f', 1)
                         .arg(res.refCn, 0, 'f', 1)
                         .arg(res.deltaDb, 0, 'f', 1)
-                        .arg(res.status));
+                        .arg(res.status)
+                        .arg(res.sampleHostTime.toString("hh:mm:ss.zzz"))
+                        .arg(res.drxDeviceTime.isEmpty() ? "--" : res.drxDeviceTime));
 
     // Transition to next transponder
     m_currentChannelIndex++;
@@ -480,16 +538,18 @@ void TestStateMachine::finishCurrentChannel() {
 void TestStateMachine::completeTest() {
     changeState(TestState::ReleasingLock);
 
+    if (m_referenceMode != ReferenceMode::GoldenSample) {
 #if defined(NETA_ALGORITMA_2_THREE_PC)
-    m_dbLockRetryTimer.stop();
-    DbManager::instance().releaseDbLock(AppConfig::instance().stationId());
-    emit logMessage(QString("[Algorithm 2] Test complete. MariaDB lock released (Station %1).").arg(AppConfig::instance().stationId()));
+        m_dbLockRetryTimer.stop();
+        DbManager::instance().releaseDbLock(AppConfig::instance().stationId());
+        emit logMessage(QString("[Algorithm 2] Test complete. MariaDB lock released (Station %1).").arg(AppConfig::instance().stationId()));
 #else
-    // Release Reference hardware lock (Algorithm 1)
-    if (m_netClient) {
-        m_netClient->releaseLock();
-    }
+        // Release Reference hardware lock (Algorithm 1)
+        if (m_netClient) {
+            m_netClient->releaseLock();
+        }
 #endif
+    }
 
     m_testRun.durationSec = m_totalTestTimer.elapsed() / 1000;
 
@@ -519,20 +579,27 @@ void TestStateMachine::completeTest() {
     m_testRun.maxDeltaDb = maxDelta;
     m_testRun.overallResult = hasFail ? "FAIL" : "PASS";
 
+    m_testRun.lastDrxDeviceTime = m_lastDutRawTimeStr;
+    m_testRun.testEndTime = QDateTime::currentDateTime();
+
     changeState(TestState::Completed);
     emit testFinished(m_testRun);
 
     AppLogger::instance().logProcess(
         QString("ST-%1").arg(m_testRun.stationId),
         "TEST_FINISH",
-        QString("SN=%1 | Tester=%2 | Verdict=%3 | Duration=%4s | AvgDelta=%5 dB | MaxDelta=%6 dB")
+        QString("SN=%1 | Tester=%2 | Verdict=%3 | Duration=%4s | AvgDelta=%5 dB | MaxDelta=%6 dB | SistemBitiş=%7 | DRXSaati=%8")
             .arg(m_testRun.antennaSn, m_testRun.testerName, m_testRun.overallResult)
             .arg(m_testRun.durationSec)
             .arg(m_testRun.avgDeltaDb, 0, 'f', 2)
-            .arg(m_testRun.maxDeltaDb, 0, 'f', 2));
+            .arg(m_testRun.maxDeltaDb, 0, 'f', 2)
+            .arg(m_testRun.testEndTime.toString("yyyy-MM-dd hh:mm:ss.zzz"))
+            .arg(m_testRun.lastDrxDeviceTime.isEmpty() ? "--" : m_testRun.lastDrxDeviceTime));
 
-    emit logMessage(QString("=== TEST RUN COMPLETE: VERDICT: %1 (Duration: %2 s, Avg Delta: %3 dB) ===")
+    emit logMessage(QString("=== TEST TAMAMLANDI: %1 (Süre: %2 sn, Ort. Delta: %3 dB | Sistem: %4 | DRX: %5) ===")
                         .arg(m_testRun.overallResult)
                         .arg(m_testRun.durationSec)
-                        .arg(m_testRun.avgDeltaDb, 0, 'f', 2));
+                        .arg(m_testRun.avgDeltaDb, 0, 'f', 2)
+                        .arg(m_testRun.testEndTime.toString("hh:mm:ss.zzz"))
+                        .arg(m_testRun.lastDrxDeviceTime.isEmpty() ? "--" : m_testRun.lastDrxDeviceTime));
 }

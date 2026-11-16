@@ -570,6 +570,43 @@ void ClientWindow::setupProductionPage() {
     profRow->addWidget(btnRefreshProfiles);
     profRow->addWidget(btnManageProfiles);
 
+    // Test Mode & Golden Sample selector row
+    QHBoxLayout *modeRow = new QHBoxLayout();
+    modeRow->setSpacing(6);
+
+    m_comboTestMode = new QComboBox(grpLaunch);
+    m_comboTestMode->addItem("🟢 Canlı Test (Referans Anten)", "LIVE");
+    m_comboTestMode->addItem("💾 Kayıtlı Test (Golden Referans)", "GOLDEN");
+    m_comboTestMode->setStyleSheet("font-weight: bold; padding: 4px;");
+
+    m_comboGoldenRecord = new QComboBox(grpLaunch);
+    m_comboGoldenRecord->setStyleSheet("padding: 4px;");
+    m_comboGoldenRecord->setToolTip("Test sırasında referans alınacak Golden Reference kaydını seçiniz");
+
+    QPushButton *btnRefreshGolden = new QPushButton("🔄", grpLaunch);
+    btnRefreshGolden->setToolTip("Kayıtlı Golden Referans listesini veritabanından yenile");
+    btnRefreshGolden->setFixedWidth(32);
+    btnRefreshGolden->setCursor(Qt::PointingHandCursor);
+    btnRefreshGolden->setStyleSheet("background-color: #065F46; color: #E6F4EE; border: 1px solid #10B981; border-radius: 4px; font-weight: bold;");
+
+    modeRow->addWidget(m_comboTestMode, 2);
+    modeRow->addWidget(m_comboGoldenRecord, 3);
+    modeRow->addWidget(btnRefreshGolden);
+
+    m_lblTestModeHint = new QLabel("🟢 Normal referans anten ile canlı karşılaştırmalı test yapılacaktır.", grpLaunch);
+    m_lblTestModeHint->setStyleSheet("color: #34D399; font-size: 8.5pt; font-style: italic;");
+
+    QVBoxLayout *modeBox = new QVBoxLayout();
+    modeBox->setSpacing(3);
+    modeBox->addLayout(modeRow);
+    modeBox->addWidget(m_lblTestModeHint);
+
+    connect(m_comboTestMode, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &ClientWindow::onTestModeComboChanged);
+    connect(m_comboGoldenRecord, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &ClientWindow::onGoldenRecordComboChanged);
+    connect(btnRefreshGolden, &QPushButton::clicked, this, &ClientWindow::reloadGoldenRecordsList);
+
     m_txtTesterName = new QLineEdit(grpLaunch);
     m_txtTesterName->setPlaceholderText("Testi yapan kişi adını giriniz (Zorunlu - Kullanıcı adı değildir)...");
     m_txtTesterName->setStyleSheet("font-size: 10.5pt; font-weight: bold; padding: 6px 10px; border: 1px solid #10B981;");
@@ -581,6 +618,7 @@ void ClientWindow::setupProductionPage() {
 
     launchForm->addRow(new QLabel("İş Emri:", grpLaunch), m_comboOrders);
     launchForm->addRow(new QLabel("Uydu Profili:", grpLaunch), profRow);
+    launchForm->addRow(new QLabel("Test / Referans Modu:", grpLaunch), modeBox);
     launchForm->addRow(new QLabel("Testi Yapan İsim *:", grpLaunch), m_txtTesterName);
     launchForm->addRow(new QLabel("Barkod / Seri No *:", grpLaunch), m_txtAntennaSn);
 
@@ -1060,6 +1098,7 @@ void ClientWindow::loadWorkOrdersAndProfiles() {
     if (m_profileManager) {
         m_profileManager->reloadProfiles(m_currentProfile.id);
     }
+    reloadGoldenRecordsList();
 }
 
 void ClientWindow::onWorkOrderComboChanged(int index) {
@@ -1093,6 +1132,11 @@ void ClientWindow::onProfileComboChanged(int index) {
 
 void ClientWindow::onReferenceModeChanged(ReferenceMode mode) {
     AppConfig::instance().setLastReferenceMode(mode);
+    if (m_comboTestMode) {
+        m_comboTestMode->blockSignals(true);
+        m_comboTestMode->setCurrentIndex(mode == ReferenceMode::GoldenSample ? 1 : 0);
+        m_comboTestMode->blockSignals(false);
+    }
     if (m_stateMachine) {
         m_stateMachine->setReferenceMode(mode);
     }
@@ -1105,7 +1149,108 @@ void ClientWindow::onReferenceModeChanged(ReferenceMode mode) {
             m_lblRefModeBadge->setStyleSheet(StyleHelper::getPastelGreenStyle());
         }
     }
+
+    if (mode == ReferenceMode::GoldenSample) {
+        if (m_comboGoldenRecord) {
+            m_comboGoldenRecord->setEnabled(true);
+        }
+        reloadGoldenRecordsList();
+    } else {
+        if (m_comboGoldenRecord) {
+            m_comboGoldenRecord->setEnabled(false);
+            m_comboGoldenRecord->blockSignals(true);
+            m_comboGoldenRecord->clear();
+            m_comboGoldenRecord->addItem("--- Canlı Referans Anten Kullanılacak ---", 0);
+            m_comboGoldenRecord->blockSignals(false);
+        }
+        if (m_stateMachine) {
+            m_stateMachine->setSelectedGoldenRecord(GoldenFrequencyRecord());
+        }
+        if (m_lblTestModeHint) {
+            m_lblTestModeHint->setText(QString("🟢 Normal referans anten ile canlı karşılaştırmalı test yapılacaktır (Varsayılan süre: %1 sn).")
+                                           .arg(AppConfig::instance().sampleDurationSec()));
+            m_lblTestModeHint->setStyleSheet("color: #34D399; font-size: 8.5pt; font-style: italic;");
+        }
+    }
+
     populateChannelTable();
+}
+
+void ClientWindow::onTestModeComboChanged(int /*index*/) {
+    if (!m_comboTestMode) return;
+    bool isGolden = (m_comboTestMode->currentData().toString() == "GOLDEN");
+    onReferenceModeChanged(isGolden ? ReferenceMode::GoldenSample : ReferenceMode::LiveReference);
+}
+
+void ClientWindow::reloadGoldenRecordsList() {
+    m_cachedGoldenRecords = DbManager::instance().getGoldenFrequencies();
+    if (!m_comboGoldenRecord) return;
+
+    m_comboGoldenRecord->blockSignals(true);
+    m_comboGoldenRecord->clear();
+
+    if (m_cachedGoldenRecords.isEmpty()) {
+        m_comboGoldenRecord->addItem("⚠️ Kayıtlı Referans Yok (Sabit/Canlı Ekleyin)", 0);
+    } else {
+        for (const auto &rec : m_cachedGoldenRecords) {
+            QString itemText;
+            if (rec.durationSec > 0) {
+                itemText = QString("🔴 %1 — %2 dB (%3 sn Canlı)")
+                               .arg(rec.label)
+                               .arg(rec.goldenCnDb, 0, 'f', 1)
+                               .arg(rec.durationSec);
+            } else {
+                itemText = QString("📌 %1 — %2 dB (±%3 dB Sabit)")
+                               .arg(rec.label)
+                               .arg(rec.goldenCnDb, 0, 'f', 1)
+                               .arg(rec.toleranceDb, 0, 'f', 2);
+            }
+            m_comboGoldenRecord->addItem(itemText, rec.id);
+        }
+    }
+    m_comboGoldenRecord->blockSignals(false);
+
+    onGoldenRecordComboChanged(m_comboGoldenRecord->currentIndex());
+}
+
+void ClientWindow::onGoldenRecordComboChanged(int /*index*/) {
+    if (!m_comboTestMode || m_comboTestMode->currentData().toString() != "GOLDEN") return;
+    if (!m_comboGoldenRecord) return;
+
+    int recId = m_comboGoldenRecord->currentData().toInt();
+    GoldenFrequencyRecord selected;
+    for (const auto &r : m_cachedGoldenRecords) {
+        if (r.id == recId) {
+            selected = r;
+            break;
+        }
+    }
+
+    if (selected.id > 0) {
+        if (m_stateMachine) {
+            m_stateMachine->setSelectedGoldenRecord(selected);
+        }
+        if (m_lblTestModeHint) {
+            if (selected.durationSec > 0) {
+                m_lblTestModeHint->setText(QString("⏱️ Canlı Kayıt Seçildi: Her frekans bu kaydın süresi olan %1 saniye test edilecektir (Ref: %2 dB, POW: %3 dBm).")
+                                               .arg(selected.durationSec)
+                                               .arg(selected.goldenCnDb, 0, 'f', 1)
+                                               .arg(selected.goldenPowDbm, 0, 'f', 1));
+                m_lblTestModeHint->setStyleSheet("color: #FBBF24; font-size: 8.5pt; font-weight: bold;");
+            } else {
+                m_lblTestModeHint->setText(QString("📌 Sabit Kayıt Seçildi: Varsayılan test süresi (%1 sn) kullanılacaktır (Ref: %2 dB, ±%3 dB).")
+                                               .arg(AppConfig::instance().sampleDurationSec())
+                                               .arg(selected.goldenCnDb, 0, 'f', 1)
+                                               .arg(selected.toleranceDb, 0, 'f', 2));
+                m_lblTestModeHint->setStyleSheet("color: #60A5FA; font-size: 8.5pt; font-weight: bold;");
+            }
+        }
+    } else {
+        if (m_lblTestModeHint) {
+            m_lblTestModeHint->setText("⚠️ Kayıtlı Golden Reference ölçümü bulunmuyor.");
+            m_lblTestModeHint->setStyleSheet("color: #EF4444; font-size: 8.5pt;");
+        }
+    }
 }
 
 void ClientWindow::populateChannelTable() {
@@ -1128,14 +1273,19 @@ void ClientWindow::populateChannelTable() {
             const auto &ch = m_currentProfile.channels[i];
             chLabel = QString("%1 (%2 MHz %3)").arg(ch.channelName).arg(ch.frequencyMhz).arg(ch.polarization);
             if (isGoldenMode) {
-                double gCn = ch.goldenCnDb;
-                double gPow = ch.goldenPowDbm;
-                double gTol = ch.toleranceDb;
-                bool found = DbManager::instance().findGoldenSampleForChannel(
-                    ch.frequencyMhz, ch.symbolRate, ch.polarization, gCn, gPow, gTol);
-                refPreview = (found || ch.hasGoldenSample)
-                                 ? QString("%1 dB (G)").arg(gCn, 0, 'f', 1)
-                                 : "Ölçülmedi";
+                if (m_stateMachine && m_stateMachine->selectedGoldenRecord().id > 0) {
+                    const auto &sel = m_stateMachine->selectedGoldenRecord();
+                    refPreview = QString("%1 dB (%2)").arg(sel.goldenCnDb, 0, 'f', 1).arg(sel.durationSec > 0 ? QString("%1s").arg(sel.durationSec) : "Sabit");
+                } else {
+                    double gCn = ch.goldenCnDb;
+                    double gPow = ch.goldenPowDbm;
+                    double gTol = ch.toleranceDb;
+                    bool found = DbManager::instance().findGoldenSampleForChannel(
+                        ch.frequencyMhz, ch.symbolRate, ch.polarization, gCn, gPow, gTol);
+                    refPreview = (found || ch.hasGoldenSample)
+                                     ? QString("%1 dB (G)").arg(gCn, 0, 'f', 1)
+                                     : "Ölçülmedi";
+                }
             }
         }
 
@@ -1418,35 +1568,30 @@ void ClientWindow::onStartTestClicked() {
         return;
     }
 
-    // Sync active reference mode from Host (Alg 1) or DB (Alg 2)
-    ReferenceMode activeRefMode = m_netClient.isConnected()
-                                      ? m_netClient.referenceMode()
-                                      : DbManager::instance().getReferenceMode();
-    onReferenceModeChanged(activeRefMode);
+    // User-selected Reference / Test Mode: Canlı Test vs Kayıtlı Test
+    bool isGolden = (m_comboTestMode && m_comboTestMode->currentData().toString() == "GOLDEN");
+    ReferenceMode activeRefMode = isGolden ? ReferenceMode::GoldenSample : ReferenceMode::LiveReference;
 
+    GoldenFrequencyRecord selectedGolden;
     if (activeRefMode == ReferenceMode::GoldenSample) {
-        bool anyGolden = false;
-        for (const auto &ch : m_currentProfile.channels) {
-            double gCn = 0.0, gPow = 0.0, gTol = 1.5;
-            if (ch.hasGoldenSample || DbManager::instance().findGoldenSampleForChannel(
-                    ch.frequencyMhz, ch.symbolRate, ch.polarization, gCn, gPow, gTol)) {
-                anyGolden = true;
+        int recId = (m_comboGoldenRecord) ? m_comboGoldenRecord->currentData().toInt() : 0;
+        for (const auto &r : m_cachedGoldenRecords) {
+            if (r.id == recId) {
+                selectedGolden = r;
                 break;
             }
         }
-        if (!anyGolden) {
-            auto ans = QMessageBox::question(
+        if (selectedGolden.id == 0 && !m_cachedGoldenRecords.isEmpty()) {
+            selectedGolden = m_cachedGoldenRecords.first();
+        }
+        if (selectedGolden.id == 0) {
+            QMessageBox::warning(
                 this,
-                "Golden Sample Kaydı Eksik",
-                QString("Yönetici şu anda 'Kayıtlı Golden Sample' modunu aktif etmiş durumda ancak '%1' profilinde "
-                        "henüz ölçülmüş/kayıtlı bir Golden Sample değeri bulunmuyor (0.0 dB).\n\n"
-                        "Yine de teste devam edilsin mi?")
-                    .arg(m_currentProfile.profileName),
-                QMessageBox::Yes | QMessageBox::No,
-                QMessageBox::No);
-            if (ans != QMessageBox::Yes) {
-                return;
-            }
+                "Golden Referans Kaydı Bulunamadı",
+                "Kayıtlı Golden Referans ile test modu seçildi ancak veritabanında henüz kayıtlı bir referans ölçümü bulunmuyor.\n\n"
+                "• Lütfen 'Referans Golden Sampler' sayfasına gidip canlı ölçüm kaydediniz veya sabit bir referans değeri ekleyiniz.\n"
+                "• Ya da 'Canlı Test' modunu seçerek teste devam edebilirsiniz.");
+            return;
         }
     }
 
@@ -1460,13 +1605,15 @@ void ClientWindow::onStartTestClicked() {
     m_resultBannerFrame->setStyleSheet("background-color: #112D21; border: 2px solid #10B981; border-radius: 6px; padding: 10px;");
     m_lblOverallResult->setText("TEST DEVAM EDİYOR");
     m_lblOverallResult->setStyleSheet("font-size: 20pt; font-weight: bold; color: #34D399;");
-    m_lblOverallDetails->setText("Referans kilidi talep ediliyor...");
+    m_lblOverallDetails->setText(activeRefMode == ReferenceMode::GoldenSample ? "Kayıtlı referans testi başlatılıyor..." : "Referans kilidi talep ediliyor...");
 
     m_btnStartTest->setEnabled(false);
     m_btnAbortTest->setEnabled(true);
-    setStatusMessage(QString("Test başlatıldı (CAT6 Ethernet): Seri No %1").arg(sn));
+    setStatusMessage(QString("Test başlatıldı (%1): Seri No %2")
+                         .arg(activeRefMode == ReferenceMode::GoldenSample ? "Kayıtlı Golden Test" : "Canlı Referans Anten")
+                         .arg(sn));
 
-    if (!m_stateMachine->startTest(sn, m_currentProfile, woId, 0, testerName)) {
+    if (!m_stateMachine->startTest(sn, m_currentProfile, woId, 0, testerName, activeRefMode, selectedGolden)) {
         m_btnStartTest->setEnabled(true);
         m_btnAbortTest->setEnabled(false);
         m_resultBannerFrame->setStyleSheet("background-color: #112D21; border: 1px solid #1A3D2B; border-radius: 6px; padding: 10px;");
