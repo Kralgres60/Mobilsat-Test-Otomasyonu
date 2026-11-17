@@ -127,6 +127,9 @@ void TcpClient::processMessage(const QJsonObject &msg) {
                 emit stationIdAssigned(assigned);
             }
         }
+        if (msg.contains("active_golden_id")) {
+            m_activeGoldenRecordId = msg["active_golden_id"].toInt(0);
+        }
         if (msg.contains("ref_mode")) {
             QString modeStr = msg["ref_mode"].toString();
             m_referenceMode = (modeStr.compare("GOLDEN", Qt::CaseInsensitive) == 0)
@@ -143,6 +146,9 @@ void TcpClient::processMessage(const QJsonObject &msg) {
         emit logMessage(QString("Host registration acknowledged (Assigned ID: %1).").arg(m_stationId));
     }
     else if (type == NetMsg::TYPE_REF_MODE_UPDATE) {
+        if (msg.contains("active_golden_id")) {
+            m_activeGoldenRecordId = msg["active_golden_id"].toInt(0);
+        }
         QString modeStr = msg["ref_mode"].toString();
         m_referenceMode = (modeStr.compare("GOLDEN", Qt::CaseInsensitive) == 0)
                               ? ReferenceMode::GoldenSample

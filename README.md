@@ -90,9 +90,9 @@ flowchart TD
 - **Donanımsal Kilit Hakemi (Distributed Mutex Arbiter):** Ortak kullanılan referans alıcısı için FIFO tabanlı donanım kilidi yönetimi. Çakışmaları ve hatalı ölçümleri %100 engeller, zaman aşımı koruması içerir.
 - **10 Kanal Otomatik RF Analizi:** 10 transponder frekansını sırayla tarar; taşıyıcı kilidi (Carrier Lock), video/ses kilitleri denetlenir ve referans antenle $\Delta$ fark hesabı yapılır.
 - **Otomatik MariaDB/MySQL Entegrasyonu:** Sunucu ilk açılışta veritabanı servisini ve portlarını kontrol eder, eksikse tek tıkla sessiz kurulumunu yapar ve fabrika test şemasını başlatır.
-- **Kurumsal Web Yönetim ve Filo Platformu (Port: 8080):** Bağımsız MariaDB sunucularında veya uzak fabrika ağında (`http://localhost:8080`) çalışan 9 modüllü modern SPA konsolu. Server-Sent Events (SSE) tabanlı **Canlı Hat Takibi (Live Line Monitor)**, İstasyon 1, 2, 3 canlı telemetrisi, tek tıkla Excel XML ve CSV indirme, çoklu Host sunucu ve İstasyon filo takibi (`cluster_nodes`), masaüstü uygulamasıyla ortak kullanıcı & RBAC yönetimi, 10 kanal ölçüm detayları inceleme, canlı mutex kilit monitörü ve F9 etkileşimli SQL konsolu içerir.
+- **Kurumsal Web Yönetim ve Filo Platformu (Port: 8080):** Bağımsız MariaDB sunucularında veya uzak fabrika ağında (`http://localhost:8080`) çalışan 9 modüllü modern SPA konsolu. Server-Sent Events (SSE) tabanlı **Canlı Hat Takibi (Live Line Monitor)**, yalnızca ağda gerçekten aktif olan Host sunucuların ve Test İstasyonlarının dinamik gösterimi (`cluster_nodes`), pop-up modal ile tam kapsamlı kullanıcı düzenleme (`✏️ Düzenle`), tek tıkla Excel XML ve CSV indirme, 10 kanal ölçüm detayları inceleme, canlı mutex kilit monitörü ve F9 etkileşimli SQL konsolu içerir.
 - **Resmi Excel (XLSX) Kalite Raporlama:** Host ekranından tek tıkla iş emirleri, test geçmişi ve tolerans analizleri profesyonel Excel formatında dışa aktarılır.
-- **Ses Kaydı Tarzı Canlı Golden Ölçüm Kaydı & Mini Grafik:** Hem Host hem İstasyon PC'lerde, ses kaydeder gibi tek tıkla başlatılıp durdurulan canlı referans ölçüm kaydı (C/N ve Güç zaman serisi) veya doğrudan sabit referans değeri girişi. Tabloda tıklanan her ölçüm satırı entegre `QCustomPlot` mini-grafiğinde ortalama referans çizgisi ve tolerans bantları ile anlık olarak görselleştirilir.
+- **Ses Kaydı Tarzı Canlı Golden Ölçüm Kaydı, Mini Grafik & Merkezi Aktif Seçim:** Hem Host hem İstasyon PC'lerde, ses kaydeder gibi tek tıkla başlatılıp durdurulan canlı referans ölçüm kaydı (C/N ve Güç zaman serisi) veya doğrudan sabit referans değeri girişi. Yönetici tablodan **`⭐ Aktif Seçili / ☑️ Aktif Yap`** butonuyla hangi Golden referansın kullanılacağını belirler (`ACTIVE_GOLDEN_RECORD_ID`) ve tüm istasyonlarda otomatik olarak o kayıt seçili gelir.
 - **DRX9000 Donanım Simülatörü ve Test Motoru (`tools/drx_simulator`):** Fiziksel cihaza ihtiyaç duymadan HTTP CGI (`POST /cgi-bin/drx.cgi`) protokolünü birebir taklit eden dahili simülatör. Anlık zaman manipülasyonu, 8 farklı hazır RF senaryosu (Stabil, Düşük C/N, Sinyal Kaybı vb.) ve manuel kaydırıcılarla canlı test imkânı.
 - **Animasyonlu DRX Cihaz Saati & Telemetri Takibi:** Cihaza bağlanıldığında `alarmstatus` içerisindeki `st_current_time` ve yerel sistem saati sağ üst bilgi rozetine yansıtılır; her güncellemede yumuşak pulse animasyonu ile canlı akış gösterilir.
 - **F12 Geliştirici, REST API & SQL Tablo Tarayıcı Konsolu:** Session key doğrulaması, CGI istek-yanıt analizi ve doğrudan veritabanı tablolarının içeriğini listeleyen zengin debug arayüzü.
@@ -112,15 +112,14 @@ DRX-Antenna-Test/
 ├── resources.qrc                    # Dahili logo, ikon ve SQL şemaları
 ├── LICENSE                          # Kurumsal telif hakkı ve lisans sözleşmesi
 │
-├── docs/                            # Detaylı mimari ve API dokümantasyonu
+├── docs/                            # Detaylı mimari ve API dokümantasyonu (.md dosyaları)
 │   ├── CODE_ARCHITECTURE_AND_API_GUIDE.md # Kod mimarisi ve API başvuru kılavuzu
 │   ├── DRX9000_REST_WEB_API_GUIDE.md       # DRX9000 Web CGI REST API kılavuzu
 │   ├── MARIADB_DATABASE_ARCHITECTURE.md    # MariaDB veritabanı ve kilit mimarisi
-│   ├── DRX_Algorithm_1_Flowchart.png       # 4 PC Mimarisi akış şeması
-│   ├── DRX_Algorithm_2_Flowchart.png       # 3 PC Mimarisi akış şeması
-│   ├── DRX_System_Architecture_Algorithm_1.png
-│   ├── DRX_System_Architecture_Algorithm_2.png
-│   └── screenshots/                        # Üretim arayüzü ekran görüntüleri
+│   ├── STATISTICAL_PROCESS_CONTROL_SPC_GUIDE.md # SPC, Gauss çanı ve Cpk kılavuzu
+│   ├── DRX_PROTOCOL_FORMATS_AND_RS485_GUIDE.md  # RS232/RS485 ve protokol formatları
+│   ├── diagrams/                           # Sistem mimarisi ve akış şemaları (PNG)
+│   └── screenshots/                        # Üretim arayüzü ekran görüntüleri (PNG)
 │
 ├── config/                          # Dinamik protokol ve format şablonları (drx_protocols.ini)
 │
@@ -206,11 +205,11 @@ InstallerPrefix=NETA_DRX9000_ANTENNA_Test_Setup
 
 ## 📸 Sistem Ekran Görüntüleri ve Mimari Şemalar
 
-### Mimari ve Akış Şemaları
-- **Algoritma 1 Akış Şeması:** [`docs/DRX_Algorithm_1_Flowchart.png`](file:///d:/A_SCIENCES/PROJECTS/NETA/DRX-Antenna-Test/docs/DRX_Algorithm_1_Flowchart.png)
-- **Algoritma 2 Akış Şeması:** [`docs/DRX_Algorithm_2_Flowchart.png`](file:///d:/A_SCIENCES/PROJECTS/NETA/DRX-Antenna-Test/docs/DRX_Algorithm_2_Flowchart.png)
-- **Algoritma 1 Sistem Mimarisi:** [`docs/DRX_System_Architecture_Algorithm_1.png`](file:///d:/A_SCIENCES/PROJECTS/NETA/DRX-Antenna-Test/docs/DRX_System_Architecture_Algorithm_1.png)
-- **Algoritma 2 Sistem Mimarisi:** [`docs/DRX_System_Architecture_Algorithm_2.png`](file:///d:/A_SCIENCES/PROJECTS/NETA/DRX-Antenna-Test/docs/DRX_System_Architecture_Algorithm_2.png)
+### Mimari ve Akış Şemaları (`docs/diagrams/`)
+- **Algoritma 1 Akış Şeması:** [`docs/diagrams/DRX_Algorithm_1_Flowchart.png`](file:///d:/A_SCIENCES/PROJECTS/NETA/DRX-Antenna-Test/docs/diagrams/DRX_Algorithm_1_Flowchart.png)
+- **Algoritma 2 Akış Şeması:** [`docs/diagrams/DRX_Algorithm_2_Flowchart.png`](file:///d:/A_SCIENCES/PROJECTS/NETA/DRX-Antenna-Test/docs/diagrams/DRX_Algorithm_2_Flowchart.png)
+- **Algoritma 1 Sistem Mimarisi:** [`docs/diagrams/DRX_System_Architecture_Algorithm_1.png`](file:///d:/A_SCIENCES/PROJECTS/NETA/DRX-Antenna-Test/docs/diagrams/DRX_System_Architecture_Algorithm_1.png)
+- **Algoritma 2 Sistem Mimarisi:** [`docs/diagrams/DRX_System_Architecture_Algorithm_2.png`](file:///d:/A_SCIENCES/PROJECTS/NETA/DRX-Antenna-Test/docs/diagrams/DRX_System_Architecture_Algorithm_2.png)
 
 ### Uygulama Arayüzleri (`docs/screenshots/`)
 1. **Kullanıcı Giriş Ekranı:** [`docs/screenshots/01_User_Login_Screen.png`](file:///d:/A_SCIENCES/PROJECTS/NETA/DRX-Antenna-Test/docs/screenshots/01_User_Login_Screen.png)

@@ -270,85 +270,82 @@ def safe_int(v, default=0):
         return default
 
 def get_live_monitor_payload():
-    """Compiles real-time station line monitoring data, mutex status, and production stats."""
+    """Compiles real-time station line monitoring data, mutex status, and production stats for active stations only."""
     # 1. Reference Lock
     _, r_lock, _ = run_sql("SELECT locked_by_station, current_channel_no, lock_acquired_at FROM reference_lock WHERE id = 1;")
     locked_station = safe_int(r_lock[0][0]) if r_lock and len(r_lock[0]) > 0 else 0
     lock_channel = safe_int(r_lock[0][1]) if r_lock and len(r_lock[0]) > 1 else 0
     lock_time = str(r_lock[0][2]) if r_lock and len(r_lock[0]) > 2 else ""
 
-    # 2. Cluster nodes for stations
-    _, r_nodes, _ = run_sql("SELECT id, node_name, ip_address, status, active_test_sn, details, last_seen FROM cluster_nodes WHERE node_type = 'STATION_CLIENT' ORDER BY id ASC;")
-    nodes_map = {}
+    # 2. Active Cluster nodes for stations (only real, non-expired stations)
+    _, r_nodes, _ = run_sql(
+        "SELECT id, node_name, ip_address, port, status, active_test_sn, details, last_seen "
+        "FROM cluster_nodes "
+        "WHERE node_type = 'STATION_CLIENT' AND status != 'OFFLINE' "
+        "AND TIMESTAMPDIFF(SECOND, last_seen, NOW()) <= 90 "
+        "ORDER BY port ASC, id ASC;"
+    )
+
+    stations_data = []
     if r_nodes:
-        for r in r_nodes:
+        for idx, r in enumerate(r_nodes):
             name = str(r[1])
-            st_id = 0
-            if "1" in name: st_id = 1
-            elif "2" in name: st_id = 2
-            elif "3" in name: st_id = 3
-            if st_id:
-                nodes_map[st_id] = {
-                    "node_name": r[1],
-                    "ip": r[2],
-                    "status": r[3],
-                    "active_sn": r[4] or "",
-                    "details": r[5] or "",
-                    "last_seen": str(r[6])
+            ip = str(r[2])
+            port_or_id = safe_int(r[3], 0)
+            raw_status = str(r[4])
+            active_sn = str(r[5] or "")
+            if active_sn.upper() == "NULL":
+                active_sn = ""
+
+            st_id = port_or_id if port_or_id > 0 else (idx + 1)
+            if "1" in name and st_id <= 0: st_id = 1
+            elif "2" in name and st_id <= 0: st_id = 2
+            elif "3" in name and st_id <= 0: st_id = 3
+
+            _, r_st_cnt, _ = run_sql(f"SELECT COUNT(*), SUM(CASE WHEN overall_result = 'PASS' THEN 1 ELSE 0 END), SUM(CASE WHEN overall_result = 'FAIL' THEN 1 ELSE 0 END) FROM test_runs WHERE station_id = {st_id};")
+            tot = safe_int(r_st_cnt[0][0]) if r_st_cnt and len(r_st_cnt[0]) > 0 else 0
+            pas = safe_int(r_st_cnt[0][1]) if r_st_cnt and len(r_st_cnt[0]) > 1 else 0
+            fai = safe_int(r_st_cnt[0][2]) if r_st_cnt and len(r_st_cnt[0]) > 2 else 0
+            rate = round((pas / tot * 100), 1) if tot > 0 else 0.0
+
+            _, r_last, _ = run_sql(f"SELECT antenna_sn, overall_result, avg_delta_db, duration_sec, test_timestamp FROM test_runs WHERE station_id = {st_id} ORDER BY id DESC LIMIT 1;")
+            last_test = None
+            if r_last and len(r_last) > 0:
+                last_test = {
+                    "sn": r_last[0][0],
+                    "result": r_last[0][1],
+                    "avg_delta": r_last[0][2],
+                    "duration": r_last[0][3],
+                    "timestamp": str(r_last[0][4])
                 }
 
-    # 3. Compile station list (1, 2, 3)
-    stations_data = []
-    for st_id in [1, 2, 3]:
-        _, r_st_cnt, _ = run_sql(f"SELECT COUNT(*), SUM(CASE WHEN overall_result = 'PASS' THEN 1 ELSE 0 END), SUM(CASE WHEN overall_result = 'FAIL' THEN 1 ELSE 0 END) FROM test_runs WHERE station_id = {st_id};")
-        tot = safe_int(r_st_cnt[0][0]) if r_st_cnt and len(r_st_cnt[0]) > 0 else 0
-        pas = safe_int(r_st_cnt[0][1]) if r_st_cnt and len(r_st_cnt[0]) > 1 else 0
-        fai = safe_int(r_st_cnt[0][2]) if r_st_cnt and len(r_st_cnt[0]) > 2 else 0
-        rate = round((pas / tot * 100), 1) if tot > 0 else 0.0
+            # State determination
+            if locked_station == st_id:
+                state = "LOCKED"
+                state_label = f"🔒 REF KİLİTLİ (Kanal {lock_channel})"
+            elif active_sn or raw_status == "BUSY":
+                state = "TESTING"
+                state_label = "⚡ TEST EDİLİYOR"
+            elif raw_status == "OFFLINE":
+                state = "OFFLINE"
+                state_label = "🔴 ÇEVRİMDIŞI"
+            else:
+                state = "IDLE"
+                state_label = "🟢 BOŞTA / HAZIR"
 
-        _, r_last, _ = run_sql(f"SELECT antenna_sn, overall_result, avg_delta_db, duration_sec, test_timestamp FROM test_runs WHERE station_id = {st_id} ORDER BY id DESC LIMIT 1;")
-        last_test = None
-        if r_last and len(r_last) > 0:
-            last_test = {
-                "sn": r_last[0][0],
-                "result": r_last[0][1],
-                "avg_delta": r_last[0][2],
-                "duration": r_last[0][3],
-                "timestamp": str(r_last[0][4])
-            }
-
-        node_info = nodes_map.get(st_id, {})
-        ip = node_info.get("ip", f"192.168.1.11{st_id}")
-        raw_status = node_info.get("status", "ONLINE")
-        active_sn = node_info.get("active_sn", "")
-
-        # State determination
-        if locked_station == st_id:
-            state = "LOCKED"
-            state_label = f"🔒 REF KİLİTLİ (Kanal {lock_channel})"
-        elif active_sn:
-            state = "TESTING"
-            state_label = "⚡ TEST EDİLİYOR"
-        elif raw_status == "OFFLINE":
-            state = "OFFLINE"
-            state_label = "🔴 ÇEVRİMDIŞI"
-        else:
-            state = "IDLE"
-            state_label = "🟢 BOŞTA / HAZIR"
-
-        stations_data.append({
-            "station_id": st_id,
-            "station_name": f"İstasyon {st_id} (Masa {st_id})",
-            "ip": ip,
-            "state": state,
-            "state_label": state_label,
-            "active_sn": active_sn,
-            "total_tests": tot,
-            "pass_tests": pas,
-            "fail_tests": fai,
-            "pass_rate": rate,
-            "last_test": last_test
-        })
+            stations_data.append({
+                "station_id": st_id,
+                "station_name": name if name else f"İstasyon {st_id}",
+                "ip": ip,
+                "state": state,
+                "state_label": state_label,
+                "active_sn": active_sn,
+                "total_tests": tot,
+                "pass_tests": pas,
+                "fail_tests": fai,
+                "pass_rate": rate,
+                "last_test": last_test
+            })
 
     # 4. Global recent tests (last 8)
     _, r_rec, _ = run_sql("SELECT id, antenna_sn, station_id, tester_name, overall_result, avg_delta_db, duration_sec, test_timestamp FROM test_runs ORDER BY id DESC LIMIT 8;")
@@ -465,6 +462,30 @@ def ensure_database():
         `last_seen` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         UNIQUE KEY `uk_node_ip_port` (`node_type`, `ip_address`, `port`)
     ) ENGINE=InnoDB;
+    """)
+
+    # Remove legacy sample/dummy cluster nodes so only real active servers/stations are displayed
+    run_sql("""
+    DELETE FROM `cluster_nodes` WHERE `node_name` IN (
+        'NETA-HOST-ANA-HAT', 'NETA-HOST-ARGE-02',
+        'ISTASYON-MASA-1', 'ISTASYON-MASA-2', 'ISTASYON-MASA-3',
+        'Ana Yönetici Sunucu (Host #1)', 'Yedek Kalite Kontrol Sunucusu (Host #2)',
+        'İstasyon 1 (Test Masası #1)', 'İstasyon 2 (Test Masası #2)', 'İstasyon 3 (Test Masası #3)'
+    );
+    """)
+
+    # Ensure system_settings descriptions are in simple A1-A2 English
+    run_sql("""
+    INSERT INTO `system_settings` (`setting_key`, `setting_value`, `description`) VALUES
+        ('LOCK_TIMEOUT_SEC', '90', 'Safety timeout for reference device lock (seconds)'),
+        ('SAMPLE_DURATION_SEC', '5', 'Signal measurement time per channel (seconds)'),
+        ('DEFAULT_TOLERANCE_DB', '1.50', 'Default allowed Delta dB limit'),
+        ('TCP_PORT', '9100', 'Main Host TCP port for commands and sync'),
+        ('UDP_BEACON_PORT', '9101', 'Local network port for auto discovery'),
+        ('REFERENCE_MODE', 'LIVE', 'Reference mode: LIVE (Live Antenna) or GOLDEN (Saved Golden Sample)'),
+        ('ACTIVE_GOLDEN_RECORD_ID', '0', 'Active Golden Sample record ID selected by Admin'),
+        ('REPORT_OUTPUT_DIR', 'reports', 'Folder path to save test reports')
+    ON DUPLICATE KEY UPDATE `description` = VALUES(`description`);
     """)
 
 HTML_PAGE = r"""<!DOCTYPE html>
@@ -1153,7 +1174,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
                         <span class="live-pulse-dot"></span>
                         <div>
                             <span style="font-weight:bold; font-size:14px; color:var(--primary-light);">CANLI HAT AKIŞI (SSE REAL-TIME STREAM)</span>
-                            <div style="font-size:11.5px; color:var(--text-muted);">İstasyon 1, 2, 3 donanım durumları ve test telemetrisi saniye saniye akmaktadır.</div>
+                            <div style="font-size:11.5px; color:var(--text-muted);">Yalnızca ağda aktif olan istasyonların donanım durumları ve test telemetrisi saniye saniye akmaktadır.</div>
                         </div>
                     </div>
                     <div style="display:flex; align-items:center; gap:12px;">
@@ -1282,7 +1303,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
                 <div class="card">
                     <div class="card-header">
                         <span>📡 Test İstasyonları Filosu (Stations)</span>
-                        <span style="font-size:11px; color:var(--text-muted);">Masa 1, 2, 3 donanım durumları</span>
+                        <span style="font-size:11px; color:var(--text-muted);">Yalnızca çevrimiçi ve aktif olan istasyonlar listelenir</span>
                     </div>
                     <div class="table-responsive">
                         <table>
@@ -1579,6 +1600,51 @@ HTML_PAGE = r"""<!DOCTYPE html>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-outline" onclick="closeModal('modalCreateUser')">İptal</button>
                     <button type="submit" class="btn btn-primary">Kaydet</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: Edit User -->
+    <div id="modalEditUser" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span>✏️ Kullanıcı Bilgilerini Düzenle</span>
+                <button class="close-btn" onclick="closeModal('modalEditUser')">&times;</button>
+            </div>
+            <form onsubmit="handleEditUser(event)">
+                <div class="modal-body">
+                    <input type="hidden" id="editUserId">
+                    <div class="form-group">
+                        <label>Kullanıcı Adı</label>
+                        <input type="text" id="editUsername" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Ad Soyad</label>
+                        <input type="text" id="editFullName" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Kullanıcı Rolü</label>
+                        <select id="editRole" class="form-control">
+                            <option value="OPERATOR">OPERATOR (Test Operatörü)</option>
+                            <option value="ADMIN">ADMIN (Test Mühendisi / Yönetici)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Hesap Durumu</label>
+                        <select id="editIsActive" class="form-control">
+                            <option value="1">Aktif</option>
+                            <option value="0">Pasif</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Yeni Şifre (İsteğe Bağlı)</label>
+                        <input type="password" id="editPassword" class="form-control" placeholder="Boş bırakırsanız mevcut şifre korunur">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline" onclick="closeModal('modalEditUser')">İptal</button>
+                    <button type="submit" class="btn btn-primary">Değişiklikleri Kaydet</button>
                 </div>
             </form>
         </div>
@@ -2004,100 +2070,109 @@ HTML_PAGE = r"""<!DOCTYPE html>
                 }
             }
 
-            // 3. Station Cards
+            // 3. Station Cards (Only show existing/active stations)
             const container = document.getElementById('monitorStationCards');
             if (container && data.stations) {
-                let html = '';
-                data.stations.forEach(st => {
-                    let cardClass = 'station-card';
-                    let badgeClass = 'station-badge-idle';
-                    if (st.state === 'LOCKED') {
-                        cardClass += ' locked';
-                        badgeClass = 'station-badge-locked';
-                    } else if (st.state === 'TESTING') {
-                        cardClass += ' testing';
-                        badgeClass = 'station-badge-testing';
-                    } else if (st.state === 'OFFLINE') {
-                        badgeClass = 'station-badge-offline';
-                    }
-
-                    let activeSection = '';
-                    if (st.state === 'TESTING' && st.active_sn) {
-                        activeSection = `
-                            <div class="active-sn-banner">
-                                <div>
-                                    <div style="font-size:10px; color:var(--accent-blue); font-weight:bold;">⚡ TEST EDİLEN ANTEN</div>
-                                    <div style="font-size:13.5px; font-weight:bold; color:var(--text-main); font-family:monospace;">${st.active_sn}</div>
-                                </div>
-                                <span class="badge-pass" style="font-size:10px;">CANLI RF</span>
-                            </div>
-                        `;
-                    } else if (st.state === 'LOCKED') {
-                        activeSection = `
-                            <div class="active-sn-banner" style="background-color:rgba(251,191,36,0.08); border-color:rgba(251,191,36,0.4);">
-                                <div>
-                                    <div style="font-size:10px; color:var(--warn-text); font-weight:bold;">🔒 ALTIN ANTEN KİLİDİ</div>
-                                    <div style="font-size:12px; color:var(--text-main);">Referans Almaç Meşgul</div>
-                                </div>
-                            </div>
-                        `;
-                    }
-
-                    let lastSection = '<div style="font-size:11px; color:var(--text-muted);">Henüz test kaydı yok</div>';
-                    if (st.last_test) {
-                        const resBadge = st.last_test.result === 'PASS' ? '<span class="badge-pass" style="font-size:10px;">PASS</span>' : '<span class="badge-fail" style="font-size:10px;">FAIL</span>';
-                        lastSection = `
-                            <div class="last-test-box">
-                                <div style="display:flex; justify-content:space-between; align-items:center;">
-                                    <span style="font-family:monospace; font-weight:bold; color:var(--text-main);">${st.last_test.sn}</span>
-                                    ${resBadge}
-                                </div>
-                                <div style="display:flex; justify-content:space-between; color:var(--text-muted); font-size:11px;">
-                                    <span>Ort: <b style="color:var(--text-main);">${st.last_test.avg_delta} dB</b></span>
-                                    <span>${st.last_test.duration} sn</span>
-                                    <span>${st.last_test.timestamp ? st.last_test.timestamp.substring(11, 19) : ''}</span>
-                                </div>
-                            </div>
-                        `;
-                    }
-
-                    html += `
-                        <div class="${cardClass}">
-                            <div class="station-header">
-                                <div>
-                                    <div class="station-title">
-                                        <span>📡 ${st.station_name}</span>
-                                    </div>
-                                    <div class="station-ip">${st.ip}</div>
-                                </div>
-                                <span class="${badgeClass}">${st.state_label}</span>
-                            </div>
-
-                            ${activeSection}
-
-                            <div class="stat-mini-grid">
-                                <div>
-                                    <div class="stat-mini-val" style="color:var(--text-main);">${st.total_tests}</div>
-                                    <div class="stat-mini-lbl">Toplam</div>
-                                </div>
-                                <div>
-                                    <div class="stat-mini-val" style="color:var(--primary-light);">${st.pass_tests}</div>
-                                    <div class="stat-mini-lbl">PASS (%${st.pass_rate})</div>
-                                </div>
-                                <div>
-                                    <div class="stat-mini-val" style="color:var(--fail-text);">${st.fail_tests}</div>
-                                    <div class="stat-mini-lbl">FAIL</div>
-                                </div>
-                            </div>
-
-                            <div>
-                                <div style="font-size:11px; color:var(--text-muted); margin-bottom:6px; font-weight:600;">Son Test:</div>
-                                ${lastSection}
-                            </div>
+                if (data.stations.length === 0) {
+                    container.innerHTML = `
+                        <div class="card" style="grid-column: 1 / -1; padding: 26px; text-align: center; border-style: dashed;">
+                            <div style="font-size: 15px; font-weight: bold; color: var(--text-main); margin-bottom: 6px;">📡 Şu Anda Aktif Test İstasyonu Bulunmuyor</div>
+                            <div style="font-size: 12.5px; color: var(--text-muted);">Herhangi bir test istasyonu uygulaması açıldığında ve ağa bağlandığında otomatik olarak burada görünecektir.</div>
                         </div>
                     `;
-                });
-                container.innerHTML = html;
+                } else {
+                    let html = '';
+                    data.stations.forEach(st => {
+                        let cardClass = 'station-card';
+                        let badgeClass = 'station-badge-idle';
+                        if (st.state === 'LOCKED') {
+                            cardClass += ' locked';
+                            badgeClass = 'station-badge-locked';
+                        } else if (st.state === 'TESTING') {
+                            cardClass += ' testing';
+                            badgeClass = 'station-badge-testing';
+                        } else if (st.state === 'OFFLINE') {
+                            badgeClass = 'station-badge-offline';
+                        }
+
+                        let activeSection = '';
+                        if (st.state === 'TESTING' && st.active_sn) {
+                            activeSection = `
+                                <div class="active-sn-banner">
+                                    <div>
+                                        <div style="font-size:10px; color:var(--accent-blue); font-weight:bold;">⚡ TEST EDİLEN ANTEN</div>
+                                        <div style="font-size:13.5px; font-weight:bold; color:var(--text-main); font-family:monospace;">${st.active_sn}</div>
+                                    </div>
+                                    <span class="badge-pass" style="font-size:10px;">CANLI RF</span>
+                                </div>
+                            `;
+                        } else if (st.state === 'LOCKED') {
+                            activeSection = `
+                                <div class="active-sn-banner" style="background-color:rgba(251,191,36,0.08); border-color:rgba(251,191,36,0.4);">
+                                    <div>
+                                        <div style="font-size:10px; color:var(--warn-text); font-weight:bold;">🔒 ALTIN ANTEN KİLİDİ</div>
+                                        <div style="font-size:12px; color:var(--text-main);">Referans Almaç Meşgul</div>
+                                    </div>
+                                </div>
+                            `;
+                        }
+
+                        let lastSection = '<div style="font-size:11px; color:var(--text-muted);">Henüz test kaydı yok</div>';
+                        if (st.last_test) {
+                            const resBadge = st.last_test.result === 'PASS' ? '<span class="badge-pass" style="font-size:10px;">PASS</span>' : '<span class="badge-fail" style="font-size:10px;">FAIL</span>';
+                            lastSection = `
+                                <div class="last-test-box">
+                                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                                        <span style="font-family:monospace; font-weight:bold; color:var(--text-main);">${st.last_test.sn}</span>
+                                        ${resBadge}
+                                    </div>
+                                    <div style="display:flex; justify-content:space-between; color:var(--text-muted); font-size:11px;">
+                                        <span>Ort: <b style="color:var(--text-main);">${st.last_test.avg_delta} dB</b></span>
+                                        <span>${st.last_test.duration} sn</span>
+                                        <span>${st.last_test.timestamp ? st.last_test.timestamp.substring(11, 19) : ''}</span>
+                                    </div>
+                                </div>
+                            `;
+                        }
+
+                        html += `
+                            <div class="${cardClass}">
+                                <div class="station-header">
+                                    <div>
+                                        <div class="station-title">
+                                            <span>📡 ${st.station_name}</span>
+                                        </div>
+                                        <div class="station-ip">${st.ip}</div>
+                                    </div>
+                                    <span class="${badgeClass}">${st.state_label}</span>
+                                </div>
+
+                                ${activeSection}
+
+                                <div class="stat-mini-grid">
+                                    <div>
+                                        <div class="stat-mini-val" style="color:var(--text-main);">${st.total_tests}</div>
+                                        <div class="stat-mini-lbl">Toplam</div>
+                                    </div>
+                                    <div>
+                                        <div class="stat-mini-val" style="color:var(--primary-light);">${st.pass_tests}</div>
+                                        <div class="stat-mini-lbl">PASS (%${st.pass_rate})</div>
+                                    </div>
+                                    <div>
+                                        <div class="stat-mini-val" style="color:var(--fail-text);">${st.fail_tests}</div>
+                                        <div class="stat-mini-lbl">FAIL</div>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <div style="font-size:11px; color:var(--text-muted); margin-bottom:6px; font-weight:600;">Son Test:</div>
+                                    ${lastSection}
+                                </div>
+                            </div>
+                        `;
+                    });
+                    container.innerHTML = html;
+                }
             }
 
             // 4. Recent Live Events Table
@@ -2185,33 +2260,41 @@ HTML_PAGE = r"""<!DOCTYPE html>
                 hostBody.innerHTML = '';
                 stationBody.innerHTML = '';
 
-                data.hosts.forEach(h => {
-                    const tr = document.createElement('tr');
-                    const badge = h.status === 'ONLINE' ? 'badge-online' : 'badge-offline';
-                    tr.innerHTML = `
-                        <td><b>${h.name}</b></td>
-                        <td><code>${h.ip}</code></td>
-                        <td>${h.port}</td>
-                        <td>${h.details || 'Yönetici Sunucu'}</td>
-                        <td><span class="badge ${badge}">${h.status}</span></td>
-                        <td style="color:var(--text-muted);">${h.last_seen}</td>
-                    `;
-                    hostBody.appendChild(tr);
-                });
+                if (!data.hosts || data.hosts.length === 0) {
+                    hostBody.innerHTML = '<tr><td colspan="6" style="color:var(--text-muted); text-align:center; padding:18px;">Şu anda ağda aktif yönetici sunucusu (Host PC) bulunmuyor.</td></tr>';
+                } else {
+                    data.hosts.forEach(h => {
+                        const tr = document.createElement('tr');
+                        const badge = h.status === 'ONLINE' ? 'badge-online' : 'badge-offline';
+                        tr.innerHTML = `
+                            <td><b>${h.name}</b></td>
+                            <td><code>${h.ip}</code></td>
+                            <td>${h.port}</td>
+                            <td>${h.details || 'Yönetici Sunucu'}</td>
+                            <td><span class="badge ${badge}">${h.status}</span></td>
+                            <td style="color:var(--text-muted);">${h.last_seen}</td>
+                        `;
+                        hostBody.appendChild(tr);
+                    });
+                }
 
-                data.stations.forEach(s => {
-                    const tr = document.createElement('tr');
-                    const badge = s.status === 'ONLINE' ? 'badge-online' : 'badge-offline';
-                    tr.innerHTML = `
-                        <td><b>${s.name}</b></td>
-                        <td><code>${s.ip}</code></td>
-                        <td>${s.active_test_sn ? `<code>${s.active_test_sn}</code>` : '<span style="color:var(--text-muted);">-</span>'}</td>
-                        <td>${s.details || 'Test Masası'}</td>
-                        <td><span class="badge ${badge}">${s.status}</span></td>
-                        <td style="color:var(--text-muted);">${s.last_seen}</td>
-                    `;
-                    stationBody.appendChild(tr);
-                });
+                if (!data.stations || data.stations.length === 0) {
+                    stationBody.innerHTML = '<tr><td colspan="6" style="color:var(--text-muted); text-align:center; padding:18px;">Şu anda ağda bağlı test istasyonu bulunmuyor.</td></tr>';
+                } else {
+                    data.stations.forEach(s => {
+                        const tr = document.createElement('tr');
+                        const badge = s.status === 'ONLINE' || s.status === 'BUSY' ? 'badge-online' : 'badge-offline';
+                        tr.innerHTML = `
+                            <td><b>${s.name}</b></td>
+                            <td><code>${s.ip}</code></td>
+                            <td>${s.active_test_sn ? `<code>${s.active_test_sn}</code>` : '<span style="color:var(--text-muted);">-</span>'}</td>
+                            <td>${s.details || 'Test Masası'}</td>
+                            <td><span class="badge ${badge}">${s.status}</span></td>
+                            <td style="color:var(--text-muted);">${s.last_seen}</td>
+                        `;
+                        stationBody.appendChild(tr);
+                    });
+                }
             } catch (err) {
                 console.error(err);
             }
@@ -2232,6 +2315,8 @@ HTML_PAGE = r"""<!DOCTYPE html>
                     const activeBadge = u.is_active == 1 ? 'badge-online' : 'badge-offline';
                     const activeText = u.is_active == 1 ? 'Aktif' : 'Pasif';
 
+                    const safeUser = (u.username || '').replace(/'/g, "\\'");
+                    const safeFull = (u.full_name || '').replace(/'/g, "\\'");
                     tr.innerHTML = `
                         <td>#${u.id}</td>
                         <td><b>${u.username}</b></td>
@@ -2240,15 +2325,16 @@ HTML_PAGE = r"""<!DOCTYPE html>
                         <td><span class="badge ${activeBadge}">${activeText}</span></td>
                         <td style="color:var(--text-muted);">${u.created_at}</td>
                         <td style="display:flex; gap:6px; flex-wrap:wrap;">
+                            <button class="btn btn-primary btn-sm" onclick="openEditUserModal(${u.id}, '${safeUser}', '${safeFull}', '${u.role}', ${u.is_active})">✏️ Düzenle</button>
                             ${u.username.toLowerCase() !== 'admin' ? `
-                                <button class="btn btn-outline btn-sm" onclick="toggleUserRole(${u.id}, '${u.username}', '${u.role}')" title="Yetki Değiştir (Admin/Operatör)">
+                                <button class="btn btn-outline btn-sm" onclick="toggleUserRole(${u.id}, '${safeUser}', '${u.role}')" title="Yetki Değiştir (Admin/Operatör)">
                                     🔄 ${u.role === 'ADMIN' ? 'Operatör Yap' : 'Admin Yap'}
                                 </button>
                             ` : `<span style="font-size:11px; color:var(--text-muted); align-self:center; padding:0 4px;">(Sistem Yöneticisi)</span>`}
-                            <button class="btn btn-outline btn-sm" onclick="openUpdatePasswordModal(${u.id}, '${u.username}')">🔑 Şifre</button>
+                            <button class="btn btn-outline btn-sm" onclick="openUpdatePasswordModal(${u.id}, '${safeUser}')">🔑 Şifre</button>
                             ${u.username.toLowerCase() !== 'admin' ? `
                                 <button class="btn btn-outline btn-sm" onclick="toggleUserActive(${u.id}, ${u.is_active})">${u.is_active == 1 ? 'Pasif Yap' : 'Aktif Yap'}</button>
-                                <button class="btn btn-danger btn-sm" onclick="deleteUser(${u.id}, '${u.username}')">Sil</button>
+                                <button class="btn btn-danger btn-sm" onclick="deleteUser(${u.id}, '${safeUser}')">Sil</button>
                             ` : ''}
                         </td>
                     `;
@@ -2264,6 +2350,54 @@ HTML_PAGE = r"""<!DOCTYPE html>
             document.getElementById('newFullName').value = '';
             document.getElementById('newPassword').value = '';
             document.getElementById('modalCreateUser').classList.add('active');
+        }
+
+        function openEditUserModal(id, username, fullName, role, isActive) {
+            const isAdminAccount = (username || '').toLowerCase() === 'admin';
+            document.getElementById('editUserId').value = id;
+            const userInp = document.getElementById('editUsername');
+            userInp.value = username || '';
+            userInp.disabled = isAdminAccount;
+
+            document.getElementById('editFullName').value = fullName || '';
+
+            const roleSel = document.getElementById('editRole');
+            roleSel.value = role === 'ADMIN' ? 'ADMIN' : 'OPERATOR';
+            roleSel.disabled = isAdminAccount;
+
+            const actSel = document.getElementById('editIsActive');
+            actSel.value = isActive == 1 ? '1' : '0';
+            actSel.disabled = isAdminAccount;
+
+            document.getElementById('editPassword').value = '';
+            document.getElementById('modalEditUser').classList.add('active');
+        }
+
+        async function handleEditUser(e) {
+            e.preventDefault();
+            const id = document.getElementById('editUserId').value;
+            const u = document.getElementById('editUsername').value.trim();
+            const fn = document.getElementById('editFullName').value.trim();
+            const r = document.getElementById('editRole').value;
+            const act = parseInt(document.getElementById('editIsActive').value, 10);
+            const p = document.getElementById('editPassword').value.trim();
+
+            try {
+                const res = await fetch('/api/users/update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: id, username: u, full_name: fn, role: r, is_active: act, password: p })
+                });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    closeModal('modalEditUser');
+                    loadUsers();
+                } else {
+                    alert('Hata: ' + (data.error || 'Kullanıcı güncellenemedi'));
+                }
+            } catch (err) {
+                alert('Bağlantı hatası: ' + err.message);
+            }
         }
 
         async function handleCreateUser(e) {
@@ -2976,8 +3110,8 @@ class NetaWebHandler(BaseHTTPRequestHandler):
 
             pass_rate = round((passed / tot * 100), 1) if tot > 0 else 0.0
 
-            _, r_srv, _ = run_sql("SELECT COUNT(*) FROM cluster_nodes WHERE node_type = 'HOST_SERVER' AND status = 'ONLINE';")
-            active_servers = int(r_srv[0][0]) if r_srv and r_srv[0][0] else 0
+            _, r_srv, _ = run_sql("SELECT COUNT(*) FROM cluster_nodes WHERE node_type = 'HOST_SERVER' AND status != 'OFFLINE' AND TIMESTAMPDIFF(SECOND, last_seen, NOW()) <= 90;")
+            active_servers = safe_int(r_srv[0][0]) if r_srv and len(r_srv[0]) > 0 else 0
 
             _, r_lock, _ = run_sql("SELECT locked_by_station, current_channel_no, lock_acquired_at FROM reference_lock WHERE id = 1;")
             lock_st = int(r_lock[0][0]) if r_lock and r_lock[0][0] else 0
@@ -2999,12 +3133,24 @@ class NetaWebHandler(BaseHTTPRequestHandler):
             })
             return
 
-        # Servers & Fleet
+        # Servers & Fleet (Only show active, non-expired Host servers and Stations)
         elif path == "/api/servers":
-            _, r_hosts, _ = run_sql("SELECT node_name, ip_address, port, details, status, last_seen FROM cluster_nodes WHERE node_type = 'HOST_SERVER' ORDER BY id ASC;")
+            _, r_hosts, _ = run_sql(
+                "SELECT node_name, ip_address, port, details, status, last_seen "
+                "FROM cluster_nodes "
+                "WHERE node_type = 'HOST_SERVER' AND status != 'OFFLINE' "
+                "AND TIMESTAMPDIFF(SECOND, last_seen, NOW()) <= 90 "
+                "ORDER BY id ASC;"
+            )
             hosts = [{"name": r[0], "ip": r[1], "port": r[2], "details": r[3], "status": r[4], "last_seen": r[5]} for r in r_hosts]
 
-            _, r_st, _ = run_sql("SELECT node_name, ip_address, active_test_sn, details, status, last_seen FROM cluster_nodes WHERE node_type = 'STATION_CLIENT' ORDER BY id ASC;")
+            _, r_st, _ = run_sql(
+                "SELECT node_name, ip_address, active_test_sn, details, status, last_seen "
+                "FROM cluster_nodes "
+                "WHERE node_type = 'STATION_CLIENT' AND status != 'OFFLINE' "
+                "AND TIMESTAMPDIFF(SECOND, last_seen, NOW()) <= 90 "
+                "ORDER BY port ASC, id ASC;"
+            )
             stations = [{"name": r[0], "ip": r[1], "active_test_sn": r[2], "details": r[3], "status": r[4], "last_seen": r[5]} for r in r_st]
 
             self.send_json({"hosts": hosts, "stations": stations})
@@ -3225,6 +3371,52 @@ class NetaWebHandler(BaseHTTPRequestHandler):
                 self.send_json({"error": f"Kullanıcı eklenemedi: {err}"}, 400)
                 return
             log_audit(user["username"], user["role"], f"Yeni kullanıcı oluşturuldu: {u} ({r})")
+            self.send_json({"success": True})
+            return
+
+        # Update User Full Profile via Pop-Up Modal (Admin Only)
+        elif path == "/api/users/update":
+            if user["role"] != "ADMIN":
+                self.send_json({"error": "Bu işlem için YÖNETİCİ (ADMIN) yetkisi gereklidir!"}, 403)
+                return
+            uid = safe_int(data.get("id", 0))
+            u = data.get("username", "").strip().replace("'", "")
+            fn = data.get("full_name", "").strip().replace("'", "''")
+            r = "ADMIN" if data.get("role") == "ADMIN" else "OPERATOR"
+            act = 1 if str(data.get("is_active", 1)) == "1" else 0
+            p = data.get("password", "").strip().replace("'", "''")
+
+            if uid <= 0 or not fn:
+                self.send_json({"error": "Kullanıcı ID ve Ad Soyad zorunludur!"}, 400)
+                return
+
+            _, r_existing, _ = run_sql(f"SELECT username FROM users WHERE id = {uid};")
+            if not r_existing:
+                self.send_json({"error": "Kullanıcı bulunamadı!"}, 404)
+                return
+            orig_username = r_existing[0][0]
+            if orig_username.lower() == "admin":
+                u = "admin"
+                r = "ADMIN"
+                act = 1
+            elif not u:
+                u = orig_username
+
+            if p:
+                sql = (
+                    f"UPDATE users SET username = '{u}', full_name = '{fn}', "
+                    f"role = '{r}', is_active = {act}, password_hash = '{p}' WHERE id = {uid};"
+                )
+            else:
+                sql = (
+                    f"UPDATE users SET username = '{u}', full_name = '{fn}', "
+                    f"role = '{r}', is_active = {act} WHERE id = {uid};"
+                )
+            _, _, err = run_sql(sql)
+            if err:
+                self.send_json({"error": f"Kullanıcı güncellenemedi: {err}"}, 400)
+                return
+            log_audit(user["username"], user["role"], f"User updated via pop-up: {u} ({r}, active={act})")
             self.send_json({"success": True})
             return
 

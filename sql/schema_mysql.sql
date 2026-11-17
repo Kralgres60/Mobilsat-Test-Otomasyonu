@@ -1,6 +1,6 @@
 -- ==============================================================================
--- NETA DRX9000 Anten Test Otomasyonu - Veritabanı Şeması (MySQL / MariaDB)
--- Tarih: 03.11.2026
+-- NETA DRX9000 Antenna Test Automation - Database Schema (MySQL / MariaDB)
+-- Simple A1-A2 English Documentation
 -- ==============================================================================
 
 CREATE DATABASE IF NOT EXISTS `neta_antenna_test` 
@@ -8,7 +8,7 @@ CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 USE `neta_antenna_test`;
 
--- 1. Kullanıcılar & Yetkiler (Operatör ve Admin)
+-- 1. Users and Roles (Operator and Admin accounts)
 CREATE TABLE IF NOT EXISTS `users` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `username` VARCHAR(50) NOT NULL UNIQUE,
@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS `users` (
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
--- 2. Üretim Siparişleri / İş Emirleri (Work Orders)
+-- 2. Production Work Orders (Customer jobs and target counts)
 CREATE TABLE IF NOT EXISTS `work_orders` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `order_no` VARCHAR(64) NOT NULL UNIQUE,
@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS `work_orders` (
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
--- 3. Uydu Test Profilleri (Satellite Profiles)
+-- 3. Satellite Test Profiles (Satellite name and default tolerance)
 CREATE TABLE IF NOT EXISTS `satellite_profiles` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `profile_name` VARCHAR(100) NOT NULL UNIQUE,
@@ -47,11 +47,11 @@ CREATE TABLE IF NOT EXISTS `satellite_profiles` (
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
--- 4. Profil Kanal Tanımları (Her Profil İçin Kanallar + Golden Sample Referans Değerleri)
+-- 4. Profile Channels (Transponder frequencies for each satellite profile)
 CREATE TABLE IF NOT EXISTS `profile_channels` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `profile_id` INT NOT NULL,
-    `channel_no` INT NOT NULL, -- 1 .. 50
+    `channel_no` INT NOT NULL, -- Channel number (1 to 50)
     `channel_name` VARCHAR(64) NOT NULL,
     `frequency_mhz` INT NOT NULL,
     `symbol_rate` INT NOT NULL,
@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS `profile_channels` (
     UNIQUE KEY `uk_profile_channel` (`profile_id`, `channel_no`)
 ) ENGINE=InnoDB;
 
--- 5. Test Koşuları (Test Runs - Her Anten İçin Bir Kayıt)
+-- 5. Test Runs (One summary row for each tested antenna)
 CREATE TABLE IF NOT EXISTS `test_runs` (
     `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
     `work_order_id` INT DEFAULT NULL,
@@ -96,7 +96,7 @@ CREATE TABLE IF NOT EXISTS `test_runs` (
     INDEX `idx_test_runs_result` (`overall_result`)
 ) ENGINE=InnoDB;
 
--- 6. Test Koşusu Kanal Detayları (10 Kanalın Örnekleme Verileri)
+-- 6. Test Run Channels (Detailed signal results for each channel in a test run)
 CREATE TABLE IF NOT EXISTS `test_run_channels` (
     `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
     `test_run_id` BIGINT NOT NULL,
@@ -122,7 +122,7 @@ CREATE TABLE IF NOT EXISTS `test_run_channels` (
     INDEX `idx_run_channel` (`test_run_id`, `channel_no`)
 ) ENGINE=InnoDB;
 
--- 7. Sistem Ayarları ve Parametreler (Admin Tarafından Dinamik Ayarlanabilir)
+-- 7. System Settings (Key-value settings with simple English descriptions)
 CREATE TABLE IF NOT EXISTS `system_settings` (
     `setting_key` VARCHAR(64) PRIMARY KEY,
     `setting_value` VARCHAR(255) NOT NULL,
@@ -130,20 +130,20 @@ CREATE TABLE IF NOT EXISTS `system_settings` (
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
--- 8. Algoritma 2: 3 PC Eşzamanlı Mod İçin Dağıtık Referans Kilit Tablosu
+-- 8. Reference Lock Table (Shared lock queue for Reference DRX receiver)
 CREATE TABLE IF NOT EXISTS `reference_lock` (
     `id` INT PRIMARY KEY DEFAULT 1,
-    `locked_by_station` INT NOT NULL DEFAULT 0,      -- 0: Boşta, 1: Masa 1, 2: Masa 2, 3: Masa 3
-    `current_channel_no` INT NOT NULL DEFAULT 0,     -- Test edilen anlık kanal (1..10)
+    `locked_by_station` INT NOT NULL DEFAULT 0,      -- 0: Free, 1: Station 1, 2: Station 2, 3: Station 3
+    `current_channel_no` INT NOT NULL DEFAULT 0,     -- Active channel number (1 to 10)
     `lock_acquired_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    `heartbeat_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP -- Canlılık zaman damgası (Deadlock koruması)
+    `heartbeat_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP -- Last keep-alive time
 ) ENGINE=InnoDB;
 
 INSERT INTO `reference_lock` (`id`, `locked_by_station`, `current_channel_no`)
 VALUES (1, 0, 0)
 ON DUPLICATE KEY UPDATE `id`=`id`;
 
--- 9. Yönetici PC Tarafından Ölçülen Doğrudan & Frekans Bazlı Golden Sample Referans Havuzu
+-- 9. Golden Sample Reference Pool (Saved reference measurements from Host PC)
 CREATE TABLE IF NOT EXISTS `golden_frequencies` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `label` VARCHAR(100) NOT NULL DEFAULT '',
@@ -158,7 +158,7 @@ CREATE TABLE IF NOT EXISTS `golden_frequencies` (
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
--- 10. Ağ Sunucuları ve İstasyon Filosu (Cluster Nodes & Host Servers)
+-- 10. Active Network Nodes (Live Host servers and Station clients on the network)
 CREATE TABLE IF NOT EXISTS `cluster_nodes` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `node_type` ENUM('HOST_SERVER', 'STATION_CLIENT', 'WEB_SERVICE') NOT NULL DEFAULT 'HOST_SERVER',
@@ -172,3 +172,11 @@ CREATE TABLE IF NOT EXISTS `cluster_nodes` (
     UNIQUE KEY `uk_node_ip_port` (`node_type`, `ip_address`, `port`)
 ) ENGINE=InnoDB;
 
+-- 11. System Logs (Application and Web Console event logs)
+CREATE TABLE IF NOT EXISTS `system_logs` (
+    `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+    `log_time` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    `log_level` VARCHAR(16) NOT NULL DEFAULT 'INFO',
+    `source` VARCHAR(64) NOT NULL DEFAULT 'SYSTEM',
+    `message` TEXT NOT NULL
+) ENGINE=InnoDB;

@@ -131,9 +131,17 @@ HostWindow::HostWindow(QWidget *parent)
         m_lblRefTelemetry->setStyleSheet(StyleHelper::getPastelBlueStyle());
     });
 
-    // Background 8s Ping Heartbeat for Reference DRX9000
+    // Background 8s Ping Heartbeat for Reference DRX9000 & Cluster Node Heartbeat
     connect(&m_refEthPingTimer, &QTimer::timeout, this, [this]() {
         m_refWebClient.pingHost(1000);
+        DbManager::instance().upsertClusterNode(
+            "HOST_SERVER",
+            AppConfig::instance().serverName(),
+            "127.0.0.1",
+            AppConfig::instance().tcpPort(),
+            "ONLINE",
+            QString(),
+            "Central Host Server");
     });
     m_refEthPingTimer.start(8000);
 
@@ -162,6 +170,14 @@ HostWindow::HostWindow(QWidget *parent)
     onRefreshPortsClicked();
     if (DbManager::instance().isConnected()) {
         DbManager::instance().ensureDefaultDataIfMissing();
+        DbManager::instance().upsertClusterNode(
+            "HOST_SERVER",
+            AppConfig::instance().serverName(),
+            "127.0.0.1",
+            AppConfig::instance().tcpPort(),
+            "ONLINE",
+            QString(),
+            "Central Host Server");
     }
 
     // Auto-backup service initialization & signal connections
@@ -211,6 +227,7 @@ void HostWindow::shutdownHostServices() {
     m_beaconBroadcaster.stop();
     m_tcpServer.stop();
     m_refSerial.closePort();
+    DbManager::instance().removeClusterNode("HOST_SERVER", "127.0.0.1", AppConfig::instance().tcpPort());
     DbManager::instance().stopPortableMariaDbIfRunning();
 }
 
@@ -1228,6 +1245,14 @@ void HostWindow::onStationConnected(int stationId, const QString &ip) {
     m_knownStations[stationId].isConnected = true;
     m_knownStations[stationId].currentState = "BOŞTA";
     m_knownStations[stationId].lastHeartbeat = QDateTime::currentDateTime();
+    DbManager::instance().upsertClusterNode(
+        "STATION_CLIENT",
+        QString("İstasyon %1").arg(stationId),
+        ip,
+        stationId,
+        "ONLINE",
+        QString(),
+        QString("Station #%1").arg(stationId));
     refreshNetworkPcsTable();
 
     m_beaconBroadcaster.setStationCount(m_tcpServer.connectedStations().size());
@@ -1259,6 +1284,8 @@ void HostWindow::onStationDisconnected(int stationId) {
         m_lblNoStations->setVisible(true);
     }
 
+    QString oldIp = m_knownStations.value(stationId).ipAddress;
+    DbManager::instance().removeClusterNode("STATION_CLIENT", oldIp, stationId);
     m_knownStations.remove(stationId);
     refreshNetworkPcsTable();
 
@@ -1274,6 +1301,14 @@ void HostWindow::onStationStatusUpdated(const StationLiveStatus &status) {
         m_stationWidgets[stId].lblChannel->setText(status.currentChannel > 0 ? QString("Aktif Kanal: %1").arg(status.currentChannel) : "Aktif Kanal: --");
     }
     m_knownStations[stId] = status;
+    DbManager::instance().upsertClusterNode(
+        "STATION_CLIENT",
+        status.stationName.isEmpty() ? QString("İstasyon %1").arg(stId) : status.stationName,
+        status.ipAddress,
+        stId,
+        status.currentAntennaSn.isEmpty() ? "ONLINE" : "BUSY",
+        status.currentAntennaSn,
+        status.currentState);
     refreshNetworkPcsTable();
 }
 

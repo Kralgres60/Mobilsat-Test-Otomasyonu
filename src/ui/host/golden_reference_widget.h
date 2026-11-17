@@ -59,17 +59,34 @@ signals:
     void logMessage(const QString &msg);
 
 private slots:
+    /** @brief Applies selected reference mode and active Golden Sample record to stations. */
     void onApplyRefModeClicked();
+    /** @brief Marks the currently selected table row as the active Golden Sample reference. */
+    void onSetSelectedAsActiveClicked();
+    /** @brief Starts or stops live telemetry recording from the Reference DRX receiver. */
     void onToggleLiveRecordClicked();
+    /** @brief Handles 1-second timer ticks during live Golden Sample recording. */
     void onRecordTick();
+    /** @brief Adds a new fixed baseline Golden Sample record to the database and table. */
     void onAddFixedMeasurementClicked();
+    /** @brief Deletes the currently selected Golden Sample measurement row. */
     void onRemoveSelectedRowClicked();
+    /** @brief Saves all table edits to the database. */
     void onSaveAllClicked();
+    /** @brief Updates the mini plot when the user selects a different measurement row. */
     void onTableSelectionChanged();
 
 private:
     void setupUi();
     void setupMiniPlot();
+    /**
+     * @brief Sets the active Golden Sample record ID in the database and refreshes the UI.
+     * @param recordId Primary key of the Golden Sample record to activate.
+     * @param broadcastIfGoldenMode If true and mode is GoldenSample, broadcasts update to stations.
+     */
+    void setActiveGoldenRecord(int recordId, bool broadcastIfGoldenMode = true);
+    /** @brief Updates the top combo box and table row action buttons to highlight the active record. */
+    void refreshActiveGoldenUi();
     void updateMiniPlotForRecord(const GoldenFrequencyRecord &rec);
     void populateRow(int row, const GoldenFrequencyRecord &rec);
     GoldenFrequencyRecord readRow(int row) const;
@@ -78,7 +95,9 @@ private:
     SerialWorker *m_refSerial    = nullptr;
 
     // Reference Mode Selector
-    QComboBox    *m_comboRefMode = nullptr;
+    QComboBox    *m_comboRefMode      = nullptr;
+    QComboBox    *m_comboActiveGolden = nullptr;
+    int           m_activeGoldenId    = 0;
 
     // Live Recording Controls ("Ses kaydeder gibi")
     QPushButton  *m_btnLiveRecord       = nullptr;

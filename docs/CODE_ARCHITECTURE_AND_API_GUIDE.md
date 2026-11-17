@@ -334,7 +334,7 @@ Host PC üzerinde `:9100` portundan dinleme yapar. İstasyonların bağlantılar
 
 ### Sunucu / Yönetici Arayüzü (`src/ui/host/`)
 - **`HostWindow`**: Yönetici PC ekranıdır. Bağlı test masalarını, FIFO kilit sırasını, aktif referans almacı durumunu, veri tabanını ve test istatistiklerini izler.
-- **`GoldenReferenceWidget`**: Sabit referans antenin kalibrasyon ve ölçüm havuzu yönetim panelidir.
+- **`GoldenReferenceWidget`**: Sabit referans antenin kalibrasyon ve ölçüm havuzu yönetim panelidir. Yönetici bu ekrandan canlı/sabit Golden Sample ölçümleri kaydedebilir ve tablodaki **"⭐ Aktif Seçili / ☑️ Aktif Yap"** butonlarıyla istasyonlarda varsayılan olarak kullanılacak referans kaydını (`ACTIVE_GOLDEN_RECORD_ID`) belirleyip TCP üzerinden tüm istasyonlara bildirebilir.
 - **`UserManagerWidget`**: Fabrika kullanıcılarının, rollerinin ve şifrelerinin yönetildiği ekrandır.
 
 ### Geliştirici ve Teşhis Konsolu (`src/ui/debug/`)

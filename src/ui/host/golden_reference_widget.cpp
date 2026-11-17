@@ -55,7 +55,7 @@ void GoldenReferenceWidget::setupUi() {
 
     QLabel *lblModeInfo = new QLabel(
         "Test istasyonları yönetici onaylı referans kaynağını kullanır. "
-        "Fiziksel referans anteni yokken kayıtlı Golden Sample moduna geçebilirsiniz:",
+        "Kayıtlı Golden Sample modunda hangi ölçümün istasyonlarda otomatik seçileceğini belirleyin:",
         grpRefMode);
     lblModeInfo->setWordWrap(true);
     lblModeInfo->setStyleSheet("color: #A7C4B5;");
@@ -63,15 +63,27 @@ void GoldenReferenceWidget::setupUi() {
     m_comboRefMode = new QComboBox(grpRefMode);
     m_comboRefMode->addItem("🟢 Canlı Referans Anten (Live Reference)", static_cast<int>(ReferenceMode::LiveReference));
     m_comboRefMode->addItem("🌟 Kayıtlı Golden Sample (Referans Anten Yokken)", static_cast<int>(ReferenceMode::GoldenSample));
-    m_comboRefMode->setMinimumWidth(320);
+    m_comboRefMode->setMinimumWidth(280);
 
-    QPushButton *btnApplyMode = new QPushButton("✅ Modu Uygula & İstasyonlara Bildir", grpRefMode);
+    m_comboActiveGolden = new QComboBox(grpRefMode);
+    m_comboActiveGolden->setMinimumWidth(260);
+    m_comboActiveGolden->setToolTip("İstasyonlarda varsayılan olarak kullanılacak Aktif Golden Sample ölçümü");
+    connect(m_comboActiveGolden, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int idx) {
+        if (idx < 0 || !m_comboActiveGolden) return;
+        int id = m_comboActiveGolden->itemData(idx).toInt();
+        if (id > 0 && id != m_activeGoldenId) {
+            setActiveGoldenRecord(id, false);
+        }
+    });
+
+    QPushButton *btnApplyMode = new QPushButton("✅ Modu & Seçimi İstasyonlara Bildir", grpRefMode);
     btnApplyMode->setCursor(Qt::PointingHandCursor);
     btnApplyMode->setStyleSheet("background-color: #10B981; color: #071210; border: none; border-radius: 4px; padding: 8px 14px; font-weight: bold;");
     connect(btnApplyMode, &QPushButton::clicked, this, &GoldenReferenceWidget::onApplyRefModeClicked);
 
     modeHBox->addWidget(lblModeInfo, 1);
     modeHBox->addWidget(m_comboRefMode);
+    modeHBox->addWidget(m_comboActiveGolden);
     modeHBox->addWidget(btnApplyMode);
     rootVBox->addWidget(grpRefMode);
 
@@ -153,7 +165,7 @@ void GoldenReferenceWidget::setupUi() {
     m_tableMeasurements = new QTableWidget(grpTable);
     m_tableMeasurements->setColumnCount(8);
     m_tableMeasurements->setHorizontalHeaderLabels({
-        "#", "Ölçüm Adı / Etiket", "Ortalama C/N", "Ortalama Güç", "Tolerans", "Kayıt Türü & Süre", "Tarih / Saat", "Durum"
+        "#", "Ölçüm Adı / Etiket", "Ortalama C/N", "Ortalama Güç", "Tolerans", "Kayıt Türü & Süre", "Tarih / Saat", "Aktif Referans Seçimi"
     });
     m_tableMeasurements->verticalHeader()->setVisible(false);
     m_tableMeasurements->setAlternatingRowColors(true);
@@ -165,8 +177,8 @@ void GoldenReferenceWidget::setupUi() {
     m_tableMeasurements->setColumnWidth(3, 115);
     m_tableMeasurements->setColumnWidth(4, 95);
     m_tableMeasurements->setColumnWidth(5, 130);
-    m_tableMeasurements->setColumnWidth(6, 150);
-    m_tableMeasurements->setColumnWidth(7, 100);
+    m_tableMeasurements->setColumnWidth(6, 145);
+    m_tableMeasurements->setColumnWidth(7, 150);
     connect(m_tableMeasurements, &QTableWidget::itemSelectionChanged, this, &GoldenReferenceWidget::onTableSelectionChanged);
     tableVBox->addWidget(m_tableMeasurements, 1);
 
@@ -181,6 +193,11 @@ void GoldenReferenceWidget::setupUi() {
 
     // Action Buttons below Table
     QHBoxLayout *btnRow = new QHBoxLayout();
+    QPushButton *btnSetActive = new QPushButton("⭐ Seçili Ölçümü Aktif Referans Yap", grpTable);
+    btnSetActive->setCursor(Qt::PointingHandCursor);
+    btnSetActive->setStyleSheet("background-color: #D97706; color: #FFFFFF; border: none; border-radius: 4px; padding: 6px 14px; font-weight: bold;");
+    connect(btnSetActive, &QPushButton::clicked, this, &GoldenReferenceWidget::onSetSelectedAsActiveClicked);
+
     QPushButton *btnDel = new QPushButton("🗑️ Seçili Ölçümü Sil", grpTable);
     btnDel->setCursor(Qt::PointingHandCursor);
     btnDel->setStyleSheet("background-color: #991B1B; color: #FFFFFF; border: none; border-radius: 4px; padding: 6px 12px; font-weight: bold;");
@@ -191,6 +208,7 @@ void GoldenReferenceWidget::setupUi() {
     btnSaveAll->setStyleSheet("background-color: #10B981; color: #071210; border: none; border-radius: 4px; padding: 7px 16px; font-weight: bold;");
     connect(btnSaveAll, &QPushButton::clicked, this, &GoldenReferenceWidget::onSaveAllClicked);
 
+    btnRow->addWidget(btnSetActive);
     btnRow->addWidget(btnDel);
     btnRow->addStretch();
     btnRow->addWidget(btnSaveAll);
@@ -259,7 +277,107 @@ void GoldenReferenceWidget::setActiveReferenceMode(ReferenceMode mode) {
 
 void GoldenReferenceWidget::onApplyRefModeClicked() {
     if (!m_comboRefMode) return;
+    if (m_comboActiveGolden && m_comboActiveGolden->currentIndex() >= 0) {
+        int selId = m_comboActiveGolden->currentData().toInt();
+        if (selId > 0) {
+            m_activeGoldenId = selId;
+            DbManager::instance().setActiveGoldenRecordId(m_activeGoldenId);
+            refreshActiveGoldenUi();
+        }
+    }
     emit referenceModeApplyRequested(static_cast<ReferenceMode>(m_comboRefMode->currentData().toInt()));
+}
+
+void GoldenReferenceWidget::onSetSelectedAsActiveClicked() {
+    int row = m_tableMeasurements->currentRow();
+    if (row < 0 || row >= m_tableMeasurements->rowCount()) {
+        QMessageBox::information(this, "Ölçüm Seçilmedi", "Lütfen tablodan aktif referans yapmak istediğiniz bir Golden Sample ölçümünü seçiniz.");
+        return;
+    }
+    GoldenFrequencyRecord rec = readRow(row);
+    if (rec.id <= 0) {
+        DbManager::instance().saveGoldenFrequency(rec);
+        reloadFrequencies();
+        if (row < m_records.size()) rec = m_records[row];
+    }
+    if (rec.id > 0) {
+        setActiveGoldenRecord(rec.id, true);
+    }
+}
+
+void GoldenReferenceWidget::setActiveGoldenRecord(int recordId, bool broadcastIfGoldenMode) {
+    if (recordId <= 0) return;
+    m_activeGoldenId = recordId;
+    DbManager::instance().setActiveGoldenRecordId(m_activeGoldenId);
+    refreshActiveGoldenUi();
+
+    QString activeLbl = QString("#%1").arg(recordId);
+    for (const auto &r : m_records) {
+        if (r.id == recordId) {
+            activeLbl = QString("'%1' (%2 dB)").arg(r.label).arg(r.goldenCnDb, 0, 'f', 1);
+            break;
+        }
+    }
+
+    emit logMessage(QString("[Golden Reference] Aktif Golden Referans kaydı seçildi: %1").arg(activeLbl));
+
+    if (broadcastIfGoldenMode && m_comboRefMode) {
+        ReferenceMode curMode = static_cast<ReferenceMode>(m_comboRefMode->currentData().toInt());
+        if (curMode == ReferenceMode::GoldenSample) {
+            emit referenceModeApplyRequested(ReferenceMode::GoldenSample);
+        }
+    }
+}
+
+void GoldenReferenceWidget::refreshActiveGoldenUi() {
+    // 1. Update top combo box
+    if (m_comboActiveGolden) {
+        m_comboActiveGolden->blockSignals(true);
+        m_comboActiveGolden->clear();
+        if (m_records.isEmpty()) {
+            m_comboActiveGolden->addItem("⚠️ Kayıtlı Golden Yok", 0);
+        } else {
+            int activeIdx = 0;
+            for (int i = 0; i < m_records.size(); ++i) {
+                const auto &r = m_records[i];
+                bool isAct = (r.id == m_activeGoldenId);
+                QString txt = QString("%1%2 (%3 dB)")
+                                  .arg(isAct ? "⭐ [AKTİF] " : "")
+                                  .arg(r.label)
+                                  .arg(r.goldenCnDb, 0, 'f', 1);
+                m_comboActiveGolden->addItem(txt, r.id);
+                if (isAct) activeIdx = i;
+            }
+            m_comboActiveGolden->setCurrentIndex(activeIdx);
+        }
+        m_comboActiveGolden->blockSignals(false);
+    }
+
+    // 2. Update table column 7 action buttons
+    if (!m_tableMeasurements) return;
+    for (int row = 0; row < m_tableMeasurements->rowCount() && row < m_records.size(); ++row) {
+        const auto &rec = m_records[row];
+        bool isAct = (rec.id == m_activeGoldenId);
+        auto *btnAct = qobject_cast<QPushButton*>(m_tableMeasurements->cellWidget(row, 7));
+        if (!btnAct) {
+            btnAct = new QPushButton(m_tableMeasurements);
+            btnAct->setCursor(Qt::PointingHandCursor);
+            m_tableMeasurements->setCellWidget(row, 7, btnAct);
+        }
+        btnAct->disconnect();
+        int recId = rec.id;
+        connect(btnAct, &QPushButton::clicked, this, [this, recId]() {
+            setActiveGoldenRecord(recId, true);
+        });
+
+        if (isAct) {
+            btnAct->setText("⭐ AKTİF SEÇİLİ");
+            btnAct->setStyleSheet("background-color: #F59E0B; color: #071210; border: 1px solid #FBBF24; border-radius: 4px; font-weight: bold; padding: 3px 6px;");
+        } else {
+            btnAct->setText("☑️ Aktif Yap");
+            btnAct->setStyleSheet("background-color: #1E293B; color: #94A3B8; border: 1px solid #475569; border-radius: 4px; padding: 3px 6px;");
+        }
+    }
 }
 
 void GoldenReferenceWidget::onReferenceTelemetryReceived(double powDbm, double cnDb) {
@@ -347,15 +465,13 @@ void GoldenReferenceWidget::onToggleLiveRecordClicked() {
         rec.sampleData = curveStr;
         rec.durationSec = m_recordingElapsedSec;
 
-        m_records.append(rec);
         DbManager::instance().saveGoldenFrequency(rec);
+        reloadFrequencies();
+        if (!m_records.isEmpty()) {
+            setActiveGoldenRecord(m_records.first().id, false);
+        }
 
-        int row = m_tableMeasurements->rowCount();
-        m_tableMeasurements->insertRow(row);
-        populateRow(row, rec);
-        m_tableMeasurements->selectRow(row);
-
-        m_lblLiveRecordStatus->setText(QString("✔ Kayıt tamamlandı! Süre: %1 sn, Örnek: %2 adet, Ort C/N: %3 dB")
+        m_lblLiveRecordStatus->setText(QString("✔ Kayıt tamamlandı ve Aktif Referans yapıldı! Süre: %1 sn, Örnek: %2 adet, Ort C/N: %3 dB")
                                            .arg(m_recordingElapsedSec)
                                            .arg(m_currentRecCn.size())
                                            .arg(avgCn, 0, 'f', 2));
@@ -363,7 +479,6 @@ void GoldenReferenceWidget::onToggleLiveRecordClicked() {
 
         emit logMessage(QString("[Golden Reference] Canlı kayıt kaydedildi: %1 (Ort C/N: %2 dB, %3 sn)")
                             .arg(rec.label).arg(avgCn, 0, 'f', 2).arg(m_recordingElapsedSec));
-        updateMiniPlotForRecord(rec);
     }
 }
 
@@ -418,50 +533,28 @@ void GoldenReferenceWidget::onAddFixedMeasurementClicked() {
     if (flatCurve.endsWith(',')) flatCurve.chop(1);
     rec.sampleData = flatCurve;
 
-    m_records.append(rec);
     DbManager::instance().saveGoldenFrequency(rec);
+    reloadFrequencies();
+    if (!m_records.isEmpty()) {
+        setActiveGoldenRecord(m_records.first().id, false);
+    }
 
-    int row = m_tableMeasurements->rowCount();
-    m_tableMeasurements->insertRow(row);
-    populateRow(row, rec);
-    m_tableMeasurements->selectRow(row);
-
-    emit logMessage("[Golden Reference] Sabit referans ölçümü eklendi: " + rec.label);
-    updateMiniPlotForRecord(rec);
+    emit logMessage("[Golden Reference] Sabit referans ölçümü eklendi ve aktif seçildi: " + rec.label);
 }
 
 void GoldenReferenceWidget::onRemoveSelectedRowClicked() {
     int row = m_tableMeasurements->currentRow();
     if (row < 0 || row >= m_tableMeasurements->rowCount()) return;
 
+    int deletedId = 0;
     if (auto *it = m_tableMeasurements->item(row, 0)) {
-        int id = it->data(Qt::UserRole).toInt();
-        if (id > 0) {
-            DbManager::instance().deleteGoldenFrequency(id);
+        deletedId = it->data(Qt::UserRole).toInt();
+        if (deletedId > 0) {
+            DbManager::instance().deleteGoldenFrequency(deletedId);
         }
     }
 
-    if (row < m_records.size()) {
-        m_records.removeAt(row);
-    }
-    m_tableMeasurements->removeRow(row);
-
-    for (int r = 0; r < m_tableMeasurements->rowCount(); ++r) {
-        if (auto *it = m_tableMeasurements->item(r, 0)) {
-            it->setText(QString::number(r + 1));
-        }
-    }
-
-    if (m_tableMeasurements->rowCount() > 0) {
-        m_tableMeasurements->selectRow(qMin(row, m_tableMeasurements->rowCount() - 1));
-    } else {
-        m_miniPlot->graph(0)->data()->clear();
-        m_miniPlot->graph(1)->data()->clear();
-        m_miniPlot->graph(2)->data()->clear();
-        m_miniPlot->graph(3)->data()->clear();
-        m_miniPlot->replot();
-        m_lblPlotTitle->setText("📊 Seçili Ölçüm Analiz Grafiği: (Ölçüm bulunmuyor)");
-    }
+    reloadFrequencies();
 }
 
 void GoldenReferenceWidget::onSaveAllClicked() {
@@ -472,6 +565,7 @@ void GoldenReferenceWidget::onSaveAllClicked() {
             m_records[r] = rec;
         }
     }
+    refreshActiveGoldenUi();
     QMessageBox::information(this, "Kaydedildi", "Tüm Golden Reference ölçüm ve tolerans kayıtları veritabanına aktarıldı.");
     emit logMessage("[Golden Reference] Tüm ölçüm kayıtları veritabanına kaydedildi.");
 }
@@ -586,12 +680,10 @@ void GoldenReferenceWidget::populateRow(int row, const GoldenFrequencyRecord &re
     itDate->setFlags(itDate->flags() & ~Qt::ItemIsEditable);
     m_tableMeasurements->setItem(row, 6, itDate);
 
-    // Durum
-    auto *itStatus = new QTableWidgetItem("✔ AKTİF");
-    itStatus->setTextAlignment(Qt::AlignCenter);
-    itStatus->setFlags(itStatus->flags() & ~Qt::ItemIsEditable);
-    itStatus->setForeground(QBrush(QColor("#34D399")));
-    m_tableMeasurements->setItem(row, 7, itStatus);
+    // Aktif Seçim Butonu
+    auto *btnAct = new QPushButton(m_tableMeasurements);
+    btnAct->setCursor(Qt::PointingHandCursor);
+    m_tableMeasurements->setCellWidget(row, 7, btnAct);
 }
 
 GoldenFrequencyRecord GoldenReferenceWidget::readRow(int row) const {
@@ -622,12 +714,42 @@ GoldenFrequencyRecord GoldenReferenceWidget::readRow(int row) const {
 
 void GoldenReferenceWidget::reloadFrequencies() {
     m_records = DbManager::instance().getGoldenFrequencies();
+    m_activeGoldenId = DbManager::instance().getActiveGoldenRecordId();
+
+    bool foundActive = false;
+    for (const auto &r : m_records) {
+        if (r.id == m_activeGoldenId && m_activeGoldenId > 0) {
+            foundActive = true;
+            break;
+        }
+    }
+    if (!foundActive && !m_records.isEmpty()) {
+        m_activeGoldenId = m_records.first().id;
+        DbManager::instance().setActiveGoldenRecordId(m_activeGoldenId);
+    }
+
     m_tableMeasurements->setRowCount(m_records.size());
     for (int i = 0; i < m_records.size(); ++i) {
         populateRow(i, m_records[i]);
     }
+    refreshActiveGoldenUi();
+
     if (!m_records.isEmpty()) {
-        m_tableMeasurements->selectRow(0);
-        updateMiniPlotForRecord(m_records.first());
+        int selRow = 0;
+        for (int i = 0; i < m_records.size(); ++i) {
+            if (m_records[i].id == m_activeGoldenId) {
+                selRow = i;
+                break;
+            }
+        }
+        m_tableMeasurements->selectRow(selRow);
+        updateMiniPlotForRecord(m_records[selRow]);
+    } else {
+        m_miniPlot->graph(0)->data()->clear();
+        m_miniPlot->graph(1)->data()->clear();
+        m_miniPlot->graph(2)->data()->clear();
+        m_miniPlot->graph(3)->data()->clear();
+        m_miniPlot->replot();
+        m_lblPlotTitle->setText("📊 Seçili Ölçüm Analiz Grafiği: (Ölçüm bulunmuyor)");
     }
 }

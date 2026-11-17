@@ -219,13 +219,13 @@ The platform features a modern dark-theme responsive sidebar with 8 dedicated op
    - Recent test runs table with one-click drill-down inspection.
 
 2. **🖥️ Sunucular & Donanım (Cluster Fleet Management):**
-   - Monitors multi-host servers, test stations, and web nodes (`cluster_nodes`).
-   - Dynamic real-time health indicator (`ONLINE` if heartbeat < 60s, `OFFLINE` if inactive).
+   - Monitors active multi-host servers and test stations (`cluster_nodes`).
+   - Only genuinely active, online nodes (`last_seen <= 90s` and `status != 'OFFLINE'`) are displayed; dummy/representative seed nodes are excluded.
    - Direct node details (IP, port, active antenna SN, role, last heartbeat).
 
 3. **👥 Kullanıcı Yönetimi (User Management & RBAC):**
    - Shared authentication credentials with Qt desktop application (`users` table).
-   - Full CRUD & Authorization: Add new user, update password, toggle active/inactive status, delete accounts (built-in admin protected).
+   - Full CRUD & Pop-Up Editing: Add new user, edit full user profile via pop-up modal (`✏️ Düzenle` -> `POST /api/users/update` for username, full name, role, active status, and optional password), update password, toggle active/inactive status, and delete accounts (built-in admin protected).
    - **Role Switching:** One-click role toggle between `ADMIN` and `OPERATOR` with root administrator protection.
 
 4. **📋 Test Geçmişi (Test Run History & Inspection):**

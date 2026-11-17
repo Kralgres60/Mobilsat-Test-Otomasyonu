@@ -53,12 +53,15 @@ void TcpServer::setRefWebClient(DrxWebClient *refWebClient) {
 void TcpServer::setReferenceMode(ReferenceMode mode) {
     m_referenceMode = mode;
     QString modeStr = (mode == ReferenceMode::GoldenSample) ? "GOLDEN" : "LIVE";
-    emit logMessage(QString("[Yönetici Modu] Referans kaynağı güncellendi: %1")
-                        .arg(mode == ReferenceMode::GoldenSample ? "Kayıtlı Golden Sample" : "Canlı Referans Anten"));
+    int activeGoldenId = DbManager::instance().getActiveGoldenRecordId();
+    emit logMessage(QString("[Yönetici Modu] Referans kaynağı güncellendi: %1 (Aktif Golden ID: %2)")
+                        .arg(mode == ReferenceMode::GoldenSample ? "Kayıtlı Golden Sample" : "Canlı Referans Anten")
+                        .arg(activeGoldenId));
 
     QJsonObject msg;
     msg["type"] = NetMsg::TYPE_REF_MODE_UPDATE;
     msg["ref_mode"] = modeStr;
+    msg["active_golden_id"] = activeGoldenId;
     const QByteArray payload = NetMsg::serialize(msg);
     for (auto it = m_clients.begin(); it != m_clients.end(); ++it) {
         if (it.key() && it.key()->isOpen()) {
@@ -204,6 +207,7 @@ void TcpServer::processClientMessage(QTcpSocket *socket, const QJsonObject &msg)
         ack["status"] = "OK";
         ack["assigned_station_id"] = session.stationId;
         ack["ref_mode"] = (m_referenceMode == ReferenceMode::GoldenSample) ? "GOLDEN" : "LIVE";
+        ack["active_golden_id"] = DbManager::instance().getActiveGoldenRecordId();
         ack["server_time"] = QDateTime::currentDateTime().toString(Qt::ISODate);
 
         const QString reqUser = msg["username"].toString().trimmed();

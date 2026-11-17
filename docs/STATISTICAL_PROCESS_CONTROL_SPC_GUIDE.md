@@ -1,7 +1,23 @@
 # 📊 Statistical Process Control (SPC) and Cpk Algorithm Guide
-# İstatistiksel Süreç Kontrolü (SPC) ve Cpk Algoritması Kılavuzu
+# İstatistiksel Süreç Kontrolü (SPC), Gauss Çan Eğrisi ve Cpk Kılavuzu
 
-> Bu kılavuz; istatistik veya kalite kontrol geçmişi olmayan bir mühendis veya teknisyenin; Aritmetik Ortalama ($\mu$), Standart Sapma ($\sigma$), Gauss Çan Eğrisi (Normal Dağılım), Süreç Yeterlilik İndeksleri ($C_p$ ve $C_{pk}$) kavramlarını fabrika örnekleri, tablolar ve grafiklerle sıfırdan kavraması için hazırlanmıştır.
+> Bu kılavuz; hem mühendislerin hem de istatistik geçmişi olmayan teknisyenlerin; Gauss Dağılımı (Normal Dağılım), Standart Sapma ($\sigma$), Süreç Yeterlilik İndeksleri ($C_p$ ve $C_{pk}$) kavramlarını fabrika örnekleri, tablolar, formüller ve grafiklerle eksiksiz kavraması için hazırlanmıştır.
+
+---
+
+> [!NOTE]
+> ### 🎓 Mühendislik ve Teori Terminolojisi: Bu Sisteme Ne Denir?
+> Bu dokümanda ele alınan matematiksel ve teorik altyapı literatürde ve endüstride şu isimlerle anılır:
+> 
+> 1. **Matematik ve İstatistikteki Adı:** **Gauss Dağılımı (Gaussian Distribution)** veya **Normal Dağılım (Normal Distribution)**. Matematikçi Carl Friedrich Gauss tarafından formüle edilen olasılık yoğunluk fonksiyonudur:
+>    $$f(x) = \frac{1}{\sigma \sqrt{2\pi}} e^{-\frac{1}{2}\left(\frac{x-\mu}{\sigma}\right)^2}$$
+>    Grafikteki tepe ve simetrik yayılma şeklinden ötürü mühendislikte buna **"Gauss Çan Eğrisi (Gaussian Bell Curve)"** denir.
+> 
+> 2. **Endüstri ve İmalat Mühendisliğindeki Adı:** **İstatistiksel Süreç Kontrolü (SPC - Statistical Process Control)** ve **Süreç Yeterlilik Analizi (Process Capability Analysis)**.
+> 
+> 3. **Uygulamadaki Karar Motoru:** Gauss eğrisinin genişliği ve merkez kaymasını fabrikanın tolerans sınırları ($\text{LSL}$ ve $\text{USL}$) ile kıyaslayan **$C_p$ ve $C_{pk}$** indeksleridir.
+> 
+> **Özetle:** Matematiksel teorisine **"Gauss / Normal Dağılım"**, bu teorinin fabrikada üretimi ve kaliteyi denetlemek için kullanılmasına ise **"SPC (İstatistiksel Süreç Kontrolü)"** denir.
 
 ---
 

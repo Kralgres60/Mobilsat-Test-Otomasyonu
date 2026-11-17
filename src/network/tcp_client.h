@@ -54,6 +54,9 @@ public:
     /** @brief Returns the active reference comparison mode dictated by the Host. */
     ReferenceMode referenceMode() const { return m_referenceMode; }
 
+    /** @brief Returns the active Golden Sample record ID designated by the Host. */
+    int activeGoldenRecordId() const { return m_activeGoldenRecordId; }
+
 signals:
     void connected();
     void disconnected();
@@ -92,6 +95,7 @@ private:
     QString m_hostIp;
     quint16 m_port = 9100;
     ReferenceMode m_referenceMode = ReferenceMode::LiveReference;
+    int m_activeGoldenRecordId = 0;
 };
 
 #endif // TCP_CLIENT_H

@@ -211,8 +211,31 @@ ClientWindow::ClientWindow(QWidget *parent)
     // Background Ethernet Ping Heartbeat (8 seconds, silent; full sync on reconnect or manual press)
     connect(&m_ethPingTimer, &QTimer::timeout, this, [this]() {
         m_dutWebClient.pingHost(1000);
+        int stId = AppConfig::instance().stationId();
+        QString actSn = (m_stateMachine && m_stateMachine->currentState() != TestState::Idle)
+                            ? m_txtAntennaSn->text().trimmed()
+                            : QString();
+        DbManager::instance().upsertClusterNode(
+            "STATION_CLIENT",
+            QString("İstasyon %1").arg(stId),
+            "127.0.0.1",
+            stId,
+            actSn.isEmpty() ? "ONLINE" : "BUSY",
+            actSn,
+            QString("Station #%1").arg(stId));
     });
     m_ethPingTimer.start(8000);
+    {
+        int stId = AppConfig::instance().stationId();
+        DbManager::instance().upsertClusterNode(
+            "STATION_CLIENT",
+            QString("İstasyon %1").arg(stId),
+            "127.0.0.1",
+            stId,
+            "ONLINE",
+            QString(),
+            QString("Station #%1").arg(stId));
+    }
 
     // UDP Beacon & Host Auto-Connect (Architecture 1)
     m_beaconListener.start();
@@ -239,6 +262,7 @@ ClientWindow::~ClientWindow() {
     m_ethPingTimer.stop();
     m_beaconListener.stop();
     m_dutSerial.closePort();
+    DbManager::instance().removeClusterNode("STATION_CLIENT", "127.0.0.1", AppConfig::instance().stationId());
 }
 
 void ClientWindow::setupMenuBar() {
@@ -1292,27 +1316,42 @@ void ClientWindow::reloadGoldenRecordsList() {
     m_cachedGoldenRecords = DbManager::instance().getGoldenFrequencies();
     if (!m_comboGoldenRecord) return;
 
+    int activeGoldenId = m_tcpClient.activeGoldenRecordId();
+    if (activeGoldenId <= 0) {
+        activeGoldenId = DbManager::instance().getActiveGoldenRecordId();
+    }
+
     m_comboGoldenRecord->blockSignals(true);
     m_comboGoldenRecord->clear();
 
+    int targetIdx = 0;
     if (m_cachedGoldenRecords.isEmpty()) {
         m_comboGoldenRecord->addItem("⚠️ Kayıtlı Referans Yok (Sabit/Canlı Ekleyin)", 0);
     } else {
-        for (const auto &rec : m_cachedGoldenRecords) {
+        for (int i = 0; i < m_cachedGoldenRecords.size(); ++i) {
+            const auto &rec = m_cachedGoldenRecords[i];
+            bool isHostActive = (rec.id == activeGoldenId) || (activeGoldenId <= 0 && i == 0);
+            if (isHostActive) {
+                targetIdx = i;
+            }
+            QString prefix = isHostActive ? "⭐ [AKTİF REFERANS] " : "";
             QString itemText;
             if (rec.durationSec > 0) {
-                itemText = QString("🔴 %1 — %2 dB (%3 sn Canlı)")
+                itemText = QString("%1🔴 %2 — %3 dB (%4 sn Canlı)")
+                               .arg(prefix)
                                .arg(rec.label)
                                .arg(rec.goldenCnDb, 0, 'f', 1)
                                .arg(rec.durationSec);
             } else {
-                itemText = QString("📌 %1 — %2 dB (±%3 dB Sabit)")
+                itemText = QString("%1📌 %2 — %3 dB (±%4 dB Sabit)")
+                               .arg(prefix)
                                .arg(rec.label)
                                .arg(rec.goldenCnDb, 0, 'f', 1)
                                .arg(rec.toleranceDb, 0, 'f', 2);
             }
             m_comboGoldenRecord->addItem(itemText, rec.id);
         }
+        m_comboGoldenRecord->setCurrentIndex(targetIdx);
     }
     m_comboGoldenRecord->blockSignals(false);
 
@@ -1337,15 +1376,18 @@ void ClientWindow::onGoldenRecordComboChanged(int /*index*/) {
             m_stateMachine->setSelectedGoldenRecord(selected);
         }
         loadGoldenOverlayCurve(selected);
+        populateChannelTable();
         if (m_lblTestModeHint) {
             if (selected.durationSec > 0) {
-                m_lblTestModeHint->setText(QString("⏱️ Canlı Kayıt Seçildi: Her frekans bu kaydın süresi olan %1 saniye test edilecektir (Ref: %2 dB, POW: %3 dBm).")
+                m_lblTestModeHint->setText(QString("⭐ Aktif Canlı Kayıt ('%1'): Her frekans %2 saniye test edilecektir (Ref: %3 dB, POW: %4 dBm).")
+                                               .arg(selected.label)
                                                .arg(selected.durationSec)
                                                .arg(selected.goldenCnDb, 0, 'f', 1)
                                                .arg(selected.goldenPowDbm, 0, 'f', 1));
                 m_lblTestModeHint->setStyleSheet("color: #FBBF24; font-size: 8.5pt; font-weight: bold;");
             } else {
-                m_lblTestModeHint->setText(QString("📌 Sabit Kayıt Seçildi: Varsayılan test süresi (%1 sn) kullanılacaktır (Ref: %2 dB, ±%3 dB).")
+                m_lblTestModeHint->setText(QString("⭐ Aktif Sabit Kayıt ('%1'): Varsayılan test süresi (%2 sn) kullanılacaktır (Ref: %3 dB, ±%4 dB).")
+                                               .arg(selected.label)
                                                .arg(AppConfig::instance().sampleDurationSec())
                                                .arg(selected.goldenCnDb, 0, 'f', 1)
                                                .arg(selected.toleranceDb, 0, 'f', 2));

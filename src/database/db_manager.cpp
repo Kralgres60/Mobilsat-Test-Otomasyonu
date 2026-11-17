@@ -204,6 +204,7 @@ bool DbManager::initTablesIfSqlite() {
     q.exec("ALTER TABLE golden_frequencies ADD COLUMN duration_sec INTEGER DEFAULT 0;");
     q.exec("ALTER TABLE golden_frequencies ADD COLUMN sample_data TEXT DEFAULT '';");
     q.exec("CREATE TABLE IF NOT EXISTS audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, log_timestamp TEXT DEFAULT CURRENT_TIMESTAMP, action_type TEXT NOT NULL, details TEXT, operator_username TEXT DEFAULT '', station_id INTEGER DEFAULT 0);");
+    q.exec("CREATE TABLE IF NOT EXISTS cluster_nodes (id INTEGER PRIMARY KEY AUTOINCREMENT, node_type TEXT NOT NULL DEFAULT 'HOST_SERVER', node_name TEXT NOT NULL, ip_address TEXT NOT NULL, port INTEGER NOT NULL DEFAULT 45454, status TEXT NOT NULL DEFAULT 'ONLINE', active_test_sn TEXT DEFAULT '', details TEXT DEFAULT '', last_seen TEXT DEFAULT CURRENT_TIMESTAMP, UNIQUE(node_type, ip_address, port));");
 
     // Performance B-Tree Indexes for SQLite local fallback
     q.exec("CREATE INDEX IF NOT EXISTS idx_test_runs_sn ON test_runs (antenna_sn);");
@@ -443,25 +444,22 @@ bool DbManager::ensureDefaultDataIfMissing() {
         executeSqlScript(":/sql/seed_data.sql");
     }
 
-    // 3. Verify system settings (insert defaults if missing)
-    q.exec("SELECT COUNT(*) FROM system_settings;");
-    if (!q.next() || q.value(0).toInt() == 0) {
-        q.exec("INSERT INTO system_settings (setting_key, setting_value, description) "
-               "VALUES ('LOCK_TIMEOUT_SEC', '90', 'Referans cihazı kilit emniyet zaman aşımı süresi (saniye)') "
-               "ON DUPLICATE KEY UPDATE setting_key=setting_key;");
-        q.exec("INSERT INTO system_settings (setting_key, setting_value, description) "
-               "VALUES ('SAMPLE_DURATION_SEC', '5', 'Kanal başına ortalama alma süresi (saniye)') "
-               "ON DUPLICATE KEY UPDATE setting_key=setting_key;");
-        q.exec("INSERT INTO system_settings (setting_key, setting_value, description) "
-               "VALUES ('DEFAULT_TOLERANCE_DB', '1.50', 'Varsayılan Delta dB izin verilen tolerans payı') "
-               "ON DUPLICATE KEY UPDATE setting_key=setting_key;");
-        q.exec("INSERT INTO system_settings (setting_key, setting_value, description) "
-               "VALUES ('TCP_PORT', '9100', 'Merkezi Host TCP komut ve senkronizasyon portu') "
-               "ON DUPLICATE KEY UPDATE setting_key=setting_key;");
-        q.exec("INSERT INTO system_settings (setting_key, setting_value, description) "
-               "VALUES ('UDP_BEACON_PORT', '9101', 'LAN lobi anonsu ve otomatik keşif portu') "
-               "ON DUPLICATE KEY UPDATE setting_key=setting_key;");
-    }
+    // 3. Verify system settings (insert defaults with simple A1-A2 English descriptions)
+    q.exec("INSERT INTO system_settings (setting_key, setting_value, description) "
+           "VALUES ('LOCK_TIMEOUT_SEC', '90', 'Safety timeout for reference device lock (seconds)') "
+           "ON DUPLICATE KEY UPDATE description = VALUES(description);");
+    q.exec("INSERT INTO system_settings (setting_key, setting_value, description) "
+           "VALUES ('SAMPLE_DURATION_SEC', '5', 'Signal measurement time per channel (seconds)') "
+           "ON DUPLICATE KEY UPDATE description = VALUES(description);");
+    q.exec("INSERT INTO system_settings (setting_key, setting_value, description) "
+           "VALUES ('DEFAULT_TOLERANCE_DB', '1.50', 'Default allowed Delta dB limit') "
+           "ON DUPLICATE KEY UPDATE description = VALUES(description);");
+    q.exec("INSERT INTO system_settings (setting_key, setting_value, description) "
+           "VALUES ('TCP_PORT', '9100', 'Main Host TCP port for commands and sync') "
+           "ON DUPLICATE KEY UPDATE description = VALUES(description);");
+    q.exec("INSERT INTO system_settings (setting_key, setting_value, description) "
+           "VALUES ('UDP_BEACON_PORT', '9101', 'Local network port for auto discovery') "
+           "ON DUPLICATE KEY UPDATE description = VALUES(description);");
 
     // 4. Check if default work order exists
     q.exec("SELECT COUNT(*) FROM work_orders;");
@@ -567,8 +565,33 @@ bool DbManager::ensureDefaultDataIfMissing() {
 
     // Insert default Reference Mode if missing
     q.exec("INSERT INTO system_settings (setting_key, setting_value, description) "
-           "VALUES ('REFERENCE_MODE', 'LIVE', 'Referans kaynağı: LIVE (Canlı Anten) veya GOLDEN (Kayıtlı Golden Sample)') "
-           "ON DUPLICATE KEY UPDATE setting_key=setting_key;");
+           "VALUES ('REFERENCE_MODE', 'LIVE', 'Reference mode: LIVE (Live Antenna) or GOLDEN (Saved Golden Sample)') "
+           "ON DUPLICATE KEY UPDATE description = VALUES(description);");
+    q.exec("INSERT INTO system_settings (setting_key, setting_value, description) "
+           "VALUES ('ACTIVE_GOLDEN_RECORD_ID', '0', 'Active Golden Sample record ID selected by Admin') "
+           "ON DUPLICATE KEY UPDATE description = VALUES(description);");
+    q.exec("INSERT INTO system_settings (setting_key, setting_value, description) "
+           "VALUES ('REPORT_OUTPUT_DIR', 'reports', 'Folder path to save test reports') "
+           "ON DUPLICATE KEY UPDATE description = VALUES(description);");
+
+    // 6g. Ensure cluster_nodes table exists and remove any legacy mock/seed entries
+    q.exec("CREATE TABLE IF NOT EXISTS cluster_nodes ("
+           "id INT AUTO_INCREMENT PRIMARY KEY, "
+           "node_type ENUM('HOST_SERVER', 'STATION_CLIENT', 'WEB_SERVICE') NOT NULL DEFAULT 'HOST_SERVER', "
+           "node_name VARCHAR(100) NOT NULL, "
+           "ip_address VARCHAR(45) NOT NULL, "
+           "port INT NOT NULL DEFAULT 45454, "
+           "status ENUM('ONLINE', 'BUSY', 'OFFLINE') NOT NULL DEFAULT 'ONLINE', "
+           "active_test_sn VARCHAR(64) DEFAULT NULL, "
+           "details VARCHAR(255) DEFAULT NULL, "
+           "last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, "
+           "UNIQUE KEY uk_node_ip_port (node_type, ip_address, port)"
+           ") ENGINE=InnoDB;");
+    q.exec("DELETE FROM cluster_nodes WHERE node_name IN ("
+           "'NETA-HOST-ANA-HAT', 'NETA-HOST-ARGE-02', "
+           "'ISTASYON-MASA-1', 'ISTASYON-MASA-2', 'ISTASYON-MASA-3', "
+           "'Ana Yönetici Sunucu (Host #1)', 'Yedek Kalite Kontrol Sunucusu (Host #2)', "
+           "'İstasyon 1 (Test Masası #1)', 'İstasyon 2 (Test Masası #2)', 'İstasyon 3 (Test Masası #3)');");
 
     // 7. Repair any corrupted seed text from legacy sessions
     q.exec("SET NAMES 'utf8mb4'");
@@ -767,7 +790,61 @@ ReferenceMode DbManager::getReferenceMode() {
 bool DbManager::setReferenceMode(ReferenceMode mode) {
     QString val = (mode == ReferenceMode::GoldenSample) ? "GOLDEN" : "LIVE";
     return setSetting("REFERENCE_MODE", val,
-                      "Referans kaynağı: LIVE (Canlı Anten) veya GOLDEN (Kayıtlı Golden Sample)");
+                      "Reference mode: LIVE (Live Antenna) or GOLDEN (Saved Golden Sample)");
+}
+
+int DbManager::getActiveGoldenRecordId() {
+    return getSetting("ACTIVE_GOLDEN_RECORD_ID", "0").toInt();
+}
+
+bool DbManager::setActiveGoldenRecordId(int recordId) {
+    return setSetting("ACTIVE_GOLDEN_RECORD_ID", QString::number(recordId),
+                      "Active Golden Sample record ID selected by Admin");
+}
+
+bool DbManager::upsertClusterNode(const QString &nodeType, const QString &nodeName,
+                                  const QString &ipAddress, int port,
+                                  const QString &status,
+                                  const QString &activeTestSn,
+                                  const QString &details) {
+    if (!isConnected()) return false;
+    QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+    QSqlQuery q(db);
+
+    if (m_driverName == "QSQLITE") {
+        q.prepare("INSERT OR REPLACE INTO cluster_nodes "
+                  "(node_type, node_name, ip_address, port, status, active_test_sn, details, last_seen) "
+                  "VALUES (:type, :name, :ip, :port, :status, :sn, :details, CURRENT_TIMESTAMP)");
+    } else {
+        q.prepare("INSERT INTO cluster_nodes "
+                  "(node_type, node_name, ip_address, port, status, active_test_sn, details, last_seen) "
+                  "VALUES (:type, :name, :ip, :port, :status, :sn, :details, CURRENT_TIMESTAMP) "
+                  "ON DUPLICATE KEY UPDATE "
+                  "node_name = VALUES(node_name), "
+                  "status = VALUES(status), "
+                  "active_test_sn = VALUES(active_test_sn), "
+                  "details = VALUES(details), "
+                  "last_seen = CURRENT_TIMESTAMP");
+    }
+    q.bindValue(":type", nodeType);
+    q.bindValue(":name", nodeName);
+    q.bindValue(":ip", ipAddress.isEmpty() ? QString("127.0.0.1") : ipAddress);
+    q.bindValue(":port", port);
+    q.bindValue(":status", status);
+    q.bindValue(":sn", activeTestSn);
+    q.bindValue(":details", details);
+    return q.exec();
+}
+
+bool DbManager::removeClusterNode(const QString &nodeType, const QString &ipAddress, int port) {
+    if (!isConnected()) return false;
+    QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+    QSqlQuery q(db);
+    q.prepare("DELETE FROM cluster_nodes WHERE node_type = :type AND ip_address = :ip AND port = :port");
+    q.bindValue(":type", nodeType);
+    q.bindValue(":ip", ipAddress.isEmpty() ? QString("127.0.0.1") : ipAddress);
+    q.bindValue(":port", port);
+    return q.exec();
 }
 
 QVector<GoldenFrequencyRecord> DbManager::getGoldenFrequencies() {

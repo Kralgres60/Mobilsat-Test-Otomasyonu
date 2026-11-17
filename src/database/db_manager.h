@@ -177,6 +177,37 @@ public:
     /** @brief Persists the active reference mode (LiveReference vs GoldenSample) in system_settings. */
     bool setReferenceMode(ReferenceMode mode);
 
+    /** @brief Reads the active Golden Sample record ID designated by the Administrator. */
+    int getActiveGoldenRecordId();
+    /** @brief Persists the active Golden Sample record ID designated by the Administrator in system_settings. */
+    bool setActiveGoldenRecordId(int recordId);
+
+    /**
+     * @brief Registers or updates a live Host or Station node in the cluster_nodes table.
+     * @param nodeType "HOST_SERVER" or "STATION_CLIENT"
+     * @param nodeName Display name of the node
+     * @param ipAddress IPv4 address of the node
+     * @param port Listening TCP port or station numeric ID
+     * @param status "ONLINE", "BUSY", or "OFFLINE"
+     * @param activeTestSn Active antenna serial number being tested (if any)
+     * @param details Simple description of the node
+     * @return true on success
+     */
+    bool upsertClusterNode(const QString &nodeType, const QString &nodeName,
+                           const QString &ipAddress, int port,
+                           const QString &status,
+                           const QString &activeTestSn = QString(),
+                           const QString &details = QString());
+
+    /**
+     * @brief Removes a node from cluster_nodes when the application exits or disconnects.
+     * @param nodeType "HOST_SERVER" or "STATION_CLIENT"
+     * @param ipAddress IPv4 address of the node
+     * @param port Listening TCP port or station numeric ID
+     * @return true on success
+     */
+    bool removeClusterNode(const QString &nodeType, const QString &ipAddress, int port);
+
     // User Authentication & Roles
     /**
      * @brief Authenticates a user against database or factory defaults.
