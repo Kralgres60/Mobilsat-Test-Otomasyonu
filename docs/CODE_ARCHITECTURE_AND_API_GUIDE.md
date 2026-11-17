@@ -16,6 +16,7 @@ Bu belge, **NETA DRX9000 ANTENNA TEST AUTOMATION** sisteminin tüm kaynak kod ta
    - [DependencyInstaller (dependency_installer.h / .cpp)](#dependencyinstaller)
    - [XlsxUtil (xlsxutil.h / .cpp)](#xlsxutil)
    - [PdfReportGenerator (pdf_report_generator.h / .cpp)](#pdfreportgenerator)
+   - [SpcCalculator (spc_calculator.h / .cpp)](#spccalculator)
 3. [Veritabanı Katmanı (`src/database/`)](#3-veritabanı-katmanı-srcdatabase)
    - [DbManager (db_manager.h / .cpp)](#dbmanager)
 4. [Donanım ve Haberleşme Katmanı (`src/hardware/`)](#4-donanım-ve-haberleşme-katmanı-srchardware)
@@ -174,6 +175,29 @@ Tüm sistemde paylaşılan ana veri yapılarını ve JSON serileştirme fonksiyo
 - **Entegrasyon Noktaları:**
   - Test İstasyonu (`ClientWindow`): Test tamamlandığı anda `reports/certificates/` klasörüne otomatik üretilir; arayüzdeki "📄 Kalite Sertifikasını Aç (PDF)" butonu aktifleşir.
   - Test Geçmişi (`TestHistoryWidget`): Geçmiş test kayıtları listesinden seçilen herhangi bir satır için "📄 PDF Sertifika Üret" butonuyla anında sertifika oluşturulup açılabilir.
+
+### `SpcCalculator` (`spc_calculator.h` / `spc_calculator.cpp`)
+- **Görevi:** Üretim hattında test edilen antenlerin sinyal sapmalarının ($\Delta \text{dB}$) normal dağılımını, histogram frekans dilimlerini ve süreç yeterlilik indislerini ($C_p, C_{pk}$) hesaplayan istatistik motorudur.
+- **Formüller:**
+  - Örneklem Ortalaması: $\mu = \frac{1}{N}\sum x_i$
+  - Standart Sapma: $\sigma = \sqrt{\frac{1}{N-1}\sum (x_i - \mu)^2}$
+  - Süreç Yeteneği: $C_p = \frac{\text{USL} - \text{LSL}}{6\sigma}$
+  - Süreç Performansı: $C_{pk} = \min\left(\frac{\text{USL} - \mu}{3\sigma}, \frac{\mu - \text{LSL}}{3\sigma}\right)$
+  - Gauss Normal Dağılım Fonksiyonu: $f(x) = \frac{1}{\sigma\sqrt{2\pi}} \exp\left(-\frac{(x - \mu)^2}{2\sigma^2}\right)$
+- **Kalite Seviyeleri:**
+  - $C_{pk} \ge 1.33$: Mükemmel (4-Sigma üstü kalite, hata riski < 63 PPM).
+  - $1.00 \le C_{pk} < 1.33$: Yeterli (Tolerans sınırları içinde, izlenmeli).
+  - $C_{pk} < 1.00$: Yetersiz / Sapma Var (Tolerans dışına taşma ve hatalı üretim riski).
+
+### `SpcAnalysisWidget` (`spc_analysis_widget.h` / `spc_analysis_widget.cpp`)
+- **Görevi:** `TestHistoryWidget` içinde 4. sekme olarak çalışan, interaktif İstatistiksel Süreç Kontrolü (SPC) paneli.
+- **Bileşenler:**
+  - `QCustomPlot` tabanlı Delta dB histogram çubukları (`QCPBars`).
+  - Histogram üzerine bindirilmiş düzgün Gauss Çanı eğrisi.
+  - USL, LSL tolerans sınır çizgileri ve $\mu$ ortalama izleyicisi.
+  - Canlı $C_{pk}$ durum rozeti ve detaylı istatistik parametre kartları.
+  - İş emri, istasyon, uydu profili ve örneklem sayısı filtreleme.
+  - PNG ve PDF formatında yüksek çözünürlüklü grafik dışa aktarımı.
 
 ---
 

@@ -158,6 +158,16 @@ public:
     /** @brief Queries all channel measurement results for a specific test run. */
     QVector<ChannelSampleResult> getTestRunChannels(qint64 testRunId);
 
+    /**
+     * @brief Queries an array of arithmetic mean Delta dB attenuation values for Statistical Process Control (SPC).
+     * @param workOrderId Filter by work order ID (-1 for all).
+     * @param stationId Filter by station ID (-1 for all).
+     * @param profileId Filter by satellite profile ID (-1 for all).
+     * @param limit Maximum number of recent test runs to analyze.
+     * @return Array of double precision delta attenuation values.
+     */
+    QVector<double> getDeltaDbValuesForSpc(int workOrderId = -1, int stationId = -1, int profileId = -1, int limit = 500);
+
     // System Settings Key-Value Store
     QString getSetting(const QString &key, const QString &defaultValue = QString());
     bool setSetting(const QString &key, const QString &value, const QString &desc = QString());

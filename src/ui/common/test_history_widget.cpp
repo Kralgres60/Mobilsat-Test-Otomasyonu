@@ -9,6 +9,7 @@
 #include "core/app_config.h"
 #include "core/xlsxutil.h"
 #include "core/pdf_report_generator.h"
+#include "ui/common/spc_analysis_widget.h"
 #include "database/db_manager.h"
 #include <QDesktopServices>
 #include <QUrl>
@@ -51,12 +52,17 @@ void TestHistoryWidget::setupUi() {
     setupAuditLogTab(tabAudit);
     m_tabs->addTab(tabAudit, "📜 Sistem Olay & Denetim Logları (Audit)");
 
+    m_spcWidget = new SpcAnalysisWidget(m_tabs);
+    connect(m_spcWidget, &SpcAnalysisWidget::logMessage, this, &TestHistoryWidget::logMessage);
+    m_tabs->addTab(m_spcWidget, "📊 İstatistiksel Süreç Kontrolü (SPC & Gauss)");
+
     root->addWidget(m_tabs);
 
     connect(m_tabs, &QTabWidget::currentChanged, this, [this](int idx) {
         if (idx == 0) refreshHistory();
         else if (idx == 1) refreshDbTables();
         else if (idx == 2) refreshAuditLogs();
+        else if (idx == 3 && m_spcWidget) m_spcWidget->refreshAnalysis();
     });
 }
 

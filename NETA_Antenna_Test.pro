@@ -37,6 +37,7 @@ SOURCES += \
     src/core/dependency_installer.cpp \
     src/core/xlsxutil.cpp \
     src/core/pdf_report_generator.cpp \
+    src/core/spc_calculator.cpp \
     src/database/db_manager.cpp \
     src/database/backup_manager.cpp \
     src/hardware/data_transfer.cpp \
@@ -50,6 +51,7 @@ SOURCES += \
     src/ui/common/about_dialog.cpp \
     src/ui/common/profile_manager_widget.cpp \
     src/ui/common/test_history_widget.cpp \
+    src/ui/common/spc_analysis_widget.cpp \
     src/ui/common/dependency_install_dialog.cpp \
     src/ui/common/drx_clock_badge.cpp \
     src/ui/common/qcustomplot.cpp \
@@ -73,6 +75,7 @@ HEADERS += \
     src/core/dependency_installer.h \
     src/core/xlsxutil.h \
     src/core/pdf_report_generator.h \
+    src/core/spc_calculator.h \
     src/database/db_manager.h \
     src/database/backup_manager.h \
     src/hardware/data_transfer.h \
@@ -87,6 +90,7 @@ HEADERS += \
     src/ui/common/about_dialog.h \
     src/ui/common/profile_manager_widget.h \
     src/ui/common/test_history_widget.h \
+    src/ui/common/spc_analysis_widget.h \
     src/ui/common/dependency_install_dialog.h \
     src/ui/common/drx_clock_badge.h \
     src/ui/common/qcustomplot.h \

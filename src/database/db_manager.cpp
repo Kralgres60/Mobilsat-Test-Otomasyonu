@@ -1495,6 +1495,41 @@ QVector<ChannelSampleResult> DbManager::getTestRunChannels(qint64 testRunId) {
     return list;
 }
 
+QVector<double> DbManager::getDeltaDbValuesForSpc(int workOrderId, int stationId, int profileId, int limit) {
+    QVector<double> values;
+    if (!isConnected()) return values;
+
+    QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+    QString sql = "SELECT avg_delta_db FROM test_runs WHERE overall_result != 'ABORTED' ";
+
+    if (workOrderId > 0) {
+        sql += "AND work_order_id = :wo ";
+    }
+    if (stationId > 0) {
+        sql += "AND station_id = :st ";
+    }
+    if (profileId > 0) {
+        sql += "AND satellite_profile_id = :sp ";
+    }
+
+    sql += QString("ORDER BY id DESC LIMIT %1").arg(qBound(10, limit, 5000));
+
+    QSqlQuery q(db);
+    q.prepare(sql);
+    if (workOrderId > 0) q.bindValue(":wo", workOrderId);
+    if (stationId > 0) q.bindValue(":st", stationId);
+    if (profileId > 0) q.bindValue(":sp", profileId);
+
+    if (q.exec()) {
+        while (q.next()) {
+            values.append(q.value(0).toDouble());
+        }
+    } else {
+        qWarning() << "[DbManager] getDeltaDbValuesForSpc failed:" << q.lastError().text();
+    }
+    return values;
+}
+
 bool DbManager::testRunExists(const QString &antennaSn, int stationId, const QDateTime &timestamp) {
     if (!isConnected()) return false;
     QSqlDatabase db = QSqlDatabase::database(m_connectionName);

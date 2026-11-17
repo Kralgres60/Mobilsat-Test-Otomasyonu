@@ -19,6 +19,8 @@
 #include <QStringList>
 #include "core/data_models.h"
 
+class SpcAnalysisWidget;
+
 /**
  * @class TestHistoryWidget
  * @brief Tab-based component presenting test runs, database tables, and audit logs.
@@ -115,6 +117,9 @@ private:
     QPushButton  *m_btnAuditClear    = nullptr;
     QLabel       *m_lblAuditSummary  = nullptr;
     QTableWidget *m_tableAudit       = nullptr;
+
+    // Tab 4: Statistical Process Control (SPC)
+    SpcAnalysisWidget *m_spcWidget   = nullptr;
 };
 
 #endif // TEST_HISTORY_WIDGET_H
