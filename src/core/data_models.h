@@ -100,6 +100,7 @@ struct ChannelSampleResult {
     QString status = "PENDING";     ///< Channel status: PENDING, PASS, FAIL, WARNING
     QString drxDeviceTime;          ///< DRX9000 internal device clock string (st_current_time)
     QDateTime sampleHostTime;       ///< Instant computer timestamp when sample was captured
+    qint64 dtReservedMs = 0;        ///< Future-ready reserved time difference in milliseconds (Host - DRX)
 
     /** @brief Serializes sample result to JSON object. */
     QJsonObject toJson() const {
@@ -121,6 +122,7 @@ struct ChannelSampleResult {
         obj["status"] = status;
         obj["drx_device_time"] = drxDeviceTime;
         obj["sample_host_time"] = sampleHostTime.toString(Qt::ISODateWithMs);
+        obj["dt_reserved_ms"] = dtReservedMs;
         return obj;
     }
 
@@ -144,13 +146,7 @@ struct ChannelSampleResult {
         r.status = obj["status"].toString();
         r.drxDeviceTime = obj["drx_device_time"].toString();
         r.sampleHostTime = QDateTime::fromString(obj["sample_host_time"].toString(), Qt::ISODateWithMs);
-        return r;
-    }
-        r.carrierLocked = obj["carrier_locked"].toBool();
-        r.videoLocked = obj["video_locked"].toBool();
-        r.audioLocked = obj["audio_locked"].toBool();
-        r.toleranceDb = obj["tolerance_db"].toDouble(1.50);
-        r.status = obj["status"].toString();
+        r.dtReservedMs = obj["dt_reserved_ms"].toVariant().toLongLong();
         return r;
     }
 };
@@ -177,6 +173,7 @@ struct TestRunData {
     QString notes;                  ///< Operator or system observations
     QString lastDrxDeviceTime;      ///< DRX9000 device time recorded during the test run
     QDateTime testEndTime;          ///< Test completion instant host timestamp
+    qint64 dtReservedMs = 0;        ///< Future-ready reserved time difference in milliseconds (Host - DRX)
     QVector<ChannelSampleResult> channels; ///< Detailed results for all transponder channels
 
     /** @brief Serializes complete test run record to JSON object. */
@@ -194,6 +191,7 @@ struct TestRunData {
         obj["timestamp"] = timestamp.toString(Qt::ISODate);
         obj["test_end_time"] = testEndTime.toString(Qt::ISODateWithMs);
         obj["last_drx_device_time"] = lastDrxDeviceTime;
+        obj["dt_reserved_ms"] = dtReservedMs;
         obj["duration_sec"] = durationSec;
         obj["overall_result"] = overallResult;
         obj["fail_reason"] = failReason;

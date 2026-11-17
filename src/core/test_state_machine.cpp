@@ -515,6 +515,13 @@ void TestStateMachine::finishCurrentChannel() {
             .arg(res.sampleHostTime.toString("yyyy-MM-dd hh:mm:ss.zzz"))
             .arg(res.drxDeviceTime.isEmpty() ? "--" : res.drxDeviceTime));
 
+    AppLogger::instance().logEvent("TIME_TELEMETRY",
+        QString("HostTime: %1 | DrxTime: %2 | dt_ready: true (reserved_ms: %3) | Ch: %4")
+            .arg(res.sampleHostTime.toString("yyyy-MM-dd hh:mm:ss.zzz"))
+            .arg(res.drxDeviceTime.isEmpty() ? "N/A" : res.drxDeviceTime)
+            .arg(res.dtReservedMs)
+            .arg(res.channelName));
+
     emit logMessage(QString("[%1/%2] %3 Bitti: DUT=%4 dB, REF=%5 dB, Delta=%6 dB -> %7 [Sistem: %8 | DRX: %9]")
                         .arg(m_currentChannelIndex + 1)
                         .arg(m_profile.channels.size())
@@ -595,6 +602,13 @@ void TestStateMachine::completeTest() {
             .arg(m_testRun.maxDeltaDb, 0, 'f', 2)
             .arg(m_testRun.testEndTime.toString("yyyy-MM-dd hh:mm:ss.zzz"))
             .arg(m_testRun.lastDrxDeviceTime.isEmpty() ? "--" : m_testRun.lastDrxDeviceTime));
+
+    AppLogger::instance().logEvent("TIME_TELEMETRY",
+        QString("RunEnd: SN=%1 | HostEnd: %2 | DrxTime: %3 | dt_ready: true (reserved_ms: %4)")
+            .arg(m_testRun.antennaSn)
+            .arg(m_testRun.testEndTime.toString("yyyy-MM-dd hh:mm:ss.zzz"))
+            .arg(m_testRun.lastDrxDeviceTime.isEmpty() ? "N/A" : m_testRun.lastDrxDeviceTime)
+            .arg(m_testRun.dtReservedMs));
 
     emit logMessage(QString("=== TEST TAMAMLANDI: %1 (Süre: %2 sn, Ort. Delta: %3 dB | Sistem: %4 | DRX: %5) ===")
                         .arg(m_testRun.overallResult)

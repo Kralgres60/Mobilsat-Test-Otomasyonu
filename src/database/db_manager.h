@@ -155,6 +155,9 @@ public:
     /** @brief Checks whether a test run with the same serial number, station, and timestamp already exists. */
     bool testRunExists(const QString &antennaSn, int stationId, const QDateTime &timestamp);
 
+    /** @brief Queries all channel measurement results for a specific test run. */
+    QVector<ChannelSampleResult> getTestRunChannels(qint64 testRunId);
+
     // System Settings Key-Value Store
     QString getSetting(const QString &key, const QString &defaultValue = QString());
     bool setSetting(const QString &key, const QString &value, const QString &desc = QString());

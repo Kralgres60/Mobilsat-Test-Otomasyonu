@@ -298,4 +298,21 @@ To guarantee business continuity and zero data loss on factory production lines:
    - Manual one-click trigger ("💾 Veritabanını Şimdi Yedekle") and directory explorer shortcut ("📂 Yedek Klasörü") on the Host Settings console.
    - Every backup operation logs an audit trail event (`DB_BACKUP`) with filename and byte size in the `audit_logs` table.
 
+---
+
+## 11. Structured Dual-Timestamp Modeling and Future $\Delta t$ Telemetry Engine
+
+To ensure rigorous temporal traceability across factory production tables and embedded DRX devices:
+
+1. **Independent Dual-Time Architecture:**
+   - **Host Local PC Time (`sample_host_time`, `test_end_time`):** Millisecond-precision computer clock captured at the exact moment of RF telemetry acquisition.
+   - **DRX Device Hardware Time (`drx_device_time`, `last_drx_device_time`):** Embedded clock read directly from the DRX9000 Linux firmware via Web CGI (`st_current_time`).
+2. **Future-Ready $\Delta t$ Reservation (`dt_reserved_ms`):**
+   - Both `test_runs` and `test_run_channels` maintain a dedicated `dt_reserved_ms` (BIGINT / INTEGER DEFAULT 0) column.
+   - Raw timestamps are captured and persisted without destructive offset subtraction, preparing the database for future real-time network propagation delay and device clock drift algorithms.
+3. **Structured Audit & Telemetry Logging:**
+   - Every transponder sample and test finish event logs a structured `TIME_TELEMETRY` record into `AppLogger` and `system_logs`:
+     `[TIME_TELEMETRY] HostTime: 2026-11-16 15:30:00.123 | DrxTime: 2026-11-16 15:29:58 | dt_ready: true (reserved_ms: 0) | Ch: TRT 1 HD`
+
+
 

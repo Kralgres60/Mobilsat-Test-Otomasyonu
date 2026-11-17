@@ -193,7 +193,13 @@ bool DbManager::initTablesIfSqlite() {
     q.exec("CREATE TABLE IF NOT EXISTS work_orders (id INTEGER PRIMARY KEY AUTOINCREMENT, order_no TEXT, customer_name TEXT, product_code TEXT, satellite_profile_id INTEGER, target_quantity INTEGER, completed_quantity INTEGER, passed_quantity INTEGER, failed_quantity INTEGER, status TEXT, notes TEXT);");
     q.exec("CREATE TABLE IF NOT EXISTS test_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, work_order_id INTEGER, station_id INTEGER, operator_id INTEGER, tester_name TEXT DEFAULT '', operator_username TEXT DEFAULT '', antenna_sn TEXT, satellite_profile_id INTEGER, test_timestamp TEXT, duration_sec INTEGER, overall_result TEXT, fail_reason TEXT, avg_delta_db REAL, max_delta_db REAL, notes TEXT);");
     q.exec("ALTER TABLE test_runs ADD COLUMN operator_username TEXT DEFAULT '';");
+    q.exec("ALTER TABLE test_runs ADD COLUMN last_drx_device_time TEXT;");
+    q.exec("ALTER TABLE test_runs ADD COLUMN test_end_time TEXT;");
+    q.exec("ALTER TABLE test_runs ADD COLUMN dt_reserved_ms INTEGER DEFAULT 0;");
     q.exec("CREATE TABLE IF NOT EXISTS test_run_channels (id INTEGER PRIMARY KEY AUTOINCREMENT, test_run_id INTEGER, channel_no INTEGER, channel_name TEXT, frequency_mhz INTEGER, symbol_rate INTEGER, polarization TEXT, dut_cn_avg REAL, dut_pow_avg REAL, ref_cn_avg REAL, ref_pow_avg REAL, delta_db REAL, carrier_locked INTEGER, video_locked INTEGER, audio_locked INTEGER, tolerance_db REAL, result TEXT);");
+    q.exec("ALTER TABLE test_run_channels ADD COLUMN drx_device_time TEXT;");
+    q.exec("ALTER TABLE test_run_channels ADD COLUMN sample_host_time TEXT;");
+    q.exec("ALTER TABLE test_run_channels ADD COLUMN dt_reserved_ms INTEGER DEFAULT 0;");
     q.exec("CREATE TABLE IF NOT EXISTS golden_frequencies (id INTEGER PRIMARY KEY AUTOINCREMENT, label TEXT DEFAULT '', frequency_mhz INTEGER NOT NULL DEFAULT 0, symbol_rate INTEGER NOT NULL DEFAULT 0, polarization TEXT NOT NULL DEFAULT 'V', golden_cn_db REAL DEFAULT 0.0, golden_pow_dbm REAL DEFAULT 0.0, tolerance_db REAL DEFAULT 1.50, duration_sec INTEGER DEFAULT 0, sample_data TEXT DEFAULT '', updated_at TEXT DEFAULT CURRENT_TIMESTAMP);");
     q.exec("ALTER TABLE golden_frequencies ADD COLUMN duration_sec INTEGER DEFAULT 0;");
     q.exec("ALTER TABLE golden_frequencies ADD COLUMN sample_data TEXT DEFAULT '';");
@@ -542,6 +548,21 @@ bool DbManager::ensureDefaultDataIfMissing() {
     q.exec("SHOW INDEX FROM test_runs WHERE Key_name = 'idx_test_runs_result';");
     if (!q.next()) {
         q.exec("ALTER TABLE test_runs ADD INDEX idx_test_runs_result (overall_result);");
+    }
+
+    // 6f. Timestamp and future dt telemetry columns in test_runs and test_run_channels
+    q.exec("SHOW COLUMNS FROM test_runs LIKE 'last_drx_device_time';");
+    if (!q.next()) {
+        q.exec("ALTER TABLE test_runs ADD COLUMN last_drx_device_time VARCHAR(64) DEFAULT NULL AFTER notes, "
+               "ADD COLUMN test_end_time DATETIME DEFAULT NULL AFTER last_drx_device_time, "
+               "ADD COLUMN dt_reserved_ms BIGINT DEFAULT 0 AFTER test_end_time;");
+    }
+
+    q.exec("SHOW COLUMNS FROM test_run_channels LIKE 'drx_device_time';");
+    if (!q.next()) {
+        q.exec("ALTER TABLE test_run_channels ADD COLUMN drx_device_time VARCHAR(64) DEFAULT NULL AFTER tolerance_db, "
+               "ADD COLUMN sample_host_time DATETIME DEFAULT NULL AFTER drx_device_time, "
+               "ADD COLUMN dt_reserved_ms BIGINT DEFAULT 0 AFTER sample_host_time;");
     }
 
     // Insert default Reference Mode if missing
@@ -1133,12 +1154,13 @@ qint64 DbManager::insertTestRun(const TestRunData &run) {
     }
 
     QString ts = (run.timestamp.isValid() ? run.timestamp : QDateTime::currentDateTime()).toString("yyyy-MM-dd HH:mm:ss");
+    QString endTimeStr = (run.testEndTime.isValid() ? run.testEndTime : QDateTime::currentDateTime()).toString("yyyy-MM-dd HH:mm:ss");
 
     QSqlQuery q(db);
     q.prepare("INSERT INTO test_runs (work_order_id, station_id, operator_id, tester_name, operator_username, antenna_sn, "
               "satellite_profile_id, test_timestamp, duration_sec, overall_result, fail_reason, "
-              "avg_delta_db, max_delta_db, notes) "
-              "VALUES (:wo, :st, :op, :tname, :opuser, :sn, :sp, :ts, :dur, :res, :fr, :avg, :max, :notes)");
+              "avg_delta_db, max_delta_db, notes, last_drx_device_time, test_end_time, dt_reserved_ms) "
+              "VALUES (:wo, :st, :op, :tname, :opuser, :sn, :sp, :ts, :dur, :res, :fr, :avg, :max, :notes, :drx_time, :end_time, :dt_res)");
     q.bindValue(":wo", woVal);
     q.bindValue(":st", run.stationId);
     q.bindValue(":op", run.operatorId > 0 ? run.operatorId : QVariant());
@@ -1153,6 +1175,9 @@ qint64 DbManager::insertTestRun(const TestRunData &run) {
     q.bindValue(":avg", run.avgDeltaDb);
     q.bindValue(":max", run.maxDeltaDb);
     q.bindValue(":notes", run.notes);
+    q.bindValue(":drx_time", run.lastDrxDeviceTime.left(64));
+    q.bindValue(":end_time", endTimeStr);
+    q.bindValue(":dt_res", run.dtReservedMs);
 
     if (!q.exec()) {
         m_lastError = q.lastError().text();
@@ -1174,12 +1199,15 @@ qint64 DbManager::insertTestRun(const TestRunData &run) {
             chPol = "V";
         }
 
+        QString chSampleTime = (ch.sampleHostTime.isValid() ? ch.sampleHostTime : QDateTime::currentDateTime()).toString("yyyy-MM-dd HH:mm:ss");
+
         QSqlQuery qCh(db);
         qCh.prepare("INSERT INTO test_run_channels (test_run_id, channel_no, channel_name, frequency_mhz, "
                     "symbol_rate, polarization, dut_cn_avg, dut_pow_avg, ref_cn_avg, ref_pow_avg, delta_db, "
-                    "carrier_locked, video_locked, audio_locked, tolerance_db, result) "
+                    "carrier_locked, video_locked, audio_locked, tolerance_db, result, "
+                    "drx_device_time, sample_host_time, dt_reserved_ms) "
                     "VALUES (:tr_id, :ch_no, :ch_name, :freq, :sr, :pol, :dut_cn, :dut_pow, :ref_cn, :ref_pow, "
-                    ":delta, :c_lock, :v_lock, :a_lock, :tol, :res)");
+                    ":delta, :c_lock, :v_lock, :a_lock, :tol, :res, :ch_drx, :ch_host, :ch_dt)");
         qCh.bindValue(":tr_id", runId);
         qCh.bindValue(":ch_no", ch.channelNo);
         qCh.bindValue(":ch_name", ch.channelName.left(64));
@@ -1196,6 +1224,9 @@ qint64 DbManager::insertTestRun(const TestRunData &run) {
         qCh.bindValue(":a_lock", ch.audioLocked ? 1 : 0);
         qCh.bindValue(":tol", ch.toleranceDb);
         qCh.bindValue(":res", chRes);
+        qCh.bindValue(":ch_drx", ch.drxDeviceTime.left(64));
+        qCh.bindValue(":ch_host", chSampleTime);
+        qCh.bindValue(":ch_dt", ch.dtReservedMs);
 
         if (!qCh.exec()) {
             qWarning() << "[DbManager] test_run_channels insert failed:" << qCh.lastError().text();
@@ -1227,7 +1258,8 @@ QVector<TestRunData> DbManager::getTestRuns(int limit, const QString &searchSn) 
                   "COALESCE(NULLIF(tr.operator_username, ''), u.username, '') AS op_username, "
                   "tr.antenna_sn, tr.satellite_profile_id, COALESCE(sp.profile_name, '') AS prof_name, "
                   "tr.test_timestamp, tr.duration_sec, tr.overall_result, tr.fail_reason, "
-                  "tr.avg_delta_db, tr.max_delta_db, tr.notes "
+                  "tr.avg_delta_db, tr.max_delta_db, tr.notes, "
+                  "tr.last_drx_device_time, tr.test_end_time, tr.dt_reserved_ms "
                   "FROM test_runs tr "
                   "LEFT JOIN users u ON u.id = tr.operator_id "
                   "LEFT JOIN satellite_profiles sp ON sp.id = tr.satellite_profile_id ";
@@ -1280,6 +1312,9 @@ QVector<TestRunData> DbManager::getTestRuns(int limit, const QString &searchSn) 
         r.avgDeltaDb = q.value(13).toDouble();
         r.maxDeltaDb = q.value(14).toDouble();
         r.notes = q.value(15).toString();
+        r.lastDrxDeviceTime = q.value(16).toString();
+        r.testEndTime = q.value(17).toDateTime();
+        r.dtReservedMs = q.value(18).toLongLong();
         list.append(r);
     }
     return list;
@@ -1344,7 +1379,8 @@ QVector<TestRunData> DbManager::getTestRunsPaged(int page, int pageSize, const Q
                   "COALESCE(NULLIF(tr.operator_username, ''), u.username, '') AS op_username, "
                   "tr.antenna_sn, tr.satellite_profile_id, COALESCE(sp.profile_name, '') AS prof_name, "
                   "tr.test_timestamp, tr.duration_sec, tr.overall_result, tr.fail_reason, "
-                  "tr.avg_delta_db, tr.max_delta_db, tr.notes "
+                  "tr.avg_delta_db, tr.max_delta_db, tr.notes, "
+                  "tr.last_drx_device_time, tr.test_end_time, tr.dt_reserved_ms "
                   "FROM test_runs tr "
                   "LEFT JOIN users u ON u.id = tr.operator_id "
                   "LEFT JOIN satellite_profiles sp ON sp.id = tr.satellite_profile_id WHERE 1=1 ";
@@ -1409,7 +1445,52 @@ QVector<TestRunData> DbManager::getTestRunsPaged(int page, int pageSize, const Q
         r.avgDeltaDb = q.value(13).toDouble();
         r.maxDeltaDb = q.value(14).toDouble();
         r.notes = q.value(15).toString();
+        r.lastDrxDeviceTime = q.value(16).toString();
+        r.testEndTime = q.value(17).toDateTime();
+        r.dtReservedMs = q.value(18).toLongLong();
         list.append(r);
+    }
+    return list;
+}
+
+QVector<ChannelSampleResult> DbManager::getTestRunChannels(qint64 testRunId) {
+    QVector<ChannelSampleResult> list;
+    if (!isConnected() || testRunId <= 0) return list;
+
+    QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+    QSqlQuery q(db);
+    q.prepare("SELECT channel_no, channel_name, frequency_mhz, symbol_rate, polarization, "
+              "dut_cn_avg, dut_pow_avg, ref_cn_avg, ref_pow_avg, delta_db, "
+              "carrier_locked, video_locked, audio_locked, tolerance_db, result, "
+              "drx_device_time, sample_host_time, dt_reserved_ms "
+              "FROM test_run_channels WHERE test_run_id = :id ORDER BY channel_no ASC");
+    q.bindValue(":id", testRunId);
+    if (!q.exec()) {
+        qWarning() << "[DbManager] getTestRunChannels failed:" << q.lastError().text();
+        return list;
+    }
+
+    while (q.next()) {
+        ChannelSampleResult ch;
+        ch.channelNo = q.value(0).toInt();
+        ch.channelName = q.value(1).toString();
+        ch.frequencyMhz = q.value(2).toInt();
+        ch.symbolRate = q.value(3).toInt();
+        ch.polarization = q.value(4).toString();
+        ch.dutCn = q.value(5).toDouble();
+        ch.dutPow = q.value(6).toDouble();
+        ch.refCn = q.value(7).toDouble();
+        ch.refPow = q.value(8).toDouble();
+        ch.deltaDb = q.value(9).toDouble();
+        ch.carrierLocked = q.value(10).toInt() != 0;
+        ch.videoLocked = q.value(11).toInt() != 0;
+        ch.audioLocked = q.value(12).toInt() != 0;
+        ch.toleranceDb = q.value(13).toDouble();
+        ch.status = q.value(14).toString();
+        ch.drxDeviceTime = q.value(15).toString();
+        ch.sampleHostTime = q.value(16).toDateTime();
+        ch.dtReservedMs = q.value(17).toLongLong();
+        list.append(ch);
     }
     return list;
 }
