@@ -1316,7 +1316,7 @@ void ClientWindow::reloadGoldenRecordsList() {
     m_cachedGoldenRecords = DbManager::instance().getGoldenFrequencies();
     if (!m_comboGoldenRecord) return;
 
-    int activeGoldenId = m_tcpClient.activeGoldenRecordId();
+    int activeGoldenId = m_netClient.activeGoldenRecordId();
     if (activeGoldenId <= 0) {
         activeGoldenId = DbManager::instance().getActiveGoldenRecordId();
     }

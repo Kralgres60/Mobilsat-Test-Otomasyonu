@@ -39,6 +39,7 @@ DrxClockBadge::DrxClockBadge(QWidget *parent)
 }
 
 void DrxClockBadge::updateTime(const QDateTime &deviceTime, const QDateTime &hostTime, const QString &rawTimeStr) {
+    Q_UNUSED(deviceTime);
     m_isConnected = true;
 
     QString cleanRaw = rawTimeStr.trimmed();
