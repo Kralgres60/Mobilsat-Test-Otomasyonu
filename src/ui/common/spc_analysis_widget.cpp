@@ -233,7 +233,7 @@ void SpcAnalysisWidget::refreshAnalysis() {
     m_comboWorkOrders->blockSignals(true);
     m_comboWorkOrders->clear();
     m_comboWorkOrders->addItem("Tüm İş Emirleri", -1);
-    QVector<WorkOrderInfo> orders = DbManager::instance().getWorkOrders();
+    QVector<WorkOrderInfo> orders = DbManager::instance().getAllWorkOrders();
     for (const auto &wo : orders) {
         m_comboWorkOrders->addItem(QString("%1 (%2)").arg(wo.orderNo, wo.customerName), wo.id);
     }

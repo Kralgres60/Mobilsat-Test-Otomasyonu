@@ -224,7 +224,7 @@ QString PdfReportGenerator::buildCertificateHtml(const TestRunData &run,
     html += "<b>KALİTE GÜVENCE & TEST MÜHENDİSİ</b><br/>";
     html += "Adı Soyadı: NETA Fabrika Kalite Güvence<br/>";
     html += "Tarih: " + QDateTime::currentDateTime().toString("yyyy-MM-dd") + "<br/>";
-    html += "Onay Mührü: <b>[ " + (isPass ? "UYGUN - ONAYLANDI" : "REDDEDİLDİ") + " ]</b>";
+    html += QString("Onay Mührü: <b>[ %1 ]</b>").arg(isPass ? "UYGUN - ONAYLANDI" : "REDDEDİLDİ");
     html += "</td>";
     html += "</tr></table>";
 
