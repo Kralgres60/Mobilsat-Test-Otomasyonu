@@ -18,6 +18,7 @@
 #include <QMessageBox>
 #include <QDateTime>
 #include <QFileInfo>
+#include <QSplitter>
 
 SpcAnalysisWidget::SpcAnalysisWidget(QWidget *parent)
     : QWidget(parent) {
@@ -93,14 +94,21 @@ void SpcAnalysisWidget::setupUi() {
     filterLayout->addStretch();
     mainVBox->addWidget(filterFrame);
 
-    // 2. Main Content Split: Graph (Left) & KPI Summary (Right)
+    // 2. Main Content Split: Dual Graphs (Left) & KPI Summary (Right)
     QHBoxLayout *contentLayout = new QHBoxLayout();
     contentLayout->setSpacing(10);
 
-    // Left: QCustomPlot
-    m_plot = new QCustomPlot(this);
+    // Left: Vertical Splitter with Top (Gauss + CDF) and Bottom (Cumulative Mean & CUSUM Trend)
+    QSplitter *plotSplitter = new QSplitter(Qt::Vertical, this);
+    m_plot = new QCustomPlot(plotSplitter);
+    m_cumulativePlot = new QCustomPlot(plotSplitter);
     setupPlot();
-    contentLayout->addWidget(m_plot, 7);
+    setupCumulativePlot();
+    plotSplitter->addWidget(m_plot);
+    plotSplitter->addWidget(m_cumulativePlot);
+    plotSplitter->setStretchFactor(0, 6);
+    plotSplitter->setStretchFactor(1, 4);
+    contentLayout->addWidget(plotSplitter, 7);
 
     // Right: KPI Panel
     QFrame *kpiFrame = new QFrame(this);
@@ -145,6 +153,7 @@ void SpcAnalysisWidget::setupUi() {
     m_lblStdDev = makeValueLabel("#A78BFA");
     m_lblCp = makeValueLabel("#34D399");
     m_lblCpk = makeValueLabel("#34D399");
+    m_lblCusum = makeValueLabel("#38BDF8");
     m_lblThreeSigma = makeValueLabel("#F472B6");
     m_lblMinMax = makeValueLabel("#9CA3AF");
     m_lblToleranceLimits = makeValueLabel("#EF4444");
@@ -154,6 +163,7 @@ void SpcAnalysisWidget::setupUi() {
     form->addRow("Standart Sapma (σ):", m_lblStdDev);
     form->addRow("Süreç Yeteneği (Cp):", m_lblCp);
     form->addRow("Süreç İndeksi (Cpk):", m_lblCpk);
+    form->addRow("Kümülatif Toplam (CUSUM):", m_lblCusum);
     form->addRow("3-Sigma Sınırları [±3σ]:", m_lblThreeSigma);
     form->addRow("Gözlenen Min / Max:", m_lblMinMax);
     form->addRow("Tolerans Sınırları [LSL / USL]:", m_lblToleranceLimits);
@@ -217,6 +227,20 @@ void SpcAnalysisWidget::setupPlot() {
     m_plot->graph(3)->setPen(QPen(QColor("#FBBF24"), 1.8, Qt::DotLine));
     m_plot->graph(3)->setName("Ortalama (μ)");
 
+    // Right Y-Axis (yAxis2): Cumulative Distribution Function (CDF %)
+    m_plot->yAxis2->setVisible(true);
+    m_plot->yAxis2->setBasePen(QPen(QColor("#38BDF8")));
+    m_plot->yAxis2->setTickPen(QPen(QColor("#38BDF8")));
+    m_plot->yAxis2->setTickLabelColor(QColor("#38BDF8"));
+    m_plot->yAxis2->setLabel("Kümülatif Dağılım (CDF) [%]");
+    m_plot->yAxis2->setLabelColor(QColor("#38BDF8"));
+    m_plot->yAxis2->setRange(0, 105);
+
+    // Graph 4: Cumulative Distribution S-Curve (CDF %) on yAxis2
+    m_plot->addGraph(m_plot->xAxis, m_plot->yAxis2);
+    m_plot->graph(4)->setPen(QPen(QColor("#38BDF8"), 2.0, Qt::DashDotLine));
+    m_plot->graph(4)->setName("Kümülatif Dağılım (CDF %)");
+
     m_plot->legend->setVisible(true);
     m_plot->legend->setBrush(QBrush(QColor(10, 31, 23, 220)));
     m_plot->legend->setBorderPen(QPen(QColor("#1A3D2B")));
@@ -225,6 +249,57 @@ void SpcAnalysisWidget::setupPlot() {
     m_plot->xAxis->setRange(-2.5, 2.5);
     m_plot->yAxis->setRange(0, 15);
     m_plot->replot();
+}
+
+void SpcAnalysisWidget::setupCumulativePlot() {
+    if (!m_cumulativePlot) return;
+    m_cumulativePlot->setBackground(QBrush(QColor("#071510")));
+    m_cumulativePlot->xAxis->setBasePen(QPen(QColor("#2D5E45")));
+    m_cumulativePlot->yAxis->setBasePen(QPen(QColor("#2D5E45")));
+    m_cumulativePlot->xAxis->setTickPen(QPen(QColor("#4B7A66")));
+    m_cumulativePlot->yAxis->setTickPen(QPen(QColor("#4B7A66")));
+    m_cumulativePlot->xAxis->setTickLabelColor(QColor("#E6F4EE"));
+    m_cumulativePlot->yAxis->setTickLabelColor(QColor("#E6F4EE"));
+    m_cumulativePlot->xAxis->grid()->setPen(QPen(QColor("#1A3D2B"), 1, Qt::DotLine));
+    m_cumulativePlot->yAxis->grid()->setPen(QPen(QColor("#1A3D2B"), 1, Qt::DotLine));
+    m_cumulativePlot->xAxis->setLabel("Kronolojik Anten Test Sırası (k = 1 .. N)");
+    m_cumulativePlot->yAxis->setLabel("Tekil Δ & Kümülatif Ortalama (μk) [dB]");
+    m_cumulativePlot->xAxis->setLabelColor(QColor("#A7C4B5"));
+    m_cumulativePlot->yAxis->setLabelColor(QColor("#38BDF8"));
+
+    // Right Axis (yAxis2) for CUSUM (Cumulative Sum S_k)
+    m_cumulativePlot->yAxis2->setVisible(true);
+    m_cumulativePlot->yAxis2->setBasePen(QPen(QColor("#F59E0B")));
+    m_cumulativePlot->yAxis2->setTickPen(QPen(QColor("#F59E0B")));
+    m_cumulativePlot->yAxis2->setTickLabelColor(QColor("#FBBF24"));
+    m_cumulativePlot->yAxis2->setLabel("Kümülatif Sapma Toplamı (CUSUM Sk) [dB]");
+    m_cumulativePlot->yAxis2->setLabelColor(QColor("#FBBF24"));
+
+    // Graph 0: Individual Sample Delta (x_k)
+    m_cumulativePlot->addGraph(m_cumulativePlot->xAxis, m_cumulativePlot->yAxis);
+    m_cumulativePlot->graph(0)->setPen(QPen(QColor(148, 163, 184, 130), 1.2, Qt::DotLine));
+    m_cumulativePlot->graph(0)->setScatterStyle(QCPScatterStyle(QCPScatterStyle::ssDisc, 4));
+    m_cumulativePlot->graph(0)->setName("Tekil Anten Δ (xk)");
+
+    // Graph 1: Cumulative Moving Average (\mu_k)
+    m_cumulativePlot->addGraph(m_cumulativePlot->xAxis, m_cumulativePlot->yAxis);
+    m_cumulativePlot->graph(1)->setPen(QPen(QColor("#38BDF8"), 2.4));
+    m_cumulativePlot->graph(1)->setName("Kümülatif Ortalama (μk)");
+
+    // Graph 2: CUSUM (Cumulative Sum S_k) on yAxis2
+    m_cumulativePlot->addGraph(m_cumulativePlot->xAxis, m_cumulativePlot->yAxis2);
+    m_cumulativePlot->graph(2)->setPen(QPen(QColor("#F59E0B"), 2.2));
+    m_cumulativePlot->graph(2)->setName("Kümülatif Toplam (CUSUM Sk)");
+
+    m_cumulativePlot->legend->setVisible(true);
+    m_cumulativePlot->legend->setBrush(QBrush(QColor(10, 31, 23, 220)));
+    m_cumulativePlot->legend->setBorderPen(QPen(QColor("#1A3D2B")));
+    m_cumulativePlot->legend->setTextColor(QColor("#E6F4EE"));
+
+    m_cumulativePlot->xAxis->setRange(1, 20);
+    m_cumulativePlot->yAxis->setRange(-2.0, 2.0);
+    m_cumulativePlot->yAxis2->setRange(-10.0, 10.0);
+    m_cumulativePlot->replot();
 }
 
 void SpcAnalysisWidget::refreshAnalysis() {
@@ -283,6 +358,7 @@ void SpcAnalysisWidget::updateKpiDisplay(const SpcResult &spc) {
         m_lblStdDev->setText("--");
         m_lblCp->setText("--");
         m_lblCpk->setText("--");
+        if (m_lblCusum) m_lblCusum->setText("--");
         m_lblThreeSigma->setText("--");
         m_lblMinMax->setText("--");
         m_lblToleranceLimits->setText(QString("[-%1 / +%2 dB]").arg(spc.usl, 0, 'f', 2).arg(spc.usl, 0, 'f', 2));
@@ -306,6 +382,11 @@ void SpcAnalysisWidget::updateKpiDisplay(const SpcResult &spc) {
     m_lblStdDev->setText(QString("%1 dB").arg(spc.stdDev, 0, 'f', 3));
     m_lblCp->setText(QString::number(spc.cp, 'f', 2));
     m_lblCpk->setText(QString::number(spc.cpk, 'f', 2));
+    if (m_lblCusum) {
+        QString cusumSign = spc.finalCusum > 0 ? "+" : "";
+        QString driftTag = qAbs(spc.finalCusum) > (spc.usl * 2.0) ? " (Kayma Var)" : " (Dengeli)";
+        m_lblCusum->setText(QString("%1%2 dB%3").arg(cusumSign).arg(spc.finalCusum, 0, 'f', 2).arg(driftTag));
+    }
     m_lblThreeSigma->setText(QString("[%1 dB , %2 dB]").arg(spc.threeSigmaLower, 0, 'f', 2).arg(spc.threeSigmaUpper, 0, 'f', 2));
     m_lblMinMax->setText(QString("%1 dB / %2 dB").arg(spc.minVal, 0, 'f', 2).arg(spc.maxVal, 0, 'f', 2));
     m_lblToleranceLimits->setText(QString("[%1 dB , +%2 dB]").arg(spc.lsl, 0, 'f', 2).arg(spc.usl, 0, 'f', 2));
@@ -320,7 +401,14 @@ void SpcAnalysisWidget::renderSpcPlot(const SpcResult &spc) {
         m_plot->graph(1)->data()->clear();
         m_plot->graph(2)->data()->clear();
         m_plot->graph(3)->data()->clear();
+        if (m_plot->graphCount() > 4) m_plot->graph(4)->data()->clear();
         m_plot->replot();
+        if (m_cumulativePlot) {
+            for (int g = 0; g < m_cumulativePlot->graphCount(); ++g) {
+                m_cumulativePlot->graph(g)->data()->clear();
+            }
+            m_cumulativePlot->replot();
+        }
         return;
     }
 
@@ -328,8 +416,11 @@ void SpcAnalysisWidget::renderSpcPlot(const SpcResult &spc) {
     m_bars->setWidth(spc.binWidth * 0.90);
     m_bars->setData(spc.binCenters, spc.binCounts);
 
-    // 2. Gaussian Bell Curve
+    // 2. Gaussian Bell Curve & Cumulative Distribution S-Curve (CDF %)
     m_plot->graph(0)->setData(spc.bellCurveX, spc.bellCurveY);
+    if (m_plot->graphCount() > 4) {
+        m_plot->graph(4)->setData(spc.bellCurveX, spc.cdfCurveY);
+    }
 
     // Calculate maximum Y for vertical specification lines
     double maxY = 5.0;
@@ -361,7 +452,26 @@ void SpcAnalysisWidget::renderSpcPlot(const SpcResult &spc) {
     double maxX = qMax(spc.usl + 0.4, spc.maxVal + 0.2);
     m_plot->xAxis->setRange(minX, maxX);
     m_plot->yAxis->setRange(0, maxY);
+    m_plot->yAxis2->setRange(0, 105);
     m_plot->replot();
+
+    // 6. Render Bottom Cumulative Trend Plot (CMA & CUSUM)
+    if (m_cumulativePlot && !spc.sampleIndices.isEmpty()) {
+        m_cumulativePlot->graph(0)->setData(spc.sampleIndices, spc.chronologicalValues);
+        m_cumulativePlot->graph(1)->setData(spc.sampleIndices, spc.cumulativeMeans);
+        m_cumulativePlot->graph(2)->setData(spc.sampleIndices, spc.cusumValues);
+
+        m_cumulativePlot->xAxis->setRange(0.5, spc.sampleCount + 0.5);
+        double yBound = qMax(spc.usl + 0.3, qMax(qAbs(spc.minVal), qAbs(spc.maxVal)) + 0.3);
+        m_cumulativePlot->yAxis->setRange(-yBound, yBound);
+
+        double maxCusum = 2.0;
+        for (double cv : spc.cusumValues) {
+            if (qAbs(cv) > maxCusum) maxCusum = qAbs(cv);
+        }
+        m_cumulativePlot->yAxis2->setRange(-maxCusum * 1.25, maxCusum * 1.25);
+        m_cumulativePlot->replot();
+    }
 }
 
 void SpcAnalysisWidget::onExportImageClicked() {

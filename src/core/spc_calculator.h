@@ -38,6 +38,14 @@ struct SpcResult {
     QVector<double> binCounts;      ///< Frequency of observations in each bin
     QVector<double> bellCurveX;     ///< Fine X grid for smooth Gaussian curve
     QVector<double> bellCurveY;     ///< Scaled Gaussian probability density curve
+    QVector<double> cdfCurveY;      ///< Cumulative Distribution Function (CDF %) [0..100]
+
+    // Cumulative Trend & CUSUM Data (1..N in chronological order)
+    QVector<double> sampleIndices;       ///< Sample sequence numbers (1, 2, ..., N)
+    QVector<double> chronologicalValues; ///< Individual Delta dB values (x_1, ..., x_N)
+    QVector<double> cumulativeMeans;     ///< Cumulative Moving Average (\mu_k) at each step k
+    QVector<double> cusumValues;         ///< Cumulative Sum of deviations (CUSUM S_k) at each step k
+    double finalCusum = 0.0;             ///< Total accumulated deviation at step N (S_N)
 
     // Quality Rating
     QString ratingBadge;            ///< "EXCELLENT", "CAPABLE", "POOR"

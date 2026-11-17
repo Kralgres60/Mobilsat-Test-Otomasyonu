@@ -7,6 +7,7 @@
 
 #include "spc_calculator.h"
 #include <algorithm>
+#include <cmath>
 
 SpcResult SpcCalculator::calculate(const QVector<double> &data, double toleranceDb, int binCount) {
     SpcResult res;
@@ -95,24 +96,49 @@ SpcResult SpcCalculator::calculate(const QVector<double> &data, double tolerance
         res.binCounts[idx] += 1.0;
     }
 
-    // 6. Generate Smooth Scaled Gaussian Bell Curve
+    // 6. Generate Smooth Scaled Gaussian Bell Curve & Cumulative Distribution Function (CDF %)
     if (res.stdDev > 1e-6) {
         const int curvePoints = 160;
         const double sqrt2Pi = qSqrt(2.0 * M_PI);
+        const double sqrt2 = qSqrt(2.0);
         const double areaScale = data.size() * res.binWidth;
 
         res.bellCurveX.resize(curvePoints);
         res.bellCurveY.resize(curvePoints);
+        res.cdfCurveY.resize(curvePoints);
 
         double step = (rangeMax - rangeMin) / (curvePoints - 1);
         for (int i = 0; i < curvePoints; ++i) {
             double x = rangeMin + i * step;
             double z = (x - res.mean) / res.stdDev;
             double pdf = (1.0 / (res.stdDev * sqrt2Pi)) * qExp(-0.5 * z * z);
+            double cdf = 0.5 * (1.0 + std::erf(z / sqrt2)) * 100.0;
             res.bellCurveX[i] = x;
             res.bellCurveY[i] = pdf * areaScale;
+            res.cdfCurveY[i] = cdf;
         }
     }
+
+    // 7. Compute Step-by-Step Cumulative Moving Average (CMA) and CUSUM (Cumulative Sum)
+    const int n = data.size();
+    res.sampleIndices.resize(n);
+    res.chronologicalValues.resize(n);
+    res.cumulativeMeans.resize(n);
+    res.cusumValues.resize(n);
+
+    double runningSum = 0.0;
+    double runningCusum = 0.0;
+    for (int i = 0; i < n; ++i) {
+        double val = data[i];
+        runningSum += val;
+        runningCusum += (val - res.target);
+
+        res.sampleIndices[i] = static_cast<double>(i + 1);
+        res.chronologicalValues[i] = val;
+        res.cumulativeMeans[i] = runningSum / static_cast<double>(i + 1);
+        res.cusumValues[i] = runningCusum;
+    }
+    res.finalCusum = runningCusum;
 
     return res;
 }

@@ -400,4 +400,101 @@ $$x = [+1.40, -1.60\text{ (FAIL)}, +0.20, -1.30, +1.80\text{ (FAIL)}]\text{ dB}$
 > **Yorum:** $C_{pk} = 0.30 \lll 1.00$ 🔴 **KRİTİK HATA!**
 > Araba garaj kapısından 3 kat daha geniştir! 5 antenden 2'si doğrudan hurda olmuştur. Üretim hattı acilen durdurulmalıdır.
 
+---
+
+## 11. Kümülatif (Birikimli) Süreç Analizi: CUSUM, Kümülatif Ortalama ve CDF
+
+> [!IMPORTANT]
+> **Kümülatif (Cumulative) Ne Demektir?**
+> **"Kümülatif"**, Türkçe'de **"Birikimli / Üst Üste Toplanarak İlerleyen"** demektir.
+> Klasik Gauss / $C_{pk}$ analizimiz sürecin o anki **genel fotoğrafını** çekerken; **Kümülatif analiz** 1. antenden $N$. antene kadar her ölçümü bir **kumbara gibi üst üste biriktirerek** sürecin zaman içindeki **videosunu ve sinsi kaymalarını (drift)** yakalar.
+
+Yazılımımızın **SPC & Kalite Analizi** ekranında her iki kümülatif yöntem de hem üst grafikte hem alt grafikte canlı olarak çizdirilmektedir:
+
+---
+
+### 11.1 Üç Temel Kümülatif Kavram ve Formülleri
+
+#### A. Kümülatif Hareketli Ortalama (CMA — Cumulative Moving Average)
+1. antenden $k$. antene kadar test edilen **tüm antenlerin o ana kadarki birikimli ortalamasıdır**. Üretim adedi arttıkça ortalamanın hangi değere oturduğunu (yakınsadığını) gösterir:
+$$\mu_k = \frac{1}{k} \sum_{i=1}^{k} x_i = \frac{x_1 + x_2 + \dots + x_k}{k}$$
+
+#### B. Kümülatif Sapma Toplamı (CUSUM — Cumulative Sum Control Chart)
+Her antenin hedef değerden ($\mu_0 = 0.0\text{ dB}$) olan sapmasını **bir önceki toplamın üzerine ekleyerek** ilerler. Hiçbir sapmayı unutmaz:
+$$S_k = \sum_{i=1}^{k} (x_i - \mu_0) = S_{k-1} + (x_k - \mu_0)$$
+* **Neden Çok Önemlidir?** Tek tek bakıldığında tüm antenler $\pm 1.50\text{ dB}$ içinde olup **PASS** alsa bile, eğer hatta sürekli $-0.4\text{ dB}$ gibi küçük ama tek yönlü bir kayma varsa CUSUM çizgisi hızla aşağı (veya yukarı) tırmanarak **hattaki sinsi arızayı (konnektör gevşemesi, LNB ısınması vb.) çok erkenden haber verir!**
+
+#### C. Kümülatif Dağılım Fonksiyonu (CDF — Cumulative Distribution Function / S-Eğrisi)
+Gauss çan eğrisinin soldan sağa doğru **alanının (yüzdesinin) birikimli toplamıdır** ($\%0$'dan $\%100$'e doğru yükselen S-Eğrisi):
+$$F(x) = P(X \le x) = \frac{1}{2} \left[ 1 + \text{erf}\left( \frac{x - \mu}{\sigma \sqrt{2}} \right) \right] \times 100\%$$
+* **Ne İşe Yarar?** *"Üretilen antenlerin yüzde kaçı belirli bir dB değerinin altında kaldı?"* sorusuna tek bakışta yanıt verir (Örn. $x = \mu$ noktasında CDF tam $\%50$'dir).
+
+---
+
+### 11.2 Dümdüz Sayısal Örneklerle Adım Adım Kümülatif Çözüm
+
+Aşağıdaki iki senaryoda **Klasik Bakış** ile **Kümülatif Bakış** arasındaki farkı adım adım formüllerle çözelim (Hedef $\mu_0 = 0.00\text{ dB}$, Tolerans $\pm 1.50\text{ dB}$):
+
+---
+
+#### 🟢 Kümülatif Senaryo A: "Dengeli Üretim Hattı" (Sapmalar Birbirini Sıfırlar)
+
+Üretim bandından sırasıyla şu 5 anten geçti:
+$$x = [+0.20, -0.20, +0.10, -0.10, 0.00]\text{ dB}$$
+
+* **Adım 1: Kümülatif Toplam (CUSUM $S_k$) Hesabı**
+  * **Kullanılan Formül:**
+    $$S_k = S_{k-1} + (x_k - 0)$$
+  * **Adım Adım İşlem:**
+    1. Anten ($x_1 = +0.20$): $S_1 = 0 + (+0.20) = \mathbf{+0.20\text{ dB}}$
+    2. Anten ($x_2 = -0.20$): $S_2 = +0.20 + (-0.20) = \mathbf{0.00\text{ dB}}$
+    3. Anten ($x_3 = +0.10$): $S_3 = 0.00 + (+0.10) = \mathbf{+0.10\text{ dB}}$
+    4. Anten ($x_4 = -0.10$): $S_4 = +0.10 + (-0.10) = \mathbf{0.00\text{ dB}}$
+    5. Anten ($x_5 = 0.00$): $S_5 = 0.00 + 0.00 = \mathbf{0.00\text{ dB}}$
+
+* **Adım 2: Kümülatif Hareketli Ortalama ($\mu_k$) Hesabı**
+  * **Kullanılan Formül:**
+    $$\mu_k = \frac{x_1 + x_2 + \dots + x_k}{k}$$
+  * **Adım Adım İşlem:**
+    1. Anten: $\mu_1 = \frac{+0.20}{1} = \mathbf{+0.200\text{ dB}}$
+    2. Anten: $\mu_2 = \frac{+0.20 - 0.20}{2} = \mathbf{0.000\text{ dB}}$
+    3. Anten: $\mu_3 = \frac{0.00 + 0.10}{3} = \mathbf{+0.033\text{ dB}}$
+    4. Anten: $\mu_4 = \frac{+0.10 - 0.10}{4} = \mathbf{0.000\text{ dB}}$
+    5. Anten: $\mu_5 = \frac{0.00 + 0.00}{5} = \mathbf{0.000\text{ dB}}$
+
+> **Yorum:** Hem Kümülatif Ortalama ($\mu_k$) hem de CUSUM ($S_k$) $0.00\text{ dB}$ çizgisi etrafında yatay seyreder. Üretimde hiçbir sistematik kayma yoktur.
+
+---
+
+#### 🚨 Kümülatif Senaryo B: "Sinsi Kayma (Drift)" — Tek Tek Hepsi PASS Ama Kümülatif Yakalar!
+
+Şimdi mentörünüzün bahsettiği en kritik durumu inceleyelim. Test masasındaki RF kablosu hafifçe gevşedi ve arka arkaya gelen **5 antenin hepsi $-0.50\text{ dB}$** çıktı:
+$$x = [-0.50, -0.50, -0.50, -0.50, -0.50]\text{ dB}$$
+
+* **Klasik Tekil Kontrole Bakarsak:**
+  Her bir anten $-0.50\text{ dB}$ olduğu için ve tolerans sınırımız $\pm 1.50\text{ dB}$ olduğundan, 5 antenin 5'i de **🟢 PASS** alır!
+
+* **Adım 1: Kümülatif Toplam (CUSUM $S_k$) Hesabı**
+  * **Kullanılan Formül:**
+    $$S_k = S_{k-1} + (x_k - 0)$$
+  * **Adım Adım İşlem:**
+    1. Anten ($x_1 = -0.50$): $S_1 = 0 + (-0.50) = \mathbf{-0.50\text{ dB}}$
+    2. Anten ($x_2 = -0.50$): $S_2 = -0.50 + (-0.50) = \mathbf{-1.00\text{ dB}}$
+    3. Anten ($x_3 = -0.50$): $S_3 = -1.00 + (-0.50) = \mathbf{-1.50\text{ dB}}$
+    4. Anten ($x_4 = -0.50$): $S_4 = -1.50 + (-0.50) = \mathbf{-2.00\text{ dB}}$ ⚠️
+    5. Anten ($x_5 = -0.50$): $S_5 = -2.00 + (-0.50) = \mathbf{-2.50\text{ dB}}$ 🚨 *(20. antende $-10.0\text{ dB}$ olur!)*
+
+| Anten Sırası ($k$) | Tekil Ölçüm ($x_k$) | Klasik Karar ($\pm 1.5\text{ dB}$) | Kümülatif Ortalama ($\mu_k$) | Kümülatif Toplam (CUSUM $S_k$) | Mühendislik Yorumu |
+| :---: | :---: | :---: | :---: | :---: | :--- |
+| **1** | $-0.50\text{ dB}$ | 🟢 PASS | $-0.50\text{ dB}$ | $-0.50\text{ dB}$ | Normal başlangıç |
+| **2** | $-0.50\text{ dB}$ | 🟢 PASS | $-0.50\text{ dB}$ | $-1.00\text{ dB}$ | Negatif yönelim başladı |
+| **3** | $-0.50\text{ dB}$ | 🟢 PASS | $-0.50\text{ dB}$ | $-1.50\text{ dB}$ | Birikim tolerans boyuna ulaştı |
+| **4** | $-0.50\text{ dB}$ | 🟢 PASS | $-0.50\text{ dB}$ | $\mathbf{-2.00\text{ dB}}$ | ⚠️ **Sistematik Kayma Tespit Edildi** |
+| **5** | $-0.50\text{ dB}$ | 🟢 PASS | $-0.50\text{ dB}$ | $\mathbf{-2.50\text{ dB}}$ | 🚨 **Kümülatif Alarm! (Hattı Kontrol Et)** |
+
+> **Özet Sonuç (Mentörünüze Sunabileceğiniz Net Fark):**
+> 1. **Gauss & $C_{pk}$ (Üst Grafik):** Partinin **toplam dağılım kalitesini**, standart sapmasını ($\sigma$) ve tolerans duvarlarına olan uzaklığını gösterir. Ayrıca sağ eksendeki **Kümülatif Dağılım (CDF %)** eğrisiyle üretimin yüzde kaçının hangi dB altında kaldığını verir.
+> 2. **Kümülatif Trend & CUSUM (Alt Grafik):** 1. antenden $N$. antene kadar hataları üst üste biriktirerek ($S_k$), tekil testlerde fark edilemeyen **sinsi kaymaları (drift) ve kalibrasyon bozulmalarını** gerçek zamanlı yakalar.
+
+
 

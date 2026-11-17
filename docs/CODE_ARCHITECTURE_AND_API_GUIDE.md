@@ -177,25 +177,27 @@ Tüm sistemde paylaşılan ana veri yapılarını ve JSON serileştirme fonksiyo
   - Test Geçmişi (`TestHistoryWidget`): Geçmiş test kayıtları listesinden seçilen herhangi bir satır için "📄 PDF Sertifika Üret" butonuyla anında sertifika oluşturulup açılabilir.
 
 ### `SpcCalculator` (`spc_calculator.h` / `spc_calculator.cpp`)
-- **Görevi:** Üretim hattında test edilen antenlerin sinyal sapmalarının ($\Delta \text{dB}$) normal dağılımını, histogram frekans dilimlerini ve süreç yeterlilik indislerini ($C_p, C_{pk}$) hesaplayan istatistik motorudur.
+- **Görevi:** Üretim hattında test edilen antenlerin sinyal sapmalarının ($\Delta \text{dB}$) normal dağılımını, histogram frekans dilimlerini, süreç yeterlilik indislerini ($C_p, C_{pk}$) ve kümülatif (birikimli) analiz serilerini ($\text{CDF}\%$, $\mu_k$, $\text{CUSUM } S_k$) hesaplayan istatistik motorudur.
 - **Formüller:**
   - Örneklem Ortalaması: $\mu = \frac{1}{N}\sum x_i$
   - Standart Sapma: $\sigma = \sqrt{\frac{1}{N-1}\sum (x_i - \mu)^2}$
   - Süreç Yeteneği: $C_p = \frac{\text{USL} - \text{LSL}}{6\sigma}$
   - Süreç Performansı: $C_{pk} = \min\left(\frac{\text{USL} - \mu}{3\sigma}, \frac{\mu - \text{LSL}}{3\sigma}\right)$
   - Gauss Normal Dağılım Fonksiyonu: $f(x) = \frac{1}{\sigma\sqrt{2\pi}} \exp\left(-\frac{(x - \mu)^2}{2\sigma^2}\right)$
+  - Kümülatif Dağılım Fonksiyonu (CDF): $F(x) = \frac{1}{2}\left[1 + \text{erf}\left(\frac{x-\mu}{\sigma\sqrt{2}}\right)\right] \times 100\%$
+  - Kümülatif Hareketli Ortalama (CMA): $\mu_k = \frac{1}{k}\sum_{i=1}^k x_i$
+  - Kümülatif Sapma Toplamı (CUSUM): $S_k = \sum_{i=1}^k (x_i - \mu_0)$
 - **Kalite Seviyeleri:**
   - $C_{pk} \ge 1.33$: Mükemmel (4-Sigma üstü kalite, hata riski < 63 PPM).
   - $1.00 \le C_{pk} < 1.33$: Yeterli (Tolerans sınırları içinde, izlenmeli).
   - $C_{pk} < 1.00$: Yetersiz / Sapma Var (Tolerans dışına taşma ve hatalı üretim riski).
 
 ### `SpcAnalysisWidget` (`spc_analysis_widget.h` / `spc_analysis_widget.cpp`)
-- **Görevi:** `TestHistoryWidget` içinde 4. sekme olarak çalışan, interaktif İstatistiksel Süreç Kontrolü (SPC) paneli.
+- **Görevi:** `TestHistoryWidget` içinde 4. sekme olarak çalışan, interaktif İstatistiksel Süreç Kontrolü (SPC) ve Kümülatif Analiz paneli.
 - **Bileşenler:**
-  - `QCustomPlot` tabanlı Delta dB histogram çubukları (`QCPBars`).
-  - Histogram üzerine bindirilmiş düzgün Gauss Çanı eğrisi.
-  - USL, LSL tolerans sınır çizgileri ve $\mu$ ortalama izleyicisi.
-  - Canlı $C_{pk}$ durum rozeti ve detaylı istatistik parametre kartları.
+  - **Üst Grafik (`m_plot`):** `QCustomPlot` tabanlı Delta dB histogram çubukları (`QCPBars`), Gauss Çanı eğrisi, sağ eksende (`yAxis2`) $\%0-\%100$ Kümülatif Dağılım S-Eğrisi (`CDF %`), USL/LSL tolerans sınır çizgileri ve $\mu$ ortalama izleyicisi.
+  - **Alt Grafik (`m_cumulativePlot`):** Kronolojik $1 \dots N$ test sırasına göre Tekil Anten $\Delta$ ($x_k$), Kümülatif Hareketli Ortalama ($\mu_k$) ve sağ eksende Kümülatif Sapma Toplamı ($\text{CUSUM } S_k$) sinsi kayma (drift) grafiği.
+  - Canlı $C_{pk}$, $\text{CUSUM } S_N$ durum rozeti ve detaylı istatistik parametre kartları.
   - İş emri, istasyon, uydu profili ve örneklem sayısı filtreleme.
   - PNG ve PDF formatında yüksek çözünürlüklü grafik dışa aktarımı.
 

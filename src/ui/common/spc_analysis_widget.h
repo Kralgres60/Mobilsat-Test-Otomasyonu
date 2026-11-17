@@ -43,6 +43,7 @@ private slots:
 private:
     void setupUi();
     void setupPlot();
+    void setupCumulativePlot();
     void updateKpiDisplay(const SpcResult &spc);
     void renderSpcPlot(const SpcResult &spc);
 
@@ -56,8 +57,9 @@ private:
     QPushButton *m_btnExportImg  = nullptr;
 
     // Visualization
-    QCustomPlot *m_plot          = nullptr;
-    QCPBars     *m_bars          = nullptr;
+    QCustomPlot *m_plot           = nullptr;
+    QCPBars     *m_bars           = nullptr;
+    QCustomPlot *m_cumulativePlot = nullptr;
 
     // KPI Card Widgets
     QFrame *m_verdictFrame       = nullptr;
@@ -68,6 +70,7 @@ private:
     QLabel *m_lblStdDev          = nullptr;
     QLabel *m_lblCp              = nullptr;
     QLabel *m_lblCpk             = nullptr;
+    QLabel *m_lblCusum           = nullptr;
     QLabel *m_lblThreeSigma      = nullptr;
     QLabel *m_lblMinMax          = nullptr;
     QLabel *m_lblToleranceLimits = nullptr;

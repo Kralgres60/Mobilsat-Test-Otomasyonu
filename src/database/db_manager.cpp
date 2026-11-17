@@ -1601,6 +1601,7 @@ QVector<double> DbManager::getDeltaDbValuesForSpc(int workOrderId, int stationId
         while (q.next()) {
             values.append(q.value(0).toDouble());
         }
+        std::reverse(values.begin(), values.end());
     } else {
         qWarning() << "[DbManager] getDeltaDbValuesForSpc failed:" << q.lastError().text();
     }
