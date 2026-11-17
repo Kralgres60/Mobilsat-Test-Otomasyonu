@@ -219,7 +219,9 @@ Tüm sistemde paylaşılan ana veri yapılarını ve JSON serileştirme fonksiyo
   - `system_settings`: Dinamik anahtar-değer parametre havuzu (`getSetting()`, `setSetting()`).
 - **Kurumsal Web Yönetim ve Veri Konsolu (Web SPA):**
   - Bağımsız sunucular veya uzaktan yönetim için `tools/mariadb_portable/web/neta_db_web.py` üzerinden 8080 portunda çalışan modern web platformu.
-  - 8 operasyonel modül: Genel Panel (Dashboard & KPI), Sunucular & Donanım (Cluster Nodes), Kullanıcı Yönetimi, Test Geçmişi (10 kanal detay modalı), İş Emirleri, Uydu Profilleri, Veritabanı & SQL Konsolu (F9), Denetim İzi (Audit Logs).
+  - **Canlı Hat Takibi & SSE Monitörü:** `ThreadingHTTPServer` tabanlı `/api/stream/events` Server-Sent Events akışı ile İstasyon 1, 2, 3 anlık test durumu, kilit hakemi (mutex) ve sayaçları sayfa yenilenmeden saniye saniye akıtılır (tarayıcı desteğine göre `/api/monitor/live` otomatik polling fallback'i içerir).
+  - **Doğrudan Excel (.xls XML) ve CSV Dışa Aktarımı:** Test koşuları (`test_runs`), iş emirleri (`work_orders`) ve ham veritabanı tabloları için tek tıkla Microsoft Excel uyumlu XML Spreadsheet (`/api/export?format=excel`) ve UTF-8 BOM CSV indirme yeteneği.
+  - 9 operasyonel modül: Genel Panel (Dashboard & KPI), Canlı Hat Takibi (Live Line Monitor), Sunucular & Donanım (Cluster Nodes), Kullanıcı Yönetimi, Test Geçmişi (10 kanal detay modalı), İş Emirleri, Uydu Profilleri, Veritabanı & SQL Konsolu (F9), Denetim İzi (Audit Logs).
   - Masaüstü uygulaması ile `users` tablosu üzerinden %100 ortak kimlik doğrulama ve denetim izi kaydı.
 
 ---

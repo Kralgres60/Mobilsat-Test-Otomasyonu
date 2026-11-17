@@ -18,7 +18,10 @@ import socket
 import time
 import uuid
 import urllib.parse
-from http.server import HTTPServer, BaseHTTPRequestHandler
+try:
+    from http.server import ThreadingHTTPServer as HttpServerClass, BaseHTTPRequestHandler
+except ImportError:
+    from http.server import HTTPServer as HttpServerClass, BaseHTTPRequestHandler
 from http.cookies import SimpleCookie
 
 PORT = 8080
@@ -170,6 +173,204 @@ def log_audit(username, role, action):
     """Writes an audit log entry to system_logs table"""
     msg = f"Web Konsolu: {action} ({username} - {role})".replace("'", "''")
     run_sql(f"INSERT INTO system_logs (log_level, source, message) VALUES ('INFO', 'WEB_CONSOLE', '{msg}');")
+
+def build_excel_xml(table_name, headers, rows):
+    """Generates an Excel 2003 XML spreadsheet string (native .xls) with styled headers and typed data."""
+    def escape_xml(s):
+        if s is None:
+            return ""
+        return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+
+    lines = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<?mso-application progid="Excel.Sheet"?>',
+        '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"',
+        ' xmlns:o="urn:schemas-microsoft-com:office:office"',
+        ' xmlns:x="urn:schemas-microsoft-com:office:excel"',
+        ' xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"',
+        ' xmlns:html="http://www.w3.org/TR/REC-html40">',
+        ' <Styles>',
+        '  <Style ss:ID="Default" ss:Name="Normal">',
+        '   <Alignment ss:Vertical="Center"/>',
+        '   <Font ss:FontName="Segoe UI" ss:Size="10" ss:Color="#000000"/>',
+        '  </Style>',
+        '  <Style ss:ID="HeaderStyle">',
+        '   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>',
+        '   <Borders>',
+        '    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#10B981"/>',
+        '   </Borders>',
+        '   <Font ss:FontName="Segoe UI" ss:Size="11" ss:Bold="1" ss:Color="#FFFFFF"/>',
+        '   <Interior ss:Color="#0A1F17" ss:Pattern="Solid"/>',
+        '  </Style>',
+        '  <Style ss:ID="PassStyle">',
+        '   <Font ss:FontName="Segoe UI" ss:Size="10" ss:Bold="1" ss:Color="#0D5C3A"/>',
+        '   <Interior ss:Color="#D1FAE5" ss:Pattern="Solid"/>',
+        '  </Style>',
+        '  <Style ss:ID="FailStyle">',
+        '   <Font ss:FontName="Segoe UI" ss:Size="10" ss:Bold="1" ss:Color="#8B0000"/>',
+        '   <Interior ss:Color="#FEE2E2" ss:Pattern="Solid"/>',
+        '  </Style>',
+        ' </Styles>',
+        f' <Worksheet ss:Name="{escape_xml(table_name)[:31]}">',
+        '  <Table ss:DefaultRowHeight="20">',
+    ]
+
+    # Header Row
+    lines.append('   <Row ss:Height="24">')
+    for h in headers:
+        lines.append(f'    <Cell ss:StyleID="HeaderStyle"><Data ss:Type="String">{escape_xml(h)}</Data></Cell>')
+    lines.append('   </Row>')
+
+    # Data Rows
+    for row in rows:
+        lines.append('   <Row>')
+        for idx, val in enumerate(row):
+            str_val = "" if val is None else str(val)
+            header_name = headers[idx].lower() if idx < len(headers) else ""
+
+            # Check for pass/fail style
+            style_attr = ''
+            if str_val == "PASS":
+                style_attr = ' ss:StyleID="PassStyle"'
+            elif str_val == "FAIL":
+                style_attr = ' ss:StyleID="FailStyle"'
+
+            # Check if numeric
+            is_num = False
+            try:
+                if str_val and not (len(str_val) > 1 and str_val.startswith('0') and not str_val.startswith('0.')):
+                    _ = float(str_val)
+                    is_num = True
+            except ValueError:
+                is_num = False
+
+            if is_num and "sn" not in header_name and "barcode" not in header_name and "code" not in header_name and "no" not in header_name:
+                lines.append(f'    <Cell{style_attr}><Data ss:Type="Number">{str_val}</Data></Cell>')
+            else:
+                lines.append(f'    <Cell{style_attr}><Data ss:Type="String">{escape_xml(str_val)}</Data></Cell>')
+        lines.append('   </Row>')
+
+    lines.extend([
+        '  </Table>',
+        ' </Worksheet>',
+        '</Workbook>'
+    ])
+    return "\n".join(lines)
+
+def safe_int(v, default=0):
+    """Safely parses an integer from SQL results, handling NULL strings, empty strings and None."""
+    if v is None:
+        return default
+    s = str(v).strip()
+    if s == '' or s.upper() == 'NULL':
+        return default
+    try:
+        return int(float(s))
+    except (ValueError, TypeError):
+        return default
+
+def get_live_monitor_payload():
+    """Compiles real-time station line monitoring data, mutex status, and production stats."""
+    # 1. Reference Lock
+    _, r_lock, _ = run_sql("SELECT locked_by_station, current_channel_no, lock_acquired_at FROM reference_lock WHERE id = 1;")
+    locked_station = safe_int(r_lock[0][0]) if r_lock and len(r_lock[0]) > 0 else 0
+    lock_channel = safe_int(r_lock[0][1]) if r_lock and len(r_lock[0]) > 1 else 0
+    lock_time = str(r_lock[0][2]) if r_lock and len(r_lock[0]) > 2 else ""
+
+    # 2. Cluster nodes for stations
+    _, r_nodes, _ = run_sql("SELECT id, node_name, ip_address, status, active_test_sn, details, last_seen FROM cluster_nodes WHERE node_type = 'STATION_CLIENT' ORDER BY id ASC;")
+    nodes_map = {}
+    if r_nodes:
+        for r in r_nodes:
+            name = str(r[1])
+            st_id = 0
+            if "1" in name: st_id = 1
+            elif "2" in name: st_id = 2
+            elif "3" in name: st_id = 3
+            if st_id:
+                nodes_map[st_id] = {
+                    "node_name": r[1],
+                    "ip": r[2],
+                    "status": r[3],
+                    "active_sn": r[4] or "",
+                    "details": r[5] or "",
+                    "last_seen": str(r[6])
+                }
+
+    # 3. Compile station list (1, 2, 3)
+    stations_data = []
+    for st_id in [1, 2, 3]:
+        _, r_st_cnt, _ = run_sql(f"SELECT COUNT(*), SUM(CASE WHEN overall_result = 'PASS' THEN 1 ELSE 0 END), SUM(CASE WHEN overall_result = 'FAIL' THEN 1 ELSE 0 END) FROM test_runs WHERE station_id = {st_id};")
+        tot = safe_int(r_st_cnt[0][0]) if r_st_cnt and len(r_st_cnt[0]) > 0 else 0
+        pas = safe_int(r_st_cnt[0][1]) if r_st_cnt and len(r_st_cnt[0]) > 1 else 0
+        fai = safe_int(r_st_cnt[0][2]) if r_st_cnt and len(r_st_cnt[0]) > 2 else 0
+        rate = round((pas / tot * 100), 1) if tot > 0 else 0.0
+
+        _, r_last, _ = run_sql(f"SELECT antenna_sn, overall_result, avg_delta_db, duration_sec, test_timestamp FROM test_runs WHERE station_id = {st_id} ORDER BY id DESC LIMIT 1;")
+        last_test = None
+        if r_last and len(r_last) > 0:
+            last_test = {
+                "sn": r_last[0][0],
+                "result": r_last[0][1],
+                "avg_delta": r_last[0][2],
+                "duration": r_last[0][3],
+                "timestamp": str(r_last[0][4])
+            }
+
+        node_info = nodes_map.get(st_id, {})
+        ip = node_info.get("ip", f"192.168.1.11{st_id}")
+        raw_status = node_info.get("status", "ONLINE")
+        active_sn = node_info.get("active_sn", "")
+
+        # State determination
+        if locked_station == st_id:
+            state = "LOCKED"
+            state_label = f"🔒 REF KİLİTLİ (Kanal {lock_channel})"
+        elif active_sn:
+            state = "TESTING"
+            state_label = "⚡ TEST EDİLİYOR"
+        elif raw_status == "OFFLINE":
+            state = "OFFLINE"
+            state_label = "🔴 ÇEVRİMDIŞI"
+        else:
+            state = "IDLE"
+            state_label = "🟢 BOŞTA / HAZIR"
+
+        stations_data.append({
+            "station_id": st_id,
+            "station_name": f"İstasyon {st_id} (Masa {st_id})",
+            "ip": ip,
+            "state": state,
+            "state_label": state_label,
+            "active_sn": active_sn,
+            "total_tests": tot,
+            "pass_tests": pas,
+            "fail_tests": fai,
+            "pass_rate": rate,
+            "last_test": last_test
+        })
+
+    # 4. Global recent tests (last 8)
+    _, r_rec, _ = run_sql("SELECT id, antenna_sn, station_id, tester_name, overall_result, avg_delta_db, duration_sec, test_timestamp FROM test_runs ORDER BY id DESC LIMIT 8;")
+    recent_events = []
+    if r_rec:
+        for r in r_rec:
+            recent_events.append({
+                "id": r[0], "sn": r[1], "station": r[2], "tester": r[3],
+                "result": r[4], "avg_delta": r[5], "duration": r[6], "timestamp": str(r[7])
+            })
+
+    return {
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "lock": {
+            "is_locked": locked_station > 0,
+            "locked_station": locked_station,
+            "channel_no": lock_channel,
+            "acquired_at": lock_time
+        },
+        "stations": stations_data,
+        "recent_events": recent_events
+    }
 
 def authenticate_user(username, password):
     """Verifies credentials against MariaDB users table or factory fallback"""
@@ -736,6 +937,142 @@ HTML_PAGE = r"""<!DOCTYPE html>
             min-width: 200px;
         }
         .filter-input:focus { outline: none; border-color: var(--primary-light); }
+
+        /* Live Monitor & SSE Styles */
+        @keyframes pulseGreen {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(52, 211, 153, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); }
+        }
+        .live-pulse-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background-color: var(--primary-light);
+            animation: pulseGreen 1.6s infinite ease-in-out;
+            display: inline-block;
+        }
+        .station-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 16px;
+        }
+        .station-card {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 18px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            position: relative;
+            transition: all 0.3s ease;
+        }
+        .station-card.locked {
+            border-color: var(--warn-text);
+            box-shadow: 0 0 12px rgba(251, 191, 36, 0.15);
+        }
+        .station-card.testing {
+            border-color: var(--accent-blue);
+            box-shadow: 0 0 12px rgba(56, 189, 248, 0.2);
+        }
+        .station-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 10px;
+        }
+        .station-title {
+            font-size: 14.5px;
+            font-weight: bold;
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .station-ip {
+            font-size: 11px;
+            color: var(--text-muted);
+            font-family: monospace;
+        }
+        .station-badge-idle {
+            background-color: var(--pass-bg);
+            color: var(--pass-text);
+            border: 1px solid rgba(52, 211, 153, 0.3);
+            font-size: 11px;
+            font-weight: bold;
+            padding: 3px 8px;
+            border-radius: 4px;
+        }
+        .station-badge-testing {
+            background-color: rgba(56, 189, 248, 0.15);
+            color: var(--accent-blue);
+            border: 1px solid rgba(56, 189, 248, 0.4);
+            font-size: 11px;
+            font-weight: bold;
+            padding: 3px 8px;
+            border-radius: 4px;
+            animation: pulseTesting 1.2s infinite alternate;
+        }
+        @keyframes pulseTesting {
+            from { opacity: 0.8; }
+            to { opacity: 1.0; }
+        }
+        .station-badge-locked {
+            background-color: var(--warn-bg);
+            color: var(--warn-text);
+            border: 1px solid rgba(251, 191, 36, 0.3);
+            font-size: 11px;
+            font-weight: bold;
+            padding: 3px 8px;
+            border-radius: 4px;
+        }
+        .station-badge-offline {
+            background-color: var(--fail-bg);
+            color: var(--fail-text);
+            border: 1px solid rgba(255, 107, 107, 0.3);
+            font-size: 11px;
+            font-weight: bold;
+            padding: 3px 8px;
+            border-radius: 4px;
+        }
+        .active-sn-banner {
+            background-color: rgba(56, 189, 248, 0.08);
+            border: 1px dashed rgba(56, 189, 248, 0.4);
+            border-radius: 6px;
+            padding: 10px 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .stat-mini-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            background-color: var(--bg-dark);
+            border-radius: 6px;
+            padding: 10px;
+            text-align: center;
+        }
+        .stat-mini-val {
+            font-size: 15px;
+            font-weight: bold;
+        }
+        .stat-mini-lbl {
+            font-size: 10px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+        .last-test-box {
+            background-color: var(--bg-dark);
+            border-radius: 6px;
+            padding: 10px 12px;
+            font-size: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
     </style>
 </head>
 <body>
@@ -778,6 +1115,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
         <div class="nav-section">Modüller</div>
         <ul class="nav-menu" id="sidebarNav">
             <li class="nav-item active" data-page="dashboard" onclick="switchPage('dashboard')">📊 Genel Panel</li>
+            <li class="nav-item" data-page="monitor" onclick="switchPage('monitor')">🔴 Canlı Hat Takibi</li>
             <li class="nav-item" data-page="servers" onclick="switchPage('servers')">🖥️ Sunucular & Donanım</li>
             <li class="nav-item" data-page="users" onclick="switchPage('users')">👥 Kullanıcı Yönetimi</li>
             <li class="nav-item" data-page="tests" onclick="switchPage('tests')">📋 Test Geçmişi</li>
@@ -808,6 +1146,55 @@ HTML_PAGE = r"""<!DOCTYPE html>
         </header>
 
         <div class="content-area">
+            <!-- 0. LIVE LINE MONITOR PAGE -->
+            <div id="page-monitor" class="page-view">
+                <div style="display:flex; justify-content:space-between; align-items:center; background-color:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:12px 18px;">
+                    <div style="display:flex; align-items:center; gap:12px;">
+                        <span class="live-pulse-dot"></span>
+                        <div>
+                            <span style="font-weight:bold; font-size:14px; color:var(--primary-light);">CANLI HAT AKIŞI (SSE REAL-TIME STREAM)</span>
+                            <div style="font-size:11.5px; color:var(--text-muted);">İstasyon 1, 2, 3 donanım durumları ve test telemetrisi saniye saniye akmaktadır.</div>
+                        </div>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:12px;">
+                        <span id="sseStatusBadge" class="badge-pass" style="font-size:11px; padding:4px 10px; border-radius:12px;">🟢 SSE Canlı Yayın</span>
+                        <span id="sseTimeText" style="font-size:12px; color:var(--text-muted); font-family:monospace;">--:--:--</span>
+                    </div>
+                </div>
+
+                <!-- Station Cards Grid -->
+                <div class="station-grid" id="monitorStationCards">
+                    <!-- Dynamic rendering via JS -->
+                </div>
+
+                <!-- Recent Live Test Events -->
+                <div class="card">
+                    <div class="card-header">
+                        <span>⚡ Canlı Üretim ve Test Akış Çizelgesi</span>
+                        <span style="font-size:11.5px; color:var(--text-muted);">Tamamlanan anten testleri anında yansır</span>
+                    </div>
+                    <div class="table-responsive">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Anten Seri No</th>
+                                    <th>İstasyon</th>
+                                    <th>Operatör</th>
+                                    <th>Sonuç</th>
+                                    <th>Ort. Delta (dB)</th>
+                                    <th>Süre (sn)</th>
+                                    <th>Test Zamanı</th>
+                                </tr>
+                            </thead>
+                            <tbody id="monitorRecentEventsBody">
+                                <tr><td colspan="8" style="color:var(--text-muted);">Canlı akış verisi bekleniyor...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
             <!-- 1. DASHBOARD PAGE -->
             <div id="page-dashboard" class="page-view active">
                 <div class="lock-banner" id="dashLockBanner">
@@ -950,7 +1337,10 @@ HTML_PAGE = r"""<!DOCTYPE html>
                 <div class="card">
                     <div class="card-header">
                         <span>📋 Anten Üretim Test Kayıtları</span>
-                        <button class="btn btn-outline btn-sm" onclick="exportCsv('test_runs')">📥 CSV İndir</button>
+                        <div style="display:flex; gap:8px;">
+                            <button class="btn btn-outline btn-sm" onclick="exportCsv('test_runs')">📥 CSV İndir</button>
+                            <button class="btn btn-outline btn-sm" onclick="exportExcel('test_runs')">📊 Excel İndir</button>
+                        </div>
                     </div>
                     <div class="card-body" style="padding-bottom:6px;">
                         <div class="filter-bar">
@@ -990,7 +1380,11 @@ HTML_PAGE = r"""<!DOCTYPE html>
                 <div class="card">
                     <div class="card-header">
                         <span>📦 Üretim Siparişleri ve İş Emirleri</span>
-                        <button class="btn btn-primary btn-sm" onclick="openCreateOrderModal()">➕ Yeni İş Emri</button>
+                        <div style="display:flex; gap:8px;">
+                            <button class="btn btn-outline btn-sm" onclick="exportCsv('work_orders')">📥 CSV İndir</button>
+                            <button class="btn btn-outline btn-sm" onclick="exportExcel('work_orders')">📊 Excel İndir</button>
+                            <button class="btn btn-primary btn-sm" onclick="openCreateOrderModal()">➕ Yeni İş Emri</button>
+                        </div>
                     </div>
                     <div class="table-responsive">
                         <table>
@@ -1090,6 +1484,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
                             <button class="btn btn-outline btn-sm" id="btnDbViewSql" onclick="toggleDbSubTab('sql')">⚡ SQL Konsolu</button>
                             <div style="margin-left:auto; display:flex; gap:8px;">
                                 <button class="btn btn-outline btn-sm" onclick="exportCsv(currentRawTable)">📥 CSV İndir</button>
+                                <button class="btn btn-outline btn-sm" onclick="exportExcel(currentRawTable)">📊 Excel İndir</button>
                                 <button class="btn btn-outline btn-sm" onclick="loadRawTable(currentRawTable)">🔄 Yenile</button>
                             </div>
                         </div>
@@ -1402,6 +1797,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
                 document.getElementById('userRoleBadge').className = 'role-badge badge-admin';
             }
             switchPage('dashboard');
+            initLiveStream();
         }
 
         async function handleLogin(e) {
@@ -1458,6 +1854,14 @@ HTML_PAGE = r"""<!DOCTYPE html>
 
         async function handleLogout() {
             if (confirm("Oturumu kapatmak istediğinize emin misiniz?")) {
+                if (eventSource) {
+                    try { eventSource.close(); } catch (e) {}
+                    eventSource = null;
+                }
+                if (pollTimer) {
+                    clearInterval(pollTimer);
+                    pollTimer = null;
+                }
                 try { await fetch('/api/logout', { method: 'POST' }); } catch (e) {}
                 currentUser = null;
                 showLoginOverlay();
@@ -1477,6 +1881,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
 
             const titles = {
                 'dashboard': '📊 Genel Panel & Özet Metrikler',
+                'monitor': '🔴 Canlı Hat Takibi & İstasyon Monitörü (SSE)',
                 'servers': '🖥️ Aktif Yönetici Sunucuları & İstasyon Filosu',
                 'users': '👥 Kullanıcı ve Yetki Yönetimi',
                 'tests': '📋 Anten Test Kayıtları & Ölçüm Geçmişi',
@@ -1496,6 +1901,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
 
         function loadPageData(pageId) {
             if (pageId === 'dashboard') loadDashboard();
+            else if (pageId === 'monitor') loadMonitorData();
             else if (pageId === 'servers') loadServers();
             else if (pageId === 'users') loadUsers();
             else if (pageId === 'tests') loadTests();
@@ -1503,6 +1909,220 @@ HTML_PAGE = r"""<!DOCTYPE html>
             else if (pageId === 'profiles') loadProfiles();
             else if (pageId === 'database') loadDatabase();
             else if (pageId === 'logs') loadAuditLogs();
+        }
+
+        // --- 0. Live Line Monitor & SSE Stream ---
+        let eventSource = null;
+        let pollTimer = null;
+
+        function initLiveStream() {
+            if (eventSource) {
+                try { eventSource.close(); } catch (e) {}
+                eventSource = null;
+            }
+            if (window.EventSource) {
+                eventSource = new EventSource('/api/stream/events');
+                eventSource.onopen = function() {
+                    updateSseBadge(true, 'SSE');
+                };
+                eventSource.onmessage = function(e) {
+                    try {
+                        const data = JSON.parse(e.data);
+                        renderLiveMonitor(data);
+                    } catch (err) {
+                        console.error('SSE parse error:', err);
+                    }
+                };
+                eventSource.onerror = function() {
+                    updateSseBadge(false);
+                    if (!pollTimer) {
+                        pollTimer = setInterval(pollLiveMonitor, 2500);
+                    }
+                };
+            } else {
+                if (!pollTimer) {
+                    pollTimer = setInterval(pollLiveMonitor, 2500);
+                }
+            }
+        }
+
+        async function pollLiveMonitor() {
+            try {
+                const res = await fetch('/api/monitor/live');
+                if (res.ok) {
+                    const data = await res.json();
+                    renderLiveMonitor(data);
+                    updateSseBadge(true, 'POLL');
+                }
+            } catch (e) {
+                updateSseBadge(false);
+            }
+        }
+
+        function updateSseBadge(connected, mode) {
+            const badge = document.getElementById('sseStatusBadge');
+            if (!badge) return;
+            if (connected) {
+                badge.className = 'badge-pass';
+                badge.textContent = mode === 'SSE' ? '🟢 SSE Canlı Yayın' : '🟡 Polling Aktif';
+            } else {
+                badge.className = 'badge-fail';
+                badge.textContent = '🔴 Bağlantı Kesildi';
+            }
+        }
+
+        async function loadMonitorData() {
+            try {
+                const res = await fetch('/api/monitor/live');
+                if (res.ok) {
+                    const data = await res.json();
+                    renderLiveMonitor(data);
+                }
+            } catch (err) {
+                console.error('loadMonitorData error:', err);
+            }
+        }
+
+        function renderLiveMonitor(data) {
+            if (!data) return;
+
+            // 1. Time
+            const timeEl = document.getElementById('sseTimeText');
+            if (timeEl && data.timestamp) timeEl.textContent = data.timestamp;
+
+            // 2. Lock Banner sync
+            const lockTxt = document.getElementById('lockStatusText');
+            if (lockTxt && data.lock) {
+                if (data.lock.is_locked) {
+                    lockTxt.innerHTML = `<span style="color:var(--warn-text);">🔒 Masa ${data.lock.locked_station} tarafından kilitli (Kanal: ${data.lock.channel_no})</span>`;
+                    const lockTmEl = document.getElementById('lockTimeText');
+                    if (lockTmEl) lockTmEl.textContent = `Kilit Zamanı: ${data.lock.acquired_at || 'Bilinmiyor'}`;
+                } else {
+                    lockTxt.innerHTML = `<span style="color:var(--primary-light);">🔓 Referans Almaç Müsait (Boşta)</span>`;
+                    const lockTmEl = document.getElementById('lockTimeText');
+                    if (lockTmEl) lockTmEl.textContent = 'Herhangi bir istasyon kilit talep edebilir.';
+                }
+            }
+
+            // 3. Station Cards
+            const container = document.getElementById('monitorStationCards');
+            if (container && data.stations) {
+                let html = '';
+                data.stations.forEach(st => {
+                    let cardClass = 'station-card';
+                    let badgeClass = 'station-badge-idle';
+                    if (st.state === 'LOCKED') {
+                        cardClass += ' locked';
+                        badgeClass = 'station-badge-locked';
+                    } else if (st.state === 'TESTING') {
+                        cardClass += ' testing';
+                        badgeClass = 'station-badge-testing';
+                    } else if (st.state === 'OFFLINE') {
+                        badgeClass = 'station-badge-offline';
+                    }
+
+                    let activeSection = '';
+                    if (st.state === 'TESTING' && st.active_sn) {
+                        activeSection = `
+                            <div class="active-sn-banner">
+                                <div>
+                                    <div style="font-size:10px; color:var(--accent-blue); font-weight:bold;">⚡ TEST EDİLEN ANTEN</div>
+                                    <div style="font-size:13.5px; font-weight:bold; color:var(--text-main); font-family:monospace;">${st.active_sn}</div>
+                                </div>
+                                <span class="badge-pass" style="font-size:10px;">CANLI RF</span>
+                            </div>
+                        `;
+                    } else if (st.state === 'LOCKED') {
+                        activeSection = `
+                            <div class="active-sn-banner" style="background-color:rgba(251,191,36,0.08); border-color:rgba(251,191,36,0.4);">
+                                <div>
+                                    <div style="font-size:10px; color:var(--warn-text); font-weight:bold;">🔒 ALTIN ANTEN KİLİDİ</div>
+                                    <div style="font-size:12px; color:var(--text-main);">Referans Almaç Meşgul</div>
+                                </div>
+                            </div>
+                        `;
+                    }
+
+                    let lastSection = '<div style="font-size:11px; color:var(--text-muted);">Henüz test kaydı yok</div>';
+                    if (st.last_test) {
+                        const resBadge = st.last_test.result === 'PASS' ? '<span class="badge-pass" style="font-size:10px;">PASS</span>' : '<span class="badge-fail" style="font-size:10px;">FAIL</span>';
+                        lastSection = `
+                            <div class="last-test-box">
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <span style="font-family:monospace; font-weight:bold; color:var(--text-main);">${st.last_test.sn}</span>
+                                    ${resBadge}
+                                </div>
+                                <div style="display:flex; justify-content:space-between; color:var(--text-muted); font-size:11px;">
+                                    <span>Ort: <b style="color:var(--text-main);">${st.last_test.avg_delta} dB</b></span>
+                                    <span>${st.last_test.duration} sn</span>
+                                    <span>${st.last_test.timestamp ? st.last_test.timestamp.substring(11, 19) : ''}</span>
+                                </div>
+                            </div>
+                        `;
+                    }
+
+                    html += `
+                        <div class="${cardClass}">
+                            <div class="station-header">
+                                <div>
+                                    <div class="station-title">
+                                        <span>📡 ${st.station_name}</span>
+                                    </div>
+                                    <div class="station-ip">${st.ip}</div>
+                                </div>
+                                <span class="${badgeClass}">${st.state_label}</span>
+                            </div>
+
+                            ${activeSection}
+
+                            <div class="stat-mini-grid">
+                                <div>
+                                    <div class="stat-mini-val" style="color:var(--text-main);">${st.total_tests}</div>
+                                    <div class="stat-mini-lbl">Toplam</div>
+                                </div>
+                                <div>
+                                    <div class="stat-mini-val" style="color:var(--primary-light);">${st.pass_tests}</div>
+                                    <div class="stat-mini-lbl">PASS (%${st.pass_rate})</div>
+                                </div>
+                                <div>
+                                    <div class="stat-mini-val" style="color:var(--fail-text);">${st.fail_tests}</div>
+                                    <div class="stat-mini-lbl">FAIL</div>
+                                </div>
+                            </div>
+
+                            <div>
+                                <div style="font-size:11px; color:var(--text-muted); margin-bottom:6px; font-weight:600;">Son Test:</div>
+                                ${lastSection}
+                            </div>
+                        </div>
+                    `;
+                });
+                container.innerHTML = html;
+            }
+
+            // 4. Recent Live Events Table
+            const eventsBody = document.getElementById('monitorRecentEventsBody');
+            if (eventsBody && data.recent_events) {
+                if (data.recent_events.length === 0) {
+                    eventsBody.innerHTML = '<tr><td colspan="8" style="color:var(--text-muted);">Henüz test kaydı bulunmuyor.</td></tr>';
+                } else {
+                    eventsBody.innerHTML = data.recent_events.map(ev => {
+                        const badgeClass = ev.result === 'PASS' ? 'badge-pass' : 'badge-fail';
+                        return `
+                            <tr>
+                                <td>${ev.id}</td>
+                                <td style="font-weight:bold; font-family:monospace; color:var(--text-main);">${ev.sn}</td>
+                                <td>Masa ${ev.station}</td>
+                                <td>${ev.tester || '-'}</td>
+                                <td><span class="${badgeClass}">${ev.result}</span></td>
+                                <td><b>${ev.avg_delta}</b> dB</td>
+                                <td>${ev.duration} sn</td>
+                                <td style="color:var(--text-muted); font-size:11px;">${ev.timestamp}</td>
+                            </tr>
+                        `;
+                    }).join('');
+                }
+            }
         }
 
         // 1. Dashboard
@@ -2257,7 +2877,12 @@ HTML_PAGE = r"""<!DOCTYPE html>
 
         function exportCsv(tbl) {
             const tableToExport = tbl || currentRawTable || 'test_runs';
-            window.location.href = `/api/export?table=${encodeURIComponent(tableToExport)}`;
+            window.location.href = `/api/export?table=${encodeURIComponent(tableToExport)}&format=csv`;
+        }
+
+        function exportExcel(tbl) {
+            const tableToExport = tbl || currentRawTable || 'test_runs';
+            window.location.href = `/api/export?table=${encodeURIComponent(tableToExport)}&format=excel`;
         }
 
         // Boot & Event Listeners
@@ -2311,8 +2936,35 @@ class NetaWebHandler(BaseHTTPRequestHandler):
             self.send_json({"error": "Oturum açmanız gerekiyor."}, 401)
             return
 
+        # Server-Sent Events (SSE) Live Stream
+        if path == "/api/stream/events":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Cache-Control", "no-cache, no-transform")
+            self.send_header("Connection", "keep-alive")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+
+            while True:
+                try:
+                    payload = get_live_monitor_payload()
+                    msg = f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                    self.wfile.write(msg.encode("utf-8"))
+                    self.wfile.flush()
+                    time.sleep(1.0)
+                except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                    break
+                except Exception:
+                    time.sleep(1.0)
+            return
+
+        # Live Line Monitor Snapshot (JSON Fallback)
+        elif path == "/api/monitor/live":
+            self.send_json(get_live_monitor_payload())
+            return
+
         # Dashboard Stats
-        if path == "/api/dashboard/stats":
+        elif path == "/api/dashboard/stats":
             _, r_tot, _ = run_sql("SELECT COUNT(*) FROM test_runs;")
             tot = int(r_tot[0][0]) if r_tot and r_tot[0][0] else 0
 
@@ -2451,12 +3103,22 @@ class NetaWebHandler(BaseHTTPRequestHandler):
 
         elif path == "/api/export":
             tbl = qs.get("table", ["test_runs"])[0]
+            fmt = qs.get("format", ["csv"])[0].lower()
             safe_tbl = "".join(c for c in tbl if c.isalnum() or c == '_')
             headers, rows, err = run_sql(f"SELECT * FROM `{safe_tbl}` ORDER BY 1 DESC;")
             if err:
                 self.send_response(500)
                 self.end_headers()
                 self.wfile.write(f"Error: {err}".encode("utf-8"))
+                return
+
+            if fmt in ("excel", "xls", "xlsx"):
+                xml_data = build_excel_xml(safe_tbl, headers, rows)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/vnd.ms-excel; charset=utf-8")
+                self.send_header("Content-Disposition", f"attachment; filename={safe_tbl}_export.xls")
+                self.end_headers()
+                self.wfile.write(xml_data.encode("utf-8"))
                 return
 
             self.send_response(200)
@@ -2796,7 +3458,7 @@ def main():
 
     print("\nDurdurmak icin Ctrl + C tuslarina basiniz.\n")
 
-    server = HTTPServer(("0.0.0.0", PORT), NetaWebHandler)
+    server = HttpServerClass(("0.0.0.0", PORT), NetaWebHandler)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
