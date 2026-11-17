@@ -240,26 +240,45 @@ Fabrika şartnamemiz sabit:
 Üretim bandından çıkan 5 antenin ölçülen $\Delta\text{ dB}$ değerleri:
 $$x = [+0.10, -0.05, +0.05, -0.10, 0.00]\text{ dB}$$
 
-**Adım 1: Aritmetik Ortalama ($\mu$)**
-$$\mu = \frac{0.10 + (-0.05) + 0.05 + (-0.10) + 0.00}{5} = \frac{0.00}{5} = \mathbf{0.00\text{ dB}}$$
+#### Adım 1: Aritmetik Ortalama ($\mu$) Hesabı
+* **Kullanılan Formül:**
+  $$\mu = \frac{\sum_{i=1}^{N} x_i}{N} = \frac{x_1 + x_2 + x_3 + x_4 + x_5}{N}$$
+* **Sayısal İşlem:**
+  $$\mu = \frac{0.10 + (-0.05) + 0.05 + (-0.10) + 0.00}{5} = \frac{0.00}{5} = \mathbf{0.00\text{ dB}}$$
 
-**Adım 2: Ortalamadan Farklar ve Standart Sapma ($\sigma$)**
-* $(+0.10 - 0.00)^2 = 0.0100$
-* $(-0.05 - 0.00)^2 = 0.0025$
-* $(+0.05 - 0.00)^2 = 0.0025$
-* $(-0.10 - 0.00)^2 = 0.0100$
-* $(0.00 - 0.00)^2 = 0.0000$
-* Kareler Toplamı $= 0.0100 + 0.0025 + 0.0025 + 0.0100 + 0.0000 = \mathbf{0.0250}$
-* Varyans ($N-1=4$): $\frac{0.0250}{4} = 0.00625$
-* Standart Sapma: $\sigma = \sqrt{0.00625} \approx \mathbf{0.079\text{ dB}}$
+#### Adım 2: Standart Sapma ($\sigma$) Hesabı
+* **Kullanılan Formül:**
+  $$s^2 = \frac{\sum_{i=1}^{N} (x_i - \mu)^2}{N-1} \quad \text{(Varyans)}$$
+  $$\sigma = \sqrt{s^2} = \sqrt{\frac{\sum_{i=1}^{N} (x_i - \mu)^2}{N-1}} \quad \text{(Standart Sapma)}$$
+* **Sayısal İşlem:**
+  1. Her verinin ortalamadan farkının karesi:
+     * $(+0.10 - 0.00)^2 = 0.10^2 = 0.0100$
+     * $(-0.05 - 0.00)^2 = (-0.05)^2 = 0.0025$
+     * $(+0.05 - 0.00)^2 = 0.05^2 = 0.0025$
+     * $(-0.10 - 0.00)^2 = (-0.10)^2 = 0.0100$
+     * $(0.00 - 0.00)^2 = 0.00^2 = 0.0000$
+  2. Karelerin Toplamı:
+     $$\sum (x_i - \mu)^2 = 0.0100 + 0.0025 + 0.0025 + 0.0100 + 0.0000 = \mathbf{0.0250}$$
+  3. Serbestlik Derecesine ($N-1 = 5-1 = 4$) Bölme:
+     $$s^2 = \frac{0.0250}{4} = 0.00625$$
+  4. Karekök Alma:
+     $$\sigma = \sqrt{0.00625} \approx \mathbf{0.079\text{ dB}}$$
 
-**Adım 3: $C_p$ (Kapasite Genişliği)**
-$$C_p = \frac{1.50 - (-1.50)}{6 \times 0.079} = \frac{3.00}{0.474} \approx \mathbf{6.33}$$
+#### Adım 3: $C_p$ (Potansiyel Yeterlilik) Hesabı
+* **Kullanılan Formül:**
+  $$C_p = \frac{\text{USL} - \text{LSL}}{6\sigma}$$
+* **Sayısal İşlem:**
+  $$C_p = \frac{1.50 - (-1.50)}{6 \times 0.079} = \frac{3.00}{0.474} \approx \mathbf{6.33}$$
 
-**Adım 4: $C_{pk}$ (Gerçek Güvenlik Mesafesi)**
-* Üst duvara mesafe: $C_{pu} = \frac{1.50 - 0.00}{3 \times 0.079} = \frac{1.50}{0.237} \approx 6.33$
-* Alt duvara mesafe: $C_{pl} = \frac{0.00 - (-1.50)}{3 \times 0.079} = \frac{1.50}{0.237} \approx 6.33$
-* $C_{pk} = \min(6.33, 6.33) = \mathbf{6.33}$
+#### Adım 4: $C_{pk}$ (Gerçek Süreç Performansı) Hesabı
+* **Kullanılan Formüller:**
+  $$C_{pu} = \frac{\text{USL} - \mu}{3\sigma} \quad \text{(Üst sınıra güvenlik mesafesi)}$$
+  $$C_{pl} = \frac{\mu - \text{LSL}}{3\sigma} \quad \text{(Alt sınıra güvenlik mesafesi)}$$
+  $$C_{pk} = \min(C_{pu}, C_{pl}) \quad \text{(En yakın duvara mesafe)}$$
+* **Sayısal İşlem:**
+  $$C_{pu} = \frac{1.50 - 0.00}{3 \times 0.079} = \frac{1.50}{0.237} \approx 6.33$$
+  $$C_{pl} = \frac{0.00 - (-1.50)}{3 \times 0.079} = \frac{1.50}{0.237} \approx 6.33$$
+  $$C_{pk} = \min(6.33, 6.33) = \mathbf{6.33}$$
 
 > **Yorum:** $C_{pk} \ge 1.67$ olduğu için süreç **6-Sigma (Kusursuz)** seviyesindedir. Fabrika arabayı devasa bir garajın tam ortasına milimetrik park etmiştir. Sıfır hurda riski!
 
@@ -271,29 +290,48 @@ Operatör anten vidalarını fazla sıkmış veya LNB kazancı kaymıştır. Öl
 $$x = [+1.20, +1.25, +1.15, +1.20, +1.30]\text{ dB}$$
 
 > [!IMPORTANT]
-> **DİKKAT:** 5 antenin hepsi de $[-1.50, +1.50]$ aralığında olduğu için geleneksel kalite kontrolde **hepsi PASS alır!** Düz mantık "üretim harika gidiyor" der. Şimdi matematiğin gerçeği nasıl yakaladığına bakalım:
+> **DİKKAT:** 5 antenin hepsi de $[-1.50, +1.50]$ aralığında olduğu için geleneksel kontrolde **hepsi PASS alır!** Düz mantık "üretim harika gidiyor" der. Şimdi formüllerin gerçeği nasıl yakaladığına bakalım:
 
-**Adım 1: Aritmetik Ortalama ($\mu$)**
-$$\mu = \frac{1.20 + 1.25 + 1.15 + 1.20 + 1.30}{5} = \frac{6.10}{5} = \mathbf{+1.22\text{ dB}}$$
+#### Adım 1: Aritmetik Ortalama ($\mu$) Hesabı
+* **Kullanılan Formül:**
+  $$\mu = \frac{\sum_{i=1}^{N} x_i}{N}$$
+* **Sayısal İşlem:**
+  $$\mu = \frac{1.20 + 1.25 + 1.15 + 1.20 + 1.30}{5} = \frac{6.10}{5} = \mathbf{+1.22\text{ dB}}$$
 
-**Adım 2: Ortalamadan Farklar ve Standart Sapma ($\sigma$)**
-* $(1.20 - 1.22)^2 = (-0.02)^2 = 0.0004$
-* $(1.25 - 1.22)^2 = (+0.03)^2 = 0.0009$
-* $(1.15 - 1.22)^2 = (-0.07)^2 = 0.0049$
-* $(1.20 - 1.22)^2 = (-0.02)^2 = 0.0004$
-* $(1.30 - 1.22)^2 = (+0.08)^2 = 0.0064$
-* Kareler Toplamı $= 0.0130$
-* Varyans ($4$): $\frac{0.0130}{4} = 0.00325$
-* Standart Sapma: $\sigma = \sqrt{0.00325} \approx \mathbf{0.057\text{ dB}}$
+#### Adım 2: Standart Sapma ($\sigma$) Hesabı
+* **Kullanılan Formül:**
+  $$\sigma = \sqrt{\frac{\sum_{i=1}^{N} (x_i - \mu)^2}{N-1}}$$
+* **Sayısal İşlem:**
+  1. Farkların karesi:
+     * $(1.20 - 1.22)^2 = (-0.02)^2 = 0.0004$
+     * $(1.25 - 1.22)^2 = (+0.03)^2 = 0.0009$
+     * $(1.15 - 1.22)^2 = (-0.07)^2 = 0.0049$
+     * $(1.20 - 1.22)^2 = (-0.02)^2 = 0.0004$
+     * $(1.30 - 1.22)^2 = (+0.08)^2 = 0.0064$
+  2. Karelerin Toplamı:
+     $$\sum (x_i - \mu)^2 = 0.0004 + 0.0009 + 0.0049 + 0.0004 + 0.0064 = \mathbf{0.0130}$$
+  3. Serbestlik Derecesine ($4$) Bölme:
+     $$s^2 = \frac{0.0130}{4} = 0.00325$$
+  4. Karekök Alma:
+     $$\sigma = \sqrt{0.00325} \approx \mathbf{0.057\text{ dB}}$$
 
-**Adım 3: $C_p$ (Tolerans Genişliğine Göre Durum)**
-$$C_p = \frac{3.00}{6 \times 0.057} = \frac{3.00}{0.342} \approx \mathbf{8.77}$$
-*(Gördüğünüz gibi $C_p$ muhteşem çıktı! Çünkü antenler birbirine çok yakın üretiliyor.)*
+#### Adım 3: $C_p$ (Potansiyel Yeterlilik) Hesabı
+* **Kullanılan Formül:**
+  $$C_p = \frac{\text{USL} - \text{LSL}}{6\sigma}$$
+* **Sayısal İşlem:**
+  $$C_p = \frac{1.50 - (-1.50)}{6 \times 0.057} = \frac{3.00}{0.342} \approx \mathbf{8.77}$$
+  *(Gördüğünüz gibi $C_p$ muhteşem çıktı! Çünkü antenler birbirine çok yakın üretiliyor.)*
 
-**Adım 4: $C_{pk}$ (Duvara Olan Mesafe) Gerçeği Haykırıyor!**
-* Alt duvara mesafe: $C_{pl} = \frac{1.22 - (-1.50)}{3 \times 0.057} = \frac{2.72}{0.171} \approx 15.9$ (Sol duvar çok uzakta, rahatız)
-* Üst duvara mesafe: $C_{pu} = \frac{1.50 - 1.22}{3 \times 0.057} = \frac{0.28}{0.171} \approx \mathbf{0.55}$ (Sağ duvara çarpmak üzereyiz!)
-* $$C_{pk} = \min(15.9, \mathbf{0.55}) = \mathbf{0.55}$$
+#### Adım 4: $C_{pk}$ (Gerçek Süreç Performansı) Hesabı
+* **Kullanılan Formüller:**
+  $$C_{pu} = \frac{\text{USL} - \mu}{3\sigma} \quad , \quad C_{pl} = \frac{\mu - \text{LSL}}{3\sigma} \quad , \quad C_{pk} = \min(C_{pu}, C_{pl})$$
+* **Sayısal İşlem:**
+  * Alt sınıra mesafe:
+    $$C_{pl} = \frac{1.22 - (-1.50)}{3 \times 0.057} = \frac{2.72}{0.171} \approx 15.9$$
+  * Üst sınıra mesafe (Sağ Duvar):
+    $$C_{pu} = \frac{1.50 - 1.22}{3 \times 0.057} = \frac{0.28}{0.171} \approx \mathbf{0.55}$$
+  * Minimumu seçme:
+    $$C_{pk} = \min(15.9, \mathbf{0.55}) = \mathbf{0.55}$$
 
 > **Yorum:** $C_{pk} = 0.55 < 1.00$ 🔴 **ALARM!**
 > Bütün antenler PASS almasına rağmen $C_{pk}$ kırmızı alarm verir. Fabrika mühendisi hava sıcaklığı veya operatör yorgunluğu yüzünden bir sonraki partinin duvara çarpıp hurda olacağını **bugünden görür** ve kalibrasyonu derhal 1 dB geriye çeker!
@@ -305,26 +343,45 @@ $$C_p = \frac{3.00}{6 \times 0.057} = \frac{3.00}{0.342} \approx \mathbf{8.77}$$
 Torna tezgahında aşınma var veya lehim torku rastgele uygulanıyor. Ölçülen 5 anten:
 $$x = [+1.40, -1.60\text{ (FAIL)}, +0.20, -1.30, +1.80\text{ (FAIL)}]\text{ dB}$$
 
-**Adım 1: Aritmetik Ortalama ($\mu$)**
-$$\mu = \frac{1.40 - 1.60 + 0.20 - 1.30 + 1.80}{5} = \frac{0.50}{5} = \mathbf{+0.10\text{ dB}}$$
-*(Düz ortalamaya baksanız +0.10 dB ile her şey yolunda sanırsınız!)*
+#### Adım 1: Aritmetik Ortalama ($\mu$) Hesabı
+* **Kullanılan Formül:**
+  $$\mu = \frac{\sum_{i=1}^{N} x_i}{N}$$
+* **Sayısal İşlem:**
+  $$\mu = \frac{1.40 + (-1.60) + 0.20 + (-1.30) + 1.80}{5} = \frac{0.50}{5} = \mathbf{+0.10\text{ dB}}$$
+  *(Düz ortalamaya baksanız +0.10 dB ile her şey yolunda sanırsınız!)*
 
-**Adım 2: Standart Sapma ($\sigma$)**
-* $(1.40 - 0.10)^2 = 1.30^2 = 1.69$
-* $(-1.60 - 0.10)^2 = (-1.70)^2 = 2.89$
-* $(0.20 - 0.10)^2 = 0.10^2 = 0.01$
-* $(-1.30 - 0.10)^2 = (-1.40)^2 = 1.96$
-* $(1.80 - 0.10)^2 = 1.70^2 = 2.89$
-* Kareler Toplamı $= 9.44$
-* Varyans ($4$): $\frac{9.44}{4} = 2.36$
-* Standart Sapma: $\sigma = \sqrt{2.36} \approx \mathbf{1.536\text{ dB}}$
+#### Adım 2: Standart Sapma ($\sigma$) Hesabı
+* **Kullanılan Formül:**
+  $$\sigma = \sqrt{\frac{\sum_{i=1}^{N} (x_i - \mu)^2}{N-1}}$$
+* **Sayısal İşlem:**
+  1. Farkların karesi:
+     * $(1.40 - 0.10)^2 = 1.30^2 = 1.69$
+     * $(-1.60 - 0.10)^2 = (-1.70)^2 = 2.89$
+     * $(0.20 - 0.10)^2 = 0.10^2 = 0.01$
+     * $(-1.30 - 0.10)^2 = (-1.40)^2 = 1.96$
+     * $(1.80 - 0.10)^2 = 1.70^2 = 2.89$
+  2. Karelerin Toplamı:
+     $$\sum (x_i - \mu)^2 = 1.69 + 2.89 + 0.01 + 1.96 + 2.89 = \mathbf{9.44}$$
+  3. Serbestlik Derecesine ($4$) Bölme:
+     $$s^2 = \frac{9.44}{4} = 2.36$$
+  4. Karekök Alma:
+     $$\sigma = \sqrt{2.36} \approx \mathbf{1.536\text{ dB}}$$
 
-**Adım 3 ve 4: $C_p$ ve $C_{pk}$**
-$$C_p = \frac{3.00}{6 \times 1.536} = \frac{3.00}{9.216} \approx \mathbf{0.32}$$
-$$C_{pu} = \frac{1.50 - 0.10}{3 \times 1.536} = \frac{1.40}{4.608} \approx 0.30$$
-$$C_{pl} = \frac{0.10 - (-1.50)}{3 \times 1.536} = \frac{1.60}{4.608} \approx 0.35$$
-$$C_{pk} = \min(0.30, 0.35) = \mathbf{0.30}$$
+#### Adım 3: $C_p$ (Potansiyel Yeterlilik) Hesabı
+* **Kullanılan Formül:**
+  $$C_p = \frac{\text{USL} - \text{LSL}}{6\sigma}$$
+* **Sayısal İşlem:**
+  $$C_p = \frac{1.50 - (-1.50)}{6 \times 1.536} = \frac{3.00}{9.216} \approx \mathbf{0.32}$$
+
+#### Adım 4: $C_{pk}$ (Gerçek Süreç Performansı) Hesabı
+* **Kullanılan Formüller:**
+  $$C_{pu} = \frac{\text{USL} - \mu}{3\sigma} \quad , \quad C_{pl} = \frac{\mu - \text{LSL}}{3\sigma} \quad , \quad C_{pk} = \min(C_{pu}, C_{pl})$$
+* **Sayısal İşlem:**
+  $$C_{pu} = \frac{1.50 - 0.10}{3 \times 1.536} = \frac{1.40}{4.608} \approx 0.30$$
+  $$C_{pl} = \frac{0.10 - (-1.50)}{3 \times 1.536} = \frac{1.60}{4.608} \approx 0.35$$
+  $$C_{pk} = \min(0.30, 0.35) = \mathbf{0.30}$$
 
 > **Yorum:** $C_{pk} = 0.30 \lll 1.00$ 🔴 **KRİTİK HATA!**
 > Araba garaj kapısından 3 kat daha geniştir! 5 antenden 2'si doğrudan hurda olmuştur. Üretim hattı acilen durdurulmalıdır.
+
 
