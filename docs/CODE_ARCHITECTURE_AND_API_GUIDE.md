@@ -15,6 +15,7 @@ Bu belge, **NETA DRX9000 ANTENNA TEST AUTOMATION** sisteminin tüm kaynak kod ta
    - [TestStateMachine (test_state_machine.h / .cpp)](#teststatemachine)
    - [DependencyInstaller (dependency_installer.h / .cpp)](#dependencyinstaller)
    - [XlsxUtil (xlsxutil.h / .cpp)](#xlsxutil)
+   - [PdfReportGenerator (pdf_report_generator.h / .cpp)](#pdfreportgenerator)
 3. [Veritabanı Katmanı (`src/database/`)](#3-veritabanı-katmanı-srcdatabase)
    - [DbManager (db_manager.h / .cpp)](#dbmanager)
 4. [Donanım ve Haberleşme Katmanı (`src/hardware/`)](#4-donanım-ve-haberleşme-katmanı-srchardware)
@@ -159,6 +160,20 @@ Tüm sistemde paylaşılan ana veri yapılarını ve JSON serileştirme fonksiyo
 - **Metotlar:**
   - `writeXlsxSheet(...)`: Başlıklar ve satır matrisini standart bir `.xlsx` çalışma sayfasına yazar.
   - `readXlsxSheet(...)`: `.xlsx` dosyasındaki hücre verilerini ayrıştırıp satır ve sütunlar halinde döner.
+
+### `PdfReportGenerator` (`pdf_report_generator.h` / `pdf_report_generator.cpp`)
+- **Görevi:** Fabrika kabul ve müşteri sevkiyat standartlarına uygun, tek sayfalık A4 formatında vektörel Kalite Kontrol (QC) Test Sertifikası PDF belgelerini üretir.
+- **Tasarım & Mimari:**
+  - `Qt PrintSupport` ve `QTextDocument` HTML/CSS vektörel render motorunu kullanır; hiçbir harici PDF DLL'ine ihtiyaç duymaz.
+  - Kurumsal NETA fabrika anteti, Belge Kodu (`NETA-QC-TR<ID>`), İstasyon No ve onay tarihi.
+  - Anten Seri No, Ürün Modeli, İş Emri No, Uydu Profili ve Testi Yapan Operatör tablosu.
+  - **Çift Zaman Telemetrisi Bölümü:** Test başlangıç/bitiş sistem saati, DRX donanım saati ve toplam test süresi.
+  - **10 Kanal Ölçüm Matrisi:** Her transponder için Frekans, Polarizasyon, Taşıyıcı Kilidi, DUT C/N, REF C/N, Delta sapması ($\Delta$ dB), Tolerans ve PASS/FAIL rozetleri.
+  - **Büyük Kalite Mührü (Quality Stamp):** Yeşil onay damgası (`✔ KALİTE ONAYI VERİLDİ - PASS`) veya Kırmızı red damgası (`✖ KALİTE STANDARDI DIŞINDA - FAIL`).
+  - **İmza & Onay Bölümü:** Test Eden Teknisyen ve Kalite Güvence / Test Mühendisi imza ve onay kutuları.
+- **Entegrasyon Noktaları:**
+  - Test İstasyonu (`ClientWindow`): Test tamamlandığı anda `reports/certificates/` klasörüne otomatik üretilir; arayüzdeki "📄 Kalite Sertifikasını Aç (PDF)" butonu aktifleşir.
+  - Test Geçmişi (`TestHistoryWidget`): Geçmiş test kayıtları listesinden seçilen herhangi bir satır için "📄 PDF Sertifika Üret" butonuyla anında sertifika oluşturulup açılabilir.
 
 ---
 

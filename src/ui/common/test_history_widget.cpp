@@ -8,7 +8,10 @@
 #include "test_history_widget.h"
 #include "core/app_config.h"
 #include "core/xlsxutil.h"
+#include "core/pdf_report_generator.h"
 #include "database/db_manager.h"
+#include <QDesktopServices>
+#include <QUrl>
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -96,6 +99,11 @@ void TestHistoryWidget::setupHistoryTab(QWidget *tab) {
     m_btnRefresh = new QPushButton("🔄 Yenile", tab);
     connect(m_btnRefresh, &QPushButton::clicked, this, &TestHistoryWidget::refreshHistory);
     filterRow->addWidget(m_btnRefresh);
+
+    m_btnExportPdf = new QPushButton("📄 PDF Sertifika Üret", tab);
+    m_btnExportPdf->setStyleSheet("background-color: #DC2626; color: white; border: none; border-radius: 4px; padding: 6px 12px; font-weight: bold;");
+    connect(m_btnExportPdf, &QPushButton::clicked, this, &TestHistoryWidget::onExportPdfClicked);
+    filterRow->addWidget(m_btnExportPdf);
 
     m_btnExportXlsx = new QPushButton("📤 Excel'e Aktar (.xlsx)", tab);
     m_btnExportXlsx->setStyleSheet("background-color: #059669; color: white; border: none; border-radius: 4px; padding: 6px 12px; font-weight: bold;");
@@ -439,6 +447,46 @@ void TestHistoryWidget::onExportExcelClicked() {
                                      .arg(rows.size()).arg(fileName));
     } else {
         QMessageBox::critical(this, "Hata", "Excel dosyası oluşturulamadı:\n" + errStr);
+    }
+}
+
+void TestHistoryWidget::onExportPdfClicked() {
+    int row = m_table->currentRow();
+    if (row < 0 || row >= m_cachedRuns.size()) {
+        QMessageBox::information(this, "Seçim Yapılmadı",
+            "Lütfen Kalite Kontrol Sertifikası üretmek istediğiniz test kaydını tablodan seçiniz.");
+        return;
+    }
+
+    const TestRunData &run = m_cachedRuns.at(row);
+    QVector<ChannelSampleResult> channels = DbManager::instance().getTestRunChannels(run.id);
+
+    QString defaultPath = PdfReportGenerator::defaultCertificatePath(run.antennaSn, run.id);
+    QString savePath = QFileDialog::getSaveFileName(
+        this,
+        "Kalite Kontrol Sertifikasını Kaydet (PDF)",
+        defaultPath,
+        "PDF Dosyaları (*.pdf);;Tüm Dosyalar (*.*)");
+
+    if (savePath.isEmpty()) return;
+
+    QString err;
+    if (PdfReportGenerator::generateCertificate(run, channels, savePath, &err)) {
+        emit logMessage(QString("📄 PDF Kalite Sertifikası üretildi: %1").arg(QFileInfo(savePath).fileName()));
+        auto reply = QMessageBox::question(
+            this,
+            "Sertifika Hazır",
+            QString("Kalite Kontrol Sertifikası başarıyla oluşturuldu:\n\n%1\n\nDosyayı şimdi açmak ister misiniz?")
+                .arg(QFileInfo(savePath).fileName()),
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::Yes);
+
+        if (reply == QMessageBox::Yes) {
+            QDesktopServices::openUrl(QUrl::fromLocalFile(savePath));
+        }
+    } else {
+        QMessageBox::warning(this, "Sertifika Üretilemedi",
+            QString("PDF belgesi oluşturulurken hata meydana geldi:\n\n%1").arg(err));
     }
 }
 

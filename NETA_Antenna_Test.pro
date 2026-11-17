@@ -36,6 +36,7 @@ SOURCES += \
     src/core/test_state_machine.cpp \
     src/core/dependency_installer.cpp \
     src/core/xlsxutil.cpp \
+    src/core/pdf_report_generator.cpp \
     src/database/db_manager.cpp \
     src/database/backup_manager.cpp \
     src/hardware/data_transfer.cpp \
@@ -71,6 +72,7 @@ HEADERS += \
     src/core/test_state_machine.h \
     src/core/dependency_installer.h \
     src/core/xlsxutil.h \
+    src/core/pdf_report_generator.h \
     src/database/db_manager.h \
     src/database/backup_manager.h \
     src/hardware/data_transfer.h \

@@ -40,6 +40,7 @@ signals:
 private slots:
     void applyFilters();
     void onExportExcelClicked();
+    void onExportPdfClicked();
     void onImportExcelClicked();
     void applyDbFilter(const QString &text);
     void onClearAuditLogsClicked();
@@ -75,6 +76,7 @@ private:
     QComboBox    *m_comboStation  = nullptr;
     QComboBox    *m_comboResult   = nullptr;
     QPushButton  *m_btnRefresh    = nullptr;
+    QPushButton  *m_btnExportPdf  = nullptr;
     QPushButton  *m_btnExportXlsx = nullptr;
     QPushButton  *m_btnImportXlsx = nullptr;
     QLabel       *m_lblSummary    = nullptr;

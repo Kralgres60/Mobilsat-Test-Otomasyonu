@@ -18,6 +18,9 @@
 #include "ui/host/host_window.h"
 #include "ui/debug/debug_runner_window.h"
 #include "ui/debug/db_debug_window.h"
+#include "core/pdf_report_generator.h"
+#include <QDesktopServices>
+#include <QUrl>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGridLayout>
@@ -719,6 +722,12 @@ void ClientWindow::setupProductionPage() {
     m_progressTest->setFormat("%v / %m Kanal");
     m_progressTest->setFixedHeight(22);
     outVBox->addWidget(m_progressTest);
+
+    m_btnOpenLastPdf = new QPushButton("📄 Kalite Sertifikasını Aç (PDF)", grpOutcome);
+    m_btnOpenLastPdf->setStyleSheet("background-color: #374151; color: #E5E7EB; border: 1px solid #4B5563; border-radius: 4px; padding: 6px 12px; font-weight: bold;");
+    m_btnOpenLastPdf->setEnabled(false);
+    connect(m_btnOpenLastPdf, &QPushButton::clicked, this, &ClientWindow::onOpenLastPdfClicked);
+    outVBox->addWidget(m_btnOpenLastPdf);
 
     rightCol->addWidget(grpOutcome);
 
@@ -1898,6 +1907,18 @@ void ClientWindow::onTestFinished(const TestRunData &finalResult) {
         if (m_historyWidget) {
             m_historyWidget->refreshHistory();
         }
+
+        // Automatically generate single-page QC Test Certificate PDF
+        QString pdfPath = PdfReportGenerator::defaultCertificatePath(finalResult.antennaSn, runId);
+        QString pdfErr;
+        if (PdfReportGenerator::generateCertificate(finalResult, finalResult.channels, pdfPath, &pdfErr)) {
+            m_lastGeneratedPdfPath = pdfPath;
+            if (m_btnOpenLastPdf) {
+                m_btnOpenLastPdf->setEnabled(true);
+                m_btnOpenLastPdf->setText("📄 Kalite Sertifikasını Aç (PDF)");
+            }
+            appendLog(QString("📄 PDF Kalite Sertifikası otomatik oluşturuldu: %1").arg(QFileInfo(pdfPath).fileName()));
+        }
     } else {
         appendLog(QString("❌ [HATA] Test sonucu veritabanına kaydedilemedi! Hata: %1")
                       .arg(DbManager::instance().lastError()));
@@ -1909,6 +1930,14 @@ void ClientWindow::onTestFinished(const TestRunData &finalResult) {
         m_txtTesterName->setFocus();
     } else {
         m_txtAntennaSn->setFocus();
+    }
+}
+
+void ClientWindow::onOpenLastPdfClicked() {
+    if (!m_lastGeneratedPdfPath.isEmpty() && QFile::exists(m_lastGeneratedPdfPath)) {
+        QDesktopServices::openUrl(QUrl::fromLocalFile(m_lastGeneratedPdfPath));
+    } else {
+        QMessageBox::information(this, "Sertifika Bulunamadı", "Görüntülenecek test sertifikası dosyası bulunamadı.");
     }
 }
 

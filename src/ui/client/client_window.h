@@ -103,6 +103,7 @@ private slots:
 
     /** @brief Switches the right-side page stack to the index selected in the sidebar. */
     void onNavItemChanged(int index);
+    void onOpenLastPdfClicked();
 
     void appendLog(const QString &text);
 
@@ -192,6 +193,8 @@ private:
     QLabel      *m_lblOverallResult   = nullptr;
     QLabel      *m_lblOverallDetails  = nullptr;
     QProgressBar *m_progressTest      = nullptr;
+    QPushButton  *m_btnOpenLastPdf    = nullptr;
+    QString       m_lastGeneratedPdfPath;
     QTableWidget *m_tableChannels     = nullptr;
 
     // Live Graph (Page 1)
