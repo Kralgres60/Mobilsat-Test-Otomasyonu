@@ -991,9 +991,20 @@ void ClientWindow::setupEngineerSettingsPage() {
 void ClientWindow::setupLogsPage() {
     m_pageLogs = new QWidget(this);
     QVBoxLayout *vbox = new QVBoxLayout(m_pageLogs);
-    vbox->setContentsMargins(10, 10, 10, 10);
+    vbox->setContentsMargins(8, 8, 8, 8);
+    vbox->setSpacing(6);
 
-    QGroupBox *grpLogs = new QGroupBox("📜 Gerçek Zamanlı Ethernet Ping, Web CGI ve Ağ Log Konsolu", m_pageLogs);
+    QTabWidget *logTabs = new QTabWidget(m_pageLogs);
+    logTabs->setElideMode(Qt::ElideNone);
+    logTabs->setUsesScrollButtons(false);
+    logTabs->tabBar()->setExpanding(false);
+
+    // Tab 0: Live Ethernet, CGI & Network Logs
+    QWidget *tabLive = new QWidget(logTabs);
+    QVBoxLayout *liveBox = new QVBoxLayout(tabLive);
+    liveBox->setContentsMargins(6, 6, 6, 6);
+
+    QGroupBox *grpLogs = new QGroupBox("📜 Gerçek Zamanlı Ethernet Ping, Web CGI ve Ağ Log Konsolu", tabLive);
     QVBoxLayout *logBox = new QVBoxLayout(grpLogs);
 
     QHBoxLayout *topBar = new QHBoxLayout();
@@ -1012,7 +1023,21 @@ void ClientWindow::setupLogsPage() {
     m_txtLog->setStyleSheet("background-color: #040B09; color: #34D399; font-family: Consolas, 'Courier New', monospace; font-size: 9.5pt;");
     logBox->addWidget(m_txtLog, 1);
 
-    vbox->addWidget(grpLogs);
+    liveBox->addWidget(grpLogs);
+    logTabs->addTab(tabLive, "📜 Canlı Ağ & Donanım Logları");
+
+    // Tab 1: System Event & Audit Logs (Audit)
+    m_auditLogWidget = new TestHistoryWidget(TestHistoryWidget::ViewMode::AuditOnly, logTabs);
+    connect(m_auditLogWidget, &TestHistoryWidget::logMessage, this, &ClientWindow::appendLog);
+    logTabs->addTab(m_auditLogWidget, "🛡️ Sistem Olay & Denetim Logları (Audit)");
+
+    connect(logTabs, &QTabWidget::currentChanged, this, [this](int idx) {
+        if (idx == 1 && m_auditLogWidget) {
+            m_auditLogWidget->refreshAuditLogs();
+        }
+    });
+
+    vbox->addWidget(logTabs, 1);
 }
 
 void ClientWindow::setupPlot() {
@@ -1232,8 +1257,8 @@ void ClientWindow::loadWorkOrdersAndProfiles() {
         populateChannelTable();
     }
 
-    if (m_profileManager) {
-        m_profileManager->reloadProfiles(m_currentProfile.id);
+    if (m_profileManager && sender() != m_profileManager) {
+        m_profileManager->reloadProfiles(-1);
     }
     reloadGoldenRecordsList();
 }

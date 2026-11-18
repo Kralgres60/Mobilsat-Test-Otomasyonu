@@ -147,6 +147,7 @@ private:
     QWidget *m_pageGraph      = nullptr;  ///< Page 1 – Canlı Grafik
     QWidget *m_pageProfiles   = nullptr;  ///< Page 2 – Uydu Profilleri & Frekanslar
     TestHistoryWidget *m_historyWidget = nullptr; ///< Page 3 – Test Geçmişi & Rapor
+    TestHistoryWidget *m_auditLogWidget = nullptr; ///< Page 5 – Sistem Olay & Denetim Logları (Audit)
     QWidget *m_pageEngineer   = nullptr;  ///< Page 4 – Mühendis Ayarları (Engineer only)
     QWidget *m_pageLogs       = nullptr;  ///< Page 5 – Sistem Logları (Engineer only)
     ProfileManagerWidget *m_profileManager = nullptr;

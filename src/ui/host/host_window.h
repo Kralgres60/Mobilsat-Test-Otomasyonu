@@ -106,7 +106,7 @@ private:
     void setupSettingsPage();
     void setupLogsPage();
     void ensureStationCard(int stationId, const QString &stationName = QString());
-    void refreshNetworkPcsTable();
+    void updateLobbySummary();
     void updateRefModeBadgeUi(ReferenceMode mode);
     void setStatusMessage(const QString &msg);
 
@@ -152,6 +152,7 @@ private:
     struct StationCardWidgets {
         QFrame *cardFrame  = nullptr;
         QLabel *lblTitle   = nullptr;
+        QLabel *lblConn    = nullptr;
         QLabel *lblState   = nullptr;
         QLabel *lblIp      = nullptr;
         QLabel *lblSn        = nullptr;
@@ -161,8 +162,7 @@ private:
     QMap<int, StationCardWidgets> m_stationWidgets;
     QMap<int, StationLiveStatus>  m_knownStations;
 
-    // Network PCs Table Page Widgets
-    QTableWidget *m_tableNetworkPcs   = nullptr;
+    // Lobby Summary Label
     QLabel       *m_lblPcSummaryStats = nullptr;
 
     // History, Database & Audit Tab Widgets

@@ -187,28 +187,6 @@ void ProfileManagerWidget::setupUi() {
     connect(btnAddCh, &QPushButton::clicked, this, &ProfileManagerWidget::onAddChannelRowClicked);
 
     chActionRow->addWidget(btnAddCh);
-    chActionRow->addSpacing(8);
-
-    chActionRow->addWidget(new QLabel("Alıcı:", grpChannels));
-    m_comboReceiverSource = new QComboBox(grpChannels);
-    m_comboReceiverSource->setToolTip("Golden sample ölçümü için kullanılacak alıcı kaynağı");
-    m_comboReceiverSource->addItem("📡 DUT DRX (İstasyon)", 0);
-    chActionRow->addWidget(m_comboReceiverSource);
-
-    chActionRow->addWidget(new QLabel("Süre:", grpChannels));
-    m_spinSampleDuration = new QSpinBox(grpChannels);
-    m_spinSampleDuration->setRange(1, 60);
-    m_spinSampleDuration->setValue(5);
-    m_spinSampleDuration->setSuffix(" sn");
-    m_spinSampleDuration->setToolTip("Her transponder için ortalama alma süresi (saniye)");
-    chActionRow->addWidget(m_spinSampleDuration);
-
-    m_btnGoldenCapture = new QPushButton("📸 Golden Sample Ölçümü Al", grpChannels);
-    m_btnGoldenCapture->setCursor(Qt::PointingHandCursor);
-    m_btnGoldenCapture->setStyleSheet("background-color: #D97706; color: #FFFFFF; border: none; border-radius: 4px; padding: 7px 12px; font-weight: bold;");
-    connect(m_btnGoldenCapture, &QPushButton::clicked, this, &ProfileManagerWidget::onStartGoldenCaptureClicked);
-    chActionRow->addWidget(m_btnGoldenCapture);
-
     chActionRow->addStretch();
     chVBox->addLayout(chActionRow);
 
@@ -237,6 +215,9 @@ void ProfileManagerWidget::onApplyRefModeClicked() {
 
 void ProfileManagerWidget::reloadProfiles(int selectProfileId) {
     if (!m_listProfiles) return;
+    if (selectProfileId <= 0 && m_listProfiles->currentRow() >= 0 && m_listProfiles->currentRow() < m_profiles.size()) {
+        selectProfileId = m_profiles[m_listProfiles->currentRow()].id;
+    }
     m_profiles = DbManager::instance().getProfiles();
 
     m_listProfiles->blockSignals(true);

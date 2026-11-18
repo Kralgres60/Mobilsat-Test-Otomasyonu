@@ -56,9 +56,10 @@ echo [4] Sadece Yonetici Sunucuyu (HOST) Baslat (Port 9100)
 echo [5] Sadece Bir Test Istasyonu Baslat (Masa 1, 2, 3 ... N)
 echo [6] Calisan Tum Simule Surecleri Kapat (Temizle)
 echo [7] Web Veritabani Yonetim Konsolunu Ac [http://localhost:8888]
+echo [8] Sadece Istasyon Programi (Yonetici Olmadan - Istasyon 1 + DRX Sim 8081)
 echo [0] Cikis
 echo =====================================================================
-set /p SECIM="Lutfen seciminizi giriniz [0-7]: "
+set /p SECIM="Lutfen seciminizi giriniz [0-8]: "
 
 if "%SECIM%"=="1" goto START_FULL
 if "%SECIM%"=="2" goto START_DUAL
@@ -67,6 +68,7 @@ if "%SECIM%"=="4" goto START_HOST
 if "%SECIM%"=="5" goto START_STATION
 if "%SECIM%"=="6" goto STOP_ALL
 if "%SECIM%"=="7" goto START_WEB_DB_MENU
+if "%SECIM%"=="8" goto START_STATION_STANDALONE
 if "%SECIM%"=="0" goto EXIT
 goto MENU
 
@@ -178,6 +180,27 @@ if "%ST_NO%"=="" set "ST_NO=1"
 set /a DRX_P=8080+%ST_NO%
 echo Istasyon %ST_NO% baslatiliyor - DUT DRX Port: %DRX_P%...
 start "" /D "%APP_DIR%" "%APP_EXE%" --client -s %ST_NO% --drx 127.0.0.1:%DRX_P%
+pause
+goto MENU
+
+:START_STATION_STANDALONE
+cls
+echo =====================================================================
+echo      SADECE ISTASYON PROGRAMI (YONETICI / HOST OLMADAN)
+echo =====================================================================
+netstat -ano | findstr ":8081" | findstr "LISTENING" >nul
+if %errorlevel% neq 0 (
+    if not "%SIM_EXE%"=="" (
+        echo [1/2] Istasyon 1 DRX Simulatoru baslatiliyor [Port 8081]...
+        start "" /D "%SIM_DIR%" "%SIM_EXE%" --port 8081 --name "Istasyon 1 DRX" --auto-start
+        timeout /t 1 >nul
+    )
+) else (
+    echo [1/2] Port 8081 uzerinde DRX Simulatoru zaten calisiyor.
+)
+echo [2/2] Sadece Test Istasyonu 1 baslatiliyor [Yonetici olmadan]...
+start "" /D "%APP_DIR%" "%APP_EXE%" --client -s 1 --drx 127.0.0.1:8081
+echo [OK] Istasyon 1 bagimsiz olarak baslatildi.
 pause
 goto MENU
 
