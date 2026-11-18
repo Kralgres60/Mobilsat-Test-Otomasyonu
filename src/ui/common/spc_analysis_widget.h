@@ -40,6 +40,10 @@ private slots:
     void onFilterChanged();
     void onExportImageClicked();
 
+protected:
+    /** @brief Handles horizontal Scroll zoom and Shift+Scroll vertical zoom on SPC plots. */
+    bool eventFilter(QObject *watched, QEvent *event) override;
+
 private:
     void setupUi();
     void setupPlot();
@@ -53,7 +57,6 @@ private:
     QComboBox *m_comboProfiles   = nullptr;
     QComboBox *m_comboLimit      = nullptr;
     QDoubleSpinBox *m_spinTol    = nullptr;
-    QPushButton *m_btnRefresh    = nullptr;
     QPushButton *m_btnExportImg  = nullptr;
 
     // Visualization

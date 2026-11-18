@@ -53,6 +53,7 @@ private slots:
     void onNextPageClicked();
     void onLastPageClicked();
     void onPageSizeChanged(int index);
+    void onTableContextMenuRequested(const QPoint &pos);
 
 private:
     void setupUi();

@@ -19,6 +19,8 @@
 #include <QDateTime>
 #include <QFileInfo>
 #include <QSplitter>
+#include <QWheelEvent>
+#include <QMouseEvent>
 
 SpcAnalysisWidget::SpcAnalysisWidget(QWidget *parent)
     : QWidget(parent) {
@@ -81,10 +83,12 @@ void SpcAnalysisWidget::setupUi() {
     m_comboLimit->setCurrentIndex(1); // default 100
     filterLayout->addWidget(m_comboLimit);
 
-    m_btnRefresh = new QPushButton("🔄 Analizi Güncelle", filterFrame);
-    m_btnRefresh->setStyleSheet("background-color: #059669; color: white; border: none; border-radius: 4px; padding: 6px 12px; font-weight: bold;");
-    connect(m_btnRefresh, &QPushButton::clicked, this, &SpcAnalysisWidget::onFilterChanged);
-    filterLayout->addWidget(m_btnRefresh);
+    // Auto-update SPC analysis immediately when any filter or tolerance changes
+    connect(m_comboWorkOrders, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SpcAnalysisWidget::onFilterChanged);
+    connect(m_comboStations, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SpcAnalysisWidget::onFilterChanged);
+    connect(m_comboProfiles, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SpcAnalysisWidget::onFilterChanged);
+    connect(m_comboLimit, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SpcAnalysisWidget::onFilterChanged);
+    connect(m_spinTol, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &SpcAnalysisWidget::onFilterChanged);
 
     m_btnExportImg = new QPushButton("📷 Grafiği Kaydet", filterFrame);
     m_btnExportImg->setStyleSheet("background-color: #374151; color: white; border: 1px solid #4B5563; border-radius: 4px; padding: 6px 12px;");
@@ -158,15 +162,90 @@ void SpcAnalysisWidget::setupUi() {
     m_lblMinMax = makeValueLabel("#9CA3AF");
     m_lblToleranceLimits = makeValueLabel("#EF4444");
 
-    form->addRow("Örneklem Sayısı (N):", m_lblSampleCount);
-    form->addRow("Ortalama Sapma (μ):", m_lblMean);
-    form->addRow("Standart Sapma (σ):", m_lblStdDev);
-    form->addRow("Süreç Yeteneği (Cp):", m_lblCp);
-    form->addRow("Süreç İndeksi (Cpk):", m_lblCpk);
-    form->addRow("Kümülatif Toplam (CUSUM):", m_lblCusum);
-    form->addRow("3-Sigma Sınırları [±3σ]:", m_lblThreeSigma);
-    form->addRow("Gözlenen Min / Max:", m_lblMinMax);
-    form->addRow("Tolerans Sınırları [LSL / USL]:", m_lblToleranceLimits);
+    auto makeFrac = [](const QString &num, const QString &den) -> QString {
+        return QString(
+            "<td valign='middle' align='center' style='padding:0px 1px; margin:0; white-space:nowrap; font-size:9.5pt; line-height:105%;'>"
+            "<u>%1</u><br/>%2"
+            "</td>").arg(num, den);
+    };
+
+    auto makeCell = [](const QString &text) -> QString {
+        return QString("<td valign='middle' style='font-size:10.5pt; padding:0px; margin:0; white-space:nowrap;'>"
+                       "<p style='margin:0; padding:0;'>%1</p></td>").arg(text);
+    };
+
+    auto makeMathRow = [](const QString &cellsHtml) -> QString {
+        return QString(
+            "<table bgcolor='#1E293B' cellspacing='0' cellpadding='0' style='margin-top:4px; margin-bottom:4px;'>"
+            "<tr><td style='border-left:3px solid #38BDF8; padding:4px 8px;'>"
+            "<table cellspacing='0' cellpadding='0' style='color:#FBBF24; font-family:\"Segoe UI\", Arial, sans-serif; font-weight:bold;'>"
+            "<tr>%1</tr>"
+            "</table>"
+            "</td></tr></table>").arg(cellsHtml);
+    };
+
+    auto makeSpcTooltip = [](const QString &title, const QString &desc, const QString &mathHtml, const QString &extra = QString()) -> QString {
+        QString html = QString(
+            "<div style='color:#F8FAFC;'>"
+            "<div style='color:#38BDF8; font-size:10.5pt; font-weight:bold; margin-bottom:3px;'>%1</div>"
+            "<div style='color:#E2E8F0; font-size:9pt; margin-bottom:4px;'>%2</div>"
+            "%3").arg(title, desc, mathHtml);
+        if (!extra.isEmpty()) {
+            html += QString("<div style='color:#A7F3D0; font-size:8.5pt; margin-top:3px;'>%1</div>").arg(extra);
+        }
+        html += "</div>";
+        return html;
+    };
+
+    auto addMetricRow = [form, grpMetrics](const QString &titleText, QLabel *valueLbl, const QString &tooltipHtml) {
+        QLabel *titleLbl = new QLabel(titleText, grpMetrics);
+        titleLbl->setToolTip(tooltipHtml);
+        valueLbl->setToolTip(tooltipHtml);
+        form->addRow(titleLbl, valueLbl);
+    };
+
+    addMetricRow("Örneklem Sayısı (N):", m_lblSampleCount,
+                 makeSpcTooltip("Örneklem Sayısı (N)",
+                                "Analize dahil edilen toplam kanal / anten test ölçümü adedi.",
+                                makeMathRow(makeCell("N = ∑<sub>i=1</sub><sup>N</sup> 1")),
+                                "Güvenilir SPC analizi için genellikle N ≥ 30 önerilir."));
+    addMetricRow("Ortalama Sapma (μ):", m_lblMean,
+                 makeSpcTooltip("Ortalama Sapma (μ - Mean)",
+                                "Test edilen antenlerin referansa göre ortalama C/N farkı.",
+                                makeMathRow(makeCell("μ = ") + makeFrac("1", "N") + makeCell(" · ∑<sub>i=1</sub><sup>N</sup> Δ<sub>i</sub>")),
+                                "İdeal merkezlenmiş üretimde μ ≈ 0.00 dB olmalıdır."));
+    addMetricRow("Standart Sapma (σ):", m_lblStdDev,
+                 makeSpcTooltip("Standart Sapma (σ - Std Dev)",
+                                "Ölçümlerin ortalamadan yayılımını gösteren dağılım ölçüsü.",
+                                makeMathRow(makeCell("σ = √(") + makeFrac("∑<sub>i=1</sub><sup>N</sup> (Δ<sub>i</sub> − μ)<sup>2</sup>", "N − 1") + makeCell(")")),
+                                "Düşük σ değeri, hattın kararlı ve tekrarlanabilir olduğunu gösterir."));
+    addMetricRow("Süreç Yeteneği (Cp):", m_lblCp,
+                 makeSpcTooltip("Süreç Yetenek İndeksi (C<sub>p</sub>)",
+                                "Üretim bandının tolerans aralığına (USL − LSL) sığma potansiyeli (merkezden bağımsız).",
+                                makeMathRow(makeCell("C<sub>p</sub> = ") + makeFrac("USL − LSL", "6 · σ")),
+                                "• C<sub>p</sub> ≥ 1.33: Mükemmel (4-Sigma)<br/>• 1.00 ≤ C<sub>p</sub> &lt; 1.33: Kabul edilebilir<br/>• C<sub>p</sub> &lt; 1.00: Yetersiz yayılım"));
+    addMetricRow("Süreç İndeksi (Cpk):", m_lblCpk,
+                 makeSpcTooltip("Süreç Yeterlilik İndeksi (C<sub>pk</sub>)",
+                                "Hem yayılımı (σ) hem de hedef merkeze (μ) olan kaymayı dikkate alır.",
+                                makeMathRow(makeCell("C<sub>pk</sub> = min(") + makeFrac("USL − μ", "3 · σ") + makeCell(" , ") + makeFrac("μ − LSL", "3 · σ") + makeCell(")")),
+                                "• C<sub>pk</sub> ≥ 1.33: Yüksek kalite (4-Sigma)<br/>• C<sub>pk</sub> &lt; 1.00: Tolerans dışı ürün riski!"));
+    addMetricRow("Kümülatif Toplam (CUSUM):", m_lblCusum,
+                 makeSpcTooltip("Kümülatif Toplam (CUSUM)",
+                                "Süreçteki küçük ama sürekli kaymaları (drift) erken yakalamak için birikimli sapma toplamı.",
+                                makeMathRow(makeCell("S<sub>n</sub> = ∑<sub>i=1</sub><sup>n</sup> (Δ<sub>i</sub> − T) &nbsp;&nbsp;(T = 0 dB)")),
+                                "Sürekli artan/azalan eğilim hat kaymasına veya kalibrasyon bozulmasına işaret eder."));
+    addMetricRow("3-Sigma Sınırları [±3σ]:", m_lblThreeSigma,
+                 makeSpcTooltip("Doğal Süreç Sınırları (μ ± 3σ)",
+                                "Normal (Gauss) dağılımda ölçümlerin %99.73'ünün düşmesi beklenen doğal aralık.",
+                                makeMathRow(makeCell("LCL = μ − 3σ &nbsp;&nbsp;|&nbsp;&nbsp; UCL = μ + 3σ"))));
+    addMetricRow("Gözlenen Min / Max:", m_lblMinMax,
+                 makeSpcTooltip("Gözlenen Minimum ve Maksimum",
+                                "Seçili örneklem içindeki en düşük ve en yüksek Δ dB sapma değerleri.",
+                                makeMathRow(makeCell("R = max(Δ<sub>i</sub>) − min(Δ<sub>i</sub>)"))));
+    addMetricRow("Tolerans Sınırları [LSL / USL]:", m_lblToleranceLimits,
+                 makeSpcTooltip("Mühendislik Tolerans Limitleri (LSL / USL)",
+                                "Kabul edilebilir minimum (LSL) ve maksimum (USL) C/N sapma sınırları.",
+                                makeMathRow(makeCell("LSL = −Tolerans &nbsp;&nbsp;|&nbsp;&nbsp; USL = +Tolerans"))));
 
     kpiLayout->addWidget(grpMetrics);
 
@@ -248,6 +327,10 @@ void SpcAnalysisWidget::setupPlot() {
 
     m_plot->xAxis->setRange(-2.5, 2.5);
     m_plot->yAxis->setRange(0, 15);
+    m_plot->setInteractions(QCP::iRangeDrag | QCP::iRangeZoom);
+    m_plot->axisRect()->setRangeDrag(Qt::Horizontal);
+    m_plot->axisRect()->setRangeZoom(Qt::Horizontal);
+    m_plot->installEventFilter(this);
     m_plot->replot();
 }
 
@@ -299,6 +382,10 @@ void SpcAnalysisWidget::setupCumulativePlot() {
     m_cumulativePlot->xAxis->setRange(1, 20);
     m_cumulativePlot->yAxis->setRange(-2.0, 2.0);
     m_cumulativePlot->yAxis2->setRange(-10.0, 10.0);
+    m_cumulativePlot->setInteractions(QCP::iRangeDrag | QCP::iRangeZoom);
+    m_cumulativePlot->axisRect()->setRangeDrag(Qt::Horizontal);
+    m_cumulativePlot->axisRect()->setRangeZoom(Qt::Horizontal);
+    m_cumulativePlot->installEventFilter(this);
     m_cumulativePlot->replot();
 }
 
@@ -498,4 +585,28 @@ void SpcAnalysisWidget::onExportImageClicked() {
     } else {
         QMessageBox::warning(this, "Hata", "Grafik dosyası kaydedilemedi.");
     }
+}
+
+bool SpcAnalysisWidget::eventFilter(QObject *watched, QEvent *event) {
+    QCustomPlot *targetPlot = qobject_cast<QCustomPlot*>(watched);
+    if (targetPlot && (targetPlot == m_plot || targetPlot == m_cumulativePlot)) {
+        if (event->type() == QEvent::Wheel) {
+            auto *we = static_cast<QWheelEvent*>(event);
+            if (we->modifiers() & Qt::ShiftModifier) {
+                targetPlot->axisRect()->setRangeZoom(Qt::Vertical);
+            } else {
+                targetPlot->axisRect()->setRangeZoom(Qt::Horizontal);
+            }
+            return false;
+        } else if (event->type() == QEvent::MouseButtonPress) {
+            auto *me = static_cast<QMouseEvent*>(event);
+            if (me->modifiers() & Qt::ShiftModifier) {
+                targetPlot->axisRect()->setRangeDrag(Qt::Vertical);
+            } else {
+                targetPlot->axisRect()->setRangeDrag(Qt::Horizontal);
+            }
+            return false;
+        }
+    }
+    return QWidget::eventFilter(watched, event);
 }

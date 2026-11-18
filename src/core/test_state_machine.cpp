@@ -158,7 +158,8 @@ bool TestStateMachine::startTest(const QString &antennaSn,
         // In Golden Sample mode, check if any profile transponder channel lacks a Golden Sample baseline
         for (const auto &ch : profile.channels) {
             bool hasGolden = false;
-            if (m_selectedGoldenRecord.id > 0 && m_selectedGoldenRecord.frequencyMhz == ch.frequencyMhz &&
+            if (m_selectedGoldenRecord.id > 0 && m_selectedGoldenRecord.isActive &&
+                m_selectedGoldenRecord.frequencyMhz == ch.frequencyMhz &&
                 (m_selectedGoldenRecord.polarization.isEmpty() || m_selectedGoldenRecord.polarization == ch.polarization)) {
                 hasGolden = true;
             } else if (ch.hasGoldenSample && ch.goldenCnDb > 0.05) {
@@ -323,8 +324,9 @@ void TestStateMachine::runCurrentChannel() {
     QString goldenLabel;
 
     if (m_referenceMode == ReferenceMode::GoldenSample) {
-        // Priority 1: Check selected Golden Record matching this frequency & polarization
-        if (m_selectedGoldenRecord.id > 0 && m_selectedGoldenRecord.frequencyMhz == ch.frequencyMhz &&
+        // Priority 1: Check selected Golden Record matching this frequency & polarization (must be active)
+        if (m_selectedGoldenRecord.id > 0 && m_selectedGoldenRecord.isActive &&
+            m_selectedGoldenRecord.frequencyMhz == ch.frequencyMhz &&
             (m_selectedGoldenRecord.polarization.isEmpty() || m_selectedGoldenRecord.polarization == ch.polarization)) {
             gCn = m_selectedGoldenRecord.goldenCnDb;
             gPow = m_selectedGoldenRecord.goldenPowDbm;

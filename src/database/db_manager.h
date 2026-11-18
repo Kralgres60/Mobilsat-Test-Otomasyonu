@@ -109,7 +109,14 @@ public:
     bool saveGoldenFrequency(const GoldenFrequencyRecord &rec);
     /** @brief Deletes a frequency-based Golden Sample entry by ID. */
     bool deleteGoldenFrequency(int id);
-    /** @brief Looks up a Host Golden Sample measurement matching a transponder frequency/sr/pol. */
+    /**
+     * @brief Toggles the active/inactive state of a Golden Sample entry within its own frequency group.
+     * @param id Primary key of the Golden Sample record.
+     * @param active True to activate (deactivates other records of the same frequency/SR/pol); false to deactivate.
+     * @return true if database update succeeded.
+     */
+    bool setGoldenFrequencyActive(int id, bool active);
+    /** @brief Looks up an active Host Golden Sample measurement matching a transponder frequency/sr/pol. */
     bool findGoldenSampleForChannel(int freqMhz, int symbolRate, const QString &pol,
                                     double &outCn, double &outPow, double &outTol);
 
@@ -157,6 +164,12 @@ public:
 
     /** @brief Queries all channel measurement results for a specific test run. */
     QVector<ChannelSampleResult> getTestRunChannels(qint64 testRunId);
+    /**
+     * @brief Permanently deletes a test run and its associated channel records from the database.
+     * @param testRunId Primary key of the test run to remove.
+     * @return true if deleted successfully.
+     */
+    bool deleteTestRun(qint64 testRunId);
 
     /**
      * @brief Queries an array of arithmetic mean Delta dB attenuation values for Statistical Process Control (SPC).

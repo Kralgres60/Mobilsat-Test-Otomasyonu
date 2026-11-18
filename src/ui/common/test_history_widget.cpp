@@ -18,6 +18,8 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QMessageBox>
+#include <QMenu>
+#include <QAction>
 #include <QFileDialog>
 #include <QDateTime>
 #include <QColor>
@@ -141,6 +143,8 @@ void TestHistoryWidget::setupHistoryTab(QWidget *tab) {
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_table->setAlternatingRowColors(true);
     m_table->verticalHeader()->setDefaultSectionSize(26);
+    m_table->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_table, &QTableWidget::customContextMenuRequested, this, &TestHistoryWidget::onTableContextMenuRequested);
     vbox->addWidget(m_table, 1);
 
     // Pagination toolbar
@@ -764,5 +768,55 @@ void TestHistoryWidget::onClearAuditLogsClicked() {
         DbManager::instance().clearAuditLogs();
         refreshAuditLogs();
         emit logMessage("[Denetim Log] Sistem olay kayıtları temizlendi.");
+    }
+}
+
+void TestHistoryWidget::onTableContextMenuRequested(const QPoint &pos) {
+    if (!m_table) return;
+    QModelIndex idx = m_table->indexAt(pos);
+    if (!idx.isValid()) return;
+
+    int row = idx.row();
+    m_table->selectRow(row);
+
+    qint64 runId = m_table->item(row, 0) ? m_table->item(row, 0)->text().toLongLong() : 0;
+    if (runId <= 0) return;
+
+    QString sn = m_table->item(row, 6) ? m_table->item(row, 6)->text() : QString();
+    QString dateStr = m_table->item(row, 1) ? m_table->item(row, 1)->text() : QString();
+
+    QMenu menu(this);
+    QAction *actDelete = menu.addAction(QString("🗑️ Test Kaydını Sil (ID #%1)").arg(runId));
+    QAction *chosen = menu.exec(m_table->viewport()->mapToGlobal(pos));
+
+    if (chosen == actDelete) {
+        auto reply = QMessageBox::question(
+            this,
+            "Test Kaydı Silme Onayı",
+            QString("Seçili test kaydını kalıcı olarak silmek istediğinize emin misiniz?\n\n"
+                    "• Kayıt ID: #%1\n"
+                    "• Anten Seri No: %2\n"
+                    "• Tarih: %3\n\n"
+                    "Bu işlem geri alınamaz ve kanala ait ölçümler de silinir.")
+                .arg(runId)
+                .arg(sn.isEmpty() ? "--" : sn)
+                .arg(dateStr),
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::No);
+
+        if (reply == QMessageBox::Yes) {
+            if (DbManager::instance().deleteTestRun(runId)) {
+                DbManager::instance().logAudit(
+                    "TEST_RUN_DELETED",
+                    QString("Deleted test run #%1 (SN: %2)").arg(runId).arg(sn),
+                    AppConfig::instance().currentUsername(),
+                    AppConfig::instance().stationId());
+                emit logMessage(QString("[Test Geçmişi] Test kaydı #%1 (SN: %2) silindi.").arg(runId).arg(sn));
+                refreshHistory();
+            } else {
+                QMessageBox::warning(this, "Silme Hatası",
+                                     "Kayıt veritabanından silinemedi:\n" + DbManager::instance().lastError());
+            }
+        }
     }
 }

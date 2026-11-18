@@ -1334,7 +1334,7 @@ void ClientWindow::reloadGoldenRecordsList() {
             if (isHostActive) {
                 targetIdx = i;
             }
-            QString prefix = isHostActive ? "⭐ [AKTİF REFERANS] " : "";
+            QString prefix = rec.isActive ? "⭐ [AKTİF] " : "⚪ [PASİF] ";
             QString itemText;
             if (rec.durationSec > 0) {
                 itemText = QString("%1🔴 %2 (%3 MHz %4) — %5 dB (%6 sn Canlı)")
@@ -1436,6 +1436,7 @@ void ClientWindow::populateChannelTable() {
             chLabel = QString("%1 (%2 MHz %3)").arg(ch.channelName).arg(ch.frequencyMhz).arg(ch.polarization);
             if (isGoldenMode) {
                 if (m_stateMachine && m_stateMachine->selectedGoldenRecord().id > 0 &&
+                    m_stateMachine->selectedGoldenRecord().isActive &&
                     m_stateMachine->selectedGoldenRecord().frequencyMhz == ch.frequencyMhz &&
                     (m_stateMachine->selectedGoldenRecord().polarization.isEmpty() || m_stateMachine->selectedGoldenRecord().polarization == ch.polarization)) {
                     const auto &sel = m_stateMachine->selectedGoldenRecord();

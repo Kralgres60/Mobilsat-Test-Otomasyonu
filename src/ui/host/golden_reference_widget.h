@@ -62,24 +62,28 @@ signals:
 private slots:
     /** @brief Applies selected reference mode and active Golden Sample record to stations. */
     void onApplyRefModeClicked();
-    /** @brief Marks the currently selected table row as the active Golden Sample reference. */
-    void onSetSelectedAsActiveClicked();
     /** @brief Starts or stops live telemetry recording from the Reference DRX receiver. */
     void onToggleLiveRecordClicked();
-    /** @brief Handles 1-second timer ticks during live Golden Sample recording. */
+    /** @brief Handles timer ticks during live Golden Sample recording. */
     void onRecordTick();
     /** @brief Adds a new fixed baseline Golden Sample record to the database and table. */
     void onAddFixedMeasurementClicked();
     /** @brief Deletes the currently selected Golden Sample measurement row. */
     void onRemoveSelectedRowClicked();
-    /** @brief Saves all table edits to the database. */
-    void onSaveAllClicked();
     /** @brief Updates the mini plot when the user selects a different measurement row. */
     void onTableSelectionChanged();
+    /** @brief Displays context menu for deleting or toggling active state on right-click. */
+    void showTableContextMenu(const QPoint &pos);
+
+protected:
+    /** @brief Handles Delete key, empty-space collapse, and Shift+Scroll vertical zoom. */
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     void setupUi();
     void setupMiniPlot();
+    /** @brief Automatically saves any inline edit in the given table row to the database. */
+    void autoSaveRow(int row);
     /**
      * @brief Sets the active Golden Sample record ID in the database and refreshes the UI.
      * @param recordId Primary key of the Golden Sample record to activate.
@@ -97,7 +101,6 @@ private:
 
     // Reference Mode Selector
     QComboBox    *m_comboRefMode      = nullptr;
-    QComboBox    *m_comboActiveGolden = nullptr;
     int           m_activeGoldenId    = 0;
 
     // Target Transponder Configuration for Recording & Fixed Entry
@@ -133,6 +136,7 @@ private:
     QVector<double> m_currentRecTime;
 
     QVector<GoldenFrequencyRecord> m_records;
+    bool m_isPopulating = false; ///< Guards against auto-save triggers during table reload
 };
 
 #endif // GOLDEN_REFERENCE_WIDGET_H

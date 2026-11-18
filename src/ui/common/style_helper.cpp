@@ -56,6 +56,15 @@ QString StyleHelper::getAppStyle() {
             font-family: 'Segoe UI', Arial, sans-serif;
         }
 
+        QToolTip {
+            background-color: #0F172A;
+            color: #F8FAFC;
+            border: 1px solid #38BDF8;
+            border-radius: 6px;
+            padding: 8px 10px;
+            font-size: 9.5pt;
+        }
+
         QMenuBar {
             background-color: #064E3B;
             color: #E6F4EE;

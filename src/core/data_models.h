@@ -270,6 +270,7 @@ struct GoldenFrequencyRecord {
     QString updatedAt;              ///< Last measurement timestamp string
     QString sampleData;             ///< Serialized telemetry curve points for mini-graph visualization
     int durationSec = 0;            ///< Measurement duration in seconds
+    bool isActive = true;           ///< Per-frequency active flag (true = active baseline, false = inactive/live fallback)
 };
 
 /**

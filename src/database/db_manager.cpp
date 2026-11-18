@@ -200,9 +200,10 @@ bool DbManager::initTablesIfSqlite() {
     q.exec("ALTER TABLE test_run_channels ADD COLUMN drx_device_time TEXT;");
     q.exec("ALTER TABLE test_run_channels ADD COLUMN sample_host_time TEXT;");
     q.exec("ALTER TABLE test_run_channels ADD COLUMN dt_reserved_ms INTEGER DEFAULT 0;");
-    q.exec("CREATE TABLE IF NOT EXISTS golden_frequencies (id INTEGER PRIMARY KEY AUTOINCREMENT, label TEXT DEFAULT '', frequency_mhz INTEGER NOT NULL DEFAULT 0, symbol_rate INTEGER NOT NULL DEFAULT 0, polarization TEXT NOT NULL DEFAULT 'V', golden_cn_db REAL DEFAULT 0.0, golden_pow_dbm REAL DEFAULT 0.0, tolerance_db REAL DEFAULT 1.50, duration_sec INTEGER DEFAULT 0, sample_data TEXT DEFAULT '', updated_at TEXT DEFAULT CURRENT_TIMESTAMP);");
+    q.exec("CREATE TABLE IF NOT EXISTS golden_frequencies (id INTEGER PRIMARY KEY AUTOINCREMENT, label TEXT DEFAULT '', frequency_mhz INTEGER NOT NULL DEFAULT 0, symbol_rate INTEGER NOT NULL DEFAULT 0, polarization TEXT NOT NULL DEFAULT 'V', golden_cn_db REAL DEFAULT 0.0, golden_pow_dbm REAL DEFAULT 0.0, tolerance_db REAL DEFAULT 1.50, duration_sec INTEGER DEFAULT 0, sample_data TEXT DEFAULT '', is_active INTEGER DEFAULT 1, updated_at TEXT DEFAULT CURRENT_TIMESTAMP);");
     q.exec("ALTER TABLE golden_frequencies ADD COLUMN duration_sec INTEGER DEFAULT 0;");
     q.exec("ALTER TABLE golden_frequencies ADD COLUMN sample_data TEXT DEFAULT '';");
+    q.exec("ALTER TABLE golden_frequencies ADD COLUMN is_active INTEGER DEFAULT 1;");
     q.exec("CREATE TABLE IF NOT EXISTS audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, log_timestamp TEXT DEFAULT CURRENT_TIMESTAMP, action_type TEXT NOT NULL, details TEXT, operator_username TEXT DEFAULT '', station_id INTEGER DEFAULT 0);");
     q.exec("CREATE TABLE IF NOT EXISTS cluster_nodes (id INTEGER PRIMARY KEY AUTOINCREMENT, node_type TEXT NOT NULL DEFAULT 'HOST_SERVER', node_name TEXT NOT NULL, ip_address TEXT NOT NULL, port INTEGER NOT NULL DEFAULT 45454, status TEXT NOT NULL DEFAULT 'ONLINE', active_test_sn TEXT DEFAULT '', details TEXT DEFAULT '', last_seen TEXT DEFAULT CURRENT_TIMESTAMP, UNIQUE(node_type, ip_address, port));");
 
@@ -425,8 +426,8 @@ bool DbManager::ensureDefaultDataIfMissing() {
                "`golden_cn_db` DECIMAL(5, 2) NOT NULL DEFAULT 0.00,"
                "`golden_pow_dbm` DECIMAL(6, 2) NOT NULL DEFAULT 0.00,"
                "`tolerance_db` DECIMAL(4, 2) NOT NULL DEFAULT 1.50,"
-               "`updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,"
-               "UNIQUE KEY `uk_golden_freq_key` (`frequency_mhz`, `symbol_rate`, `polarization`)"
+               "`is_active` TINYINT(1) NOT NULL DEFAULT 1,"
+               "`updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
                ") ENGINE=InnoDB;");
     }
 
@@ -514,6 +515,7 @@ bool DbManager::ensureDefaultDataIfMissing() {
            "tolerance_db DECIMAL(4, 2) NOT NULL DEFAULT 1.50, "
            "duration_sec INT NOT NULL DEFAULT 0, "
            "sample_data MEDIUMTEXT DEFAULT NULL, "
+           "is_active TINYINT(1) NOT NULL DEFAULT 1, "
            "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) ENGINE=InnoDB;");
 
     q.exec("SHOW COLUMNS FROM golden_frequencies LIKE 'duration_sec';");
@@ -523,6 +525,17 @@ bool DbManager::ensureDefaultDataIfMissing() {
     q.exec("SHOW COLUMNS FROM golden_frequencies LIKE 'sample_data';");
     if (!q.next()) {
         q.exec("ALTER TABLE golden_frequencies ADD COLUMN sample_data MEDIUMTEXT DEFAULT NULL;");
+    }
+    q.exec("SHOW COLUMNS FROM golden_frequencies LIKE 'is_active';");
+    if (!q.next()) {
+        q.exec("ALTER TABLE golden_frequencies ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 1;");
+    }
+    // Drop any legacy unique keys if present so multiple records can exist per frequency with independent active/inactive toggle
+    for (const char *idxName : {"uk_golden_freq", "uk_golden_freq_key"}) {
+        q.exec(QString("SHOW INDEX FROM golden_frequencies WHERE Key_name = '%1';").arg(idxName));
+        if (q.next()) {
+            q.exec(QString("ALTER TABLE golden_frequencies DROP INDEX `%1`;").arg(idxName));
+        }
     }
 
     // 6d. System Event & Audit Logs table
@@ -856,7 +869,7 @@ QVector<GoldenFrequencyRecord> DbManager::getGoldenFrequencies() {
 
     QSqlDatabase db = QSqlDatabase::database(m_connectionName);
     QSqlQuery q("SELECT id, label, frequency_mhz, symbol_rate, polarization, "
-                "golden_cn_db, golden_pow_dbm, tolerance_db, duration_sec, sample_data, updated_at "
+                "golden_cn_db, golden_pow_dbm, tolerance_db, duration_sec, sample_data, is_active, updated_at "
                 "FROM golden_frequencies ORDER BY id DESC", db);
     while (q.next()) {
         GoldenFrequencyRecord r;
@@ -870,7 +883,8 @@ QVector<GoldenFrequencyRecord> DbManager::getGoldenFrequencies() {
         r.toleranceDb = q.value(7).toDouble();
         r.durationSec = q.value(8).toInt();
         r.sampleData = q.value(9).toString();
-        r.updatedAt = q.value(10).toString();
+        r.isActive = q.value(10).isNull() ? true : q.value(10).toBool();
+        r.updatedAt = q.value(11).toString();
         list.append(r);
     }
     return list;
@@ -881,27 +895,37 @@ bool DbManager::saveGoldenFrequency(const GoldenFrequencyRecord &rec) {
     QSqlDatabase db = QSqlDatabase::database(m_connectionName);
     QSqlQuery q(db);
 
+    // If inserting a new active record for a frequency, deactivate previous records of the same frequency+pol
+    if (rec.id == 0 && rec.isActive && rec.frequencyMhz > 0) {
+        QSqlQuery qDeact(db);
+        qDeact.prepare("UPDATE golden_frequencies SET is_active = 0 "
+                       "WHERE frequency_mhz = :freq AND polarization = :pol");
+        qDeact.bindValue(":freq", rec.frequencyMhz);
+        qDeact.bindValue(":pol", rec.polarization);
+        qDeact.exec();
+    }
+
     if (m_driverName == "QSQLITE") {
         if (rec.id > 0) {
             q.prepare("UPDATE golden_frequencies SET label = :lbl, frequency_mhz = :freq, symbol_rate = :sr, "
                       "polarization = :pol, golden_cn_db = :cn, golden_pow_dbm = :pow, tolerance_db = :tol, "
-                      "duration_sec = :dur, sample_data = :samples, updated_at = CURRENT_TIMESTAMP WHERE id = :id");
+                      "duration_sec = :dur, sample_data = :samples, is_active = :act, updated_at = CURRENT_TIMESTAMP WHERE id = :id");
             q.bindValue(":id", rec.id);
         } else {
             q.prepare("INSERT INTO golden_frequencies (label, frequency_mhz, symbol_rate, polarization, "
-                      "golden_cn_db, golden_pow_dbm, tolerance_db, duration_sec, sample_data, updated_at) "
-                      "VALUES (:lbl, :freq, :sr, :pol, :cn, :pow, :tol, :dur, :samples, CURRENT_TIMESTAMP)");
+                      "golden_cn_db, golden_pow_dbm, tolerance_db, duration_sec, sample_data, is_active, updated_at) "
+                      "VALUES (:lbl, :freq, :sr, :pol, :cn, :pow, :tol, :dur, :samples, :act, CURRENT_TIMESTAMP)");
         }
     } else if (rec.id > 0) {
         q.prepare("UPDATE golden_frequencies SET label = :lbl, frequency_mhz = :freq, symbol_rate = :sr, "
                   "polarization = :pol, golden_cn_db = :cn, golden_pow_dbm = :pow, tolerance_db = :tol, "
-                  "duration_sec = :dur, sample_data = :samples "
+                  "duration_sec = :dur, sample_data = :samples, is_active = :act "
                   "WHERE id = :id");
         q.bindValue(":id", rec.id);
     } else {
         q.prepare("INSERT INTO golden_frequencies (label, frequency_mhz, symbol_rate, polarization, "
-                  "golden_cn_db, golden_pow_dbm, tolerance_db, duration_sec, sample_data) "
-                  "VALUES (:lbl, :freq, :sr, :pol, :cn, :pow, :tol, :dur, :samples)");
+                  "golden_cn_db, golden_pow_dbm, tolerance_db, duration_sec, sample_data, is_active) "
+                  "VALUES (:lbl, :freq, :sr, :pol, :cn, :pow, :tol, :dur, :samples, :act)");
     }
 
     q.bindValue(":lbl", rec.label);
@@ -913,6 +937,7 @@ bool DbManager::saveGoldenFrequency(const GoldenFrequencyRecord &rec) {
     q.bindValue(":tol", rec.toleranceDb);
     q.bindValue(":dur", rec.durationSec);
     q.bindValue(":samples", rec.sampleData);
+    q.bindValue(":act", rec.isActive ? 1 : 0);
 
     if (!q.exec()) {
         m_lastError = q.lastError().text();
@@ -930,15 +955,45 @@ bool DbManager::deleteGoldenFrequency(int id) {
     return q.exec();
 }
 
+bool DbManager::setGoldenFrequencyActive(int id, bool active) {
+    if (!isConnected() || id <= 0) return false;
+    QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+
+    if (active) {
+        QSqlQuery qLookup(db);
+        qLookup.prepare("SELECT frequency_mhz, polarization FROM golden_frequencies WHERE id = :id");
+        qLookup.bindValue(":id", id);
+        if (qLookup.exec() && qLookup.next()) {
+            int freq = qLookup.value(0).toInt();
+            QString pol = qLookup.value(1).toString();
+            // Deactivate only records sharing the SAME frequency and polarization
+            QSqlQuery qDeact(db);
+            qDeact.prepare("UPDATE golden_frequencies SET is_active = 0 "
+                           "WHERE frequency_mhz = :f AND polarization = :pol AND id != :id");
+            qDeact.bindValue(":f", freq);
+            qDeact.bindValue(":pol", pol);
+            qDeact.bindValue(":id", id);
+            qDeact.exec();
+        }
+    }
+
+    QSqlQuery q(db);
+    q.prepare("UPDATE golden_frequencies SET is_active = :act WHERE id = :id");
+    q.bindValue(":act", active ? 1 : 0);
+    q.bindValue(":id", id);
+    return q.exec();
+}
+
 bool DbManager::findGoldenSampleForChannel(int freqMhz, int symbolRate, const QString &pol,
                                            double &outCn, double &outPow, double &outTol) {
     if (!isConnected()) return false;
     QSqlDatabase db = QSqlDatabase::database(m_connectionName);
     QSqlQuery q(db);
 
-    // 1. Priority: Exact frequency + symbol rate + polarization match
+    // 1. Priority: Exact active frequency + symbol rate + polarization match
     q.prepare("SELECT golden_cn_db, golden_pow_dbm, tolerance_db FROM golden_frequencies "
-              "WHERE frequency_mhz = :f AND symbol_rate = :sr AND polarization = :pol LIMIT 1");
+              "WHERE frequency_mhz = :f AND symbol_rate = :sr AND polarization = :pol AND is_active = 1 "
+              "ORDER BY id DESC LIMIT 1");
     q.bindValue(":f", freqMhz);
     q.bindValue(":sr", symbolRate);
     q.bindValue(":pol", pol);
@@ -949,9 +1004,10 @@ bool DbManager::findGoldenSampleForChannel(int freqMhz, int symbolRate, const QS
         return (outCn > 0.1 || qAbs(outPow) > 0.1);
     }
 
-    // 2. Secondary: Frequency + polarization match
+    // 2. Secondary: Active frequency + polarization match
     q.prepare("SELECT golden_cn_db, golden_pow_dbm, tolerance_db FROM golden_frequencies "
-              "WHERE frequency_mhz = :f AND polarization = :pol ORDER BY id DESC LIMIT 1");
+              "WHERE frequency_mhz = :f AND polarization = :pol AND is_active = 1 "
+              "ORDER BY id DESC LIMIT 1");
     q.bindValue(":f", freqMhz);
     q.bindValue(":pol", pol);
     if (q.exec() && q.next()) {
@@ -1573,6 +1629,25 @@ QVector<ChannelSampleResult> DbManager::getTestRunChannels(qint64 testRunId) {
         list.append(ch);
     }
     return list;
+}
+
+bool DbManager::deleteTestRun(qint64 testRunId) {
+    if (!isConnected() || testRunId <= 0) return false;
+    QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+
+    QSqlQuery qCh(db);
+    qCh.prepare("DELETE FROM test_run_channels WHERE test_run_id = :id");
+    qCh.bindValue(":id", testRunId);
+    qCh.exec();
+
+    QSqlQuery qRun(db);
+    qRun.prepare("DELETE FROM test_runs WHERE id = :id");
+    qRun.bindValue(":id", testRunId);
+    if (!qRun.exec()) {
+        m_lastError = qRun.lastError().text();
+        return false;
+    }
+    return true;
 }
 
 QVector<double> DbManager::getDeltaDbValuesForSpc(int workOrderId, int stationId, int profileId, int limit) {
