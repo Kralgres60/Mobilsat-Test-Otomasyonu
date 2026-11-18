@@ -127,6 +127,6 @@ void AppLogger::qtMessageHandler(QtMsgType type, const QMessageLogContext &, con
     }
 
     // Mirror to stderr for Qt Creator / console visibility
-    fprintf(stderr, "%s\n", line.toUtf8().constData());
+    fprintf(stderr, "%s\n", line.toLocal8Bit().constData());
     fflush(stderr);
 }

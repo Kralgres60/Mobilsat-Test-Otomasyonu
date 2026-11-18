@@ -201,6 +201,16 @@ InstallerPrefix=NETA_DRX9000_ANTENNA_Test_Setup
   set_version.bat major   :: 1.0.0 -> 2.0.0
   ```
 
+### 🧪 Tek Bilgisayarda Fabrika Küme Simülasyon Testi (`test_cluster.bat`)
+Gerçek fiziksel ağ kablolarına veya çoklu fiziksel bilgisayara ihtiyaç duymadan, projenin tüm 4 PC'li küme mimarisi (1 Yönetici Host + 3 Test İstasyonu) ve sanal DRX9000 alıcısı tek bir bilgisayar üzerinde çalıştırılabilir:
+```cmd
+:: Kök dizinden tek tıkla test menüsünü başlatma:
+test_cluster.bat
+```
+* **[1] Tam Fabrika Testi:** DRX Simülatör (Port 8080) + Yönetici Sunucu (Host) + 3 İstasyon (Masa 1, 2, 3) pencerelerini otomatik başlatır.
+* **[2] İkili Test:** 1 DRX Simülatör + 1 Host + 1 İstasyon başlatır.
+* **[6] Süreçleri Kapat:** Test sonunda açılan tüm test süreçlerini tek tuşla temizler.
+
 ---
 
 ## 📸 Sistem Ekran Görüntüleri ve Mimari Şemalar

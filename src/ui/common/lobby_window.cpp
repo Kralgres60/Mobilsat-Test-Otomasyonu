@@ -375,8 +375,6 @@ void LobbyWindow::launchHostMode() {
                                                             cfg.dbPassword());
     if (!connected && !DependencyInstaller::isMySqlListening(cfg.dbHost(), cfg.dbPort())) {
         DependencyInstaller::autoSetupHostEnvironment(this);
-    } else if (connected) {
-        DbManager::instance().ensureDefaultDataIfMissing();
     }
 
     HostWindow *hostWin = new HostWindow();

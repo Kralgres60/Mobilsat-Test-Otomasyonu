@@ -64,6 +64,25 @@ SimulatorWindow::~SimulatorWindow() {
     }
 }
 
+void SimulatorWindow::setListenPort(quint16 port) {
+    if (m_spinPort && port > 0) {
+        m_spinPort->setValue(port);
+        refreshEndpointHint();
+    }
+}
+
+void SimulatorWindow::setCustomTitle(const QString &title) {
+    if (!title.isEmpty()) {
+        setWindowTitle(QString("%1 - %2").arg(title, QStringLiteral("NETA DRX9000 Simülatörü")));
+    }
+}
+
+void SimulatorWindow::startListening() {
+    if (m_server && !m_server->isListening()) {
+        onToggleServer();
+    }
+}
+
 void SimulatorWindow::setupUi() {
     setWindowTitle(QStringLiteral("NETA DRX9000 TCP Telemetri & Eğri Simülatörü"));
     resize(1240, 820);

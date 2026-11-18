@@ -29,16 +29,24 @@
 #include "ui/debug/debug_runner_window.h"
 #include <QMainWindow>
 #endif
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
 
 int main(int argc, char *argv[]) {
-    // Disable Qt5 bearer network adapter polling that stalls Windows startup
-    qputenv("QT_BEARER_POLL_TIMEOUT", QByteArray::number(-1));
+#ifdef Q_OS_WIN
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+#endif
+
+    // Disable Qt5 bearer network adapter polling that stalls Windows startup (set to 24h to avoid negative interval warning)
+    qputenv("QT_BEARER_POLL_TIMEOUT", QByteArray::number(86400000));
 
     QApplication app(argc, argv);
     app.setFont(QFont("Segoe UI", 9));
     QTextCodec::setCodecForLocale(QTextCodec::codecForName("UTF-8"));
     AppLogger::instance().init();
-    AppLogger::instance().logEvent("APP", QString("NETA DRX9000 v%1 baslatildi.").arg(NETA_APP_VERSION));
+    AppLogger::instance().logEvent("APP", QString("NETA DRX9000 v%1 started.").arg(NETA_APP_VERSION));
 
 #if defined(NETA_DEBUG_MODE)
     qInfo() << "==========================================================";
@@ -100,16 +108,46 @@ int main(int argc, char *argv[]) {
     QCommandLineOption hostOption(QStringList() << "host", "Launch in Central Host / Management Server mode.");
     QCommandLineOption clientOption(QStringList() << "client", "Launch in Test Station / Operator mode.");
     QCommandLineOption stationOption(QStringList() << "s" << "station", "Test Workstation Number (1, 2, or 3).", "station_id");
+    QCommandLineOption serverOption(QStringList() << "H" << "server" << "host-ip", "Central Host Server IP address (default: 127.0.0.1).", "host_ip");
+    QCommandLineOption drxOption(QStringList() << "d" << "drx" << "drx-endpoint", "DRX9000 IP:Port endpoint (e.g. 127.0.0.1:8081).", "endpoint");
 
     parser.addOption(hostOption);
     parser.addOption(clientOption);
     parser.addOption(stationOption);
+    parser.addOption(serverOption);
+    parser.addOption(drxOption);
     parser.process(app);
 
     AppConfig &config = AppConfig::instance();
 
     if (parser.isSet(stationOption)) {
         config.setStationId(parser.value(stationOption).toInt());
+    }
+
+    if (parser.isSet(serverOption)) {
+        const QString sIp = parser.value(serverOption).trimmed();
+        config.setHostIp(sIp);
+        config.setDbHost(sIp);
+    } else if (parser.isSet(clientOption)) {
+        config.setHostIp("127.0.0.1");
+        config.setDbHost("127.0.0.1");
+    }
+
+    if (parser.isSet(drxOption)) {
+        const QString drxEp = parser.value(drxOption).trimmed();
+        if (parser.isSet(hostOption)) {
+            config.setRefDrxHost(drxEp);
+        } else {
+            config.setStationDrxHost(drxEp);
+        }
+    } else {
+        if (parser.isSet(hostOption)) {
+            config.setRefDrxHost("127.0.0.1:8080");
+        } else if (parser.isSet(clientOption)) {
+            int stId = config.stationId();
+            if (stId <= 0) stId = 1;
+            config.setStationDrxHost(QString("127.0.0.1:%1").arg(8080 + stId));
+        }
     }
 
     if (parser.isSet(hostOption)) {
@@ -119,8 +157,6 @@ int main(int argc, char *argv[]) {
                                                                 config.dbPassword());
         if (!connected && !DependencyInstaller::isMySqlListening(config.dbHost(), config.dbPort())) {
             DependencyInstaller::autoSetupHostEnvironment();
-        } else {
-            DbManager::instance().ensureDefaultDataIfMissing();
         }
         HostWindow *hostWin = new HostWindow();
         hostWin->showMaximized();

@@ -59,7 +59,7 @@ bool DbManager::connectToDatabase(const QString &host, int port, const QString &
         db.setDatabaseName(dbName);
         db.setUserName(effectiveUser);
         db.setPassword(effectivePassword);
-        db.setConnectOptions("MYSQL_OPT_SET_CHARSET_NAME=utf8mb4");
+        db.setConnectOptions("MYSQL_OPT_RECONNECT=1");
     } else if (m_driverName == "QODBC") {
         // MySQL ODBC DSN-less connection string
         QString dsn = QString("DRIVER={MySQL ODBC 8.0 Driver};SERVER=%1;PORT=%2;DATABASE=%3;UID=%4;PWD=%5;")
@@ -126,8 +126,8 @@ bool DbManager::connectToDatabase(const QString &host, int port, const QString &
         }
 
         if (!db.isOpen()) {
-            qWarning() << "[Database Service] MySQL/MariaDB acilamadi (" << m_lastError
-                       << "). Kesintisiz veri guvenligi icin yerel SQLite veritabanina geciliyor...";
+            qWarning() << "[Database Service] MySQL/MariaDB failed to open (" << m_lastError
+                       << "). Switching to local SQLite database for safe operation...";
             db.close();
             QSqlDatabase::removeDatabase(m_connectionName);
             db = QSqlDatabase::addDatabase("QSQLITE", m_connectionName);
@@ -135,15 +135,15 @@ bool DbManager::connectToDatabase(const QString &host, int port, const QString &
             db.setDatabaseName(fallbackDbPath);
             m_driverName = "QSQLITE";
             if (db.open()) {
-                qInfo() << "[Database Service] Yerel SQLite fallback veritabani basariyla acildi:" << fallbackDbPath;
+                qInfo() << "[Database Service] Local SQLite fallback database opened successfully:" << fallbackDbPath;
                 initTablesIfSqlite();
                 m_lastError.clear();
                 ensureDefaultDataIfMissing();
-                emit connectionStatusChanged(true, "Bağlı (SQLite Yedek Modu)");
+                emit connectionStatusChanged(true, "Connected (SQLite Fallback)");
                 return true;
             } else {
                 m_lastError = db.lastError().text();
-                qWarning() << "[Database Service] SQLite fallback de basarisiz:" << m_lastError;
+                qWarning() << "[Database Service] SQLite fallback also failed:" << m_lastError;
                 emit connectionStatusChanged(false, m_lastError);
                 return false;
             }
@@ -256,7 +256,7 @@ bool DbManager::executeSqlScript(const QString &resourceOrFilePath) {
     }
 
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        qWarning() << "[DbManager] SQL betik dosyası açılamadı:" << resourceOrFilePath;
+        qWarning() << "[DbManager] Failed to open SQL script file:" << resourceOrFilePath;
         return false;
     }
 
@@ -298,8 +298,8 @@ bool DbManager::executeSqlScript(const QString &resourceOrFilePath) {
             currentQuery = currentQuery.trimmed();
             if (!currentQuery.isEmpty()) {
                 if (!q.exec(currentQuery)) {
-                    qWarning() << "[DbManager] SQL yürütme uyarısı:" << q.lastError().text()
-                               << "\nSorgu:" << currentQuery.left(120);
+                    qWarning() << "[DbManager] SQL execution warning:" << q.lastError().text()
+                               << "\nQuery:" << currentQuery.left(120);
                 }
             }
             currentQuery.clear();
@@ -322,7 +322,7 @@ bool DbManager::executeSqlScript(const QString &resourceOrFilePath) {
 
 bool DbManager::ensureDefaultDataIfMissing() {
     if (!isConnected()) {
-        qWarning() << "[DbManager] ensureDefaultDataIfMissing çağrıldı ancak veritabanı bağlı değil.";
+        qWarning() << "[DbManager] ensureDefaultDataIfMissing called but database is not connected.";
         return false;
     }
 
@@ -344,7 +344,7 @@ bool DbManager::ensureDefaultDataIfMissing() {
     }
 
     if (needSchema) {
-        qInfo() << "[DbManager] Eksik MySQL tabloları tespit edildi, şema otomatik yükleniyor...";
+        qInfo() << "[DbManager] Missing MySQL tables detected, loading schema automatically...";
         executeSqlScript(":/sql/schema_mysql.sql");
     }
 
@@ -440,7 +440,7 @@ bool DbManager::ensureDefaultDataIfMissing() {
     }
 
     if (needSeed) {
-        qInfo() << "[DbManager] Varsayılan test profilleri ve kanalları bulunamadı, seed verisi yükleniyor...";
+        qInfo() << "[DbManager] Default satellite profiles not found, loading seed data...";
         executeSqlScript(":/sql/seed_data.sql");
     }
 
@@ -608,7 +608,7 @@ bool DbManager::ensureDefaultDataIfMissing() {
     q.exec("UPDATE users SET full_name = 'Masa 3 Operatörü' WHERE username = 'operator3' AND full_name LIKE '%Ã%';");
     q.exec("UPDATE users SET password_hash = '123' WHERE password_hash IN ('neta123', 'op123', 'admin', '1234', 'tech');");
 
-    qInfo() << "[MySQL Servisi] Veritabanı şeması ve fabrika başlangıç değerleri hazır.";
+    qInfo() << "[Database Service] Database schema and factory default values ready.";
     return true;
 }
 

@@ -374,5 +374,16 @@ Projedeki tüm C++ sınıfları, fonksiyonları ve sinyal/slot yapıları Doxyge
 
 ---
 
+## 9. Tek Bilgisayarda Küme ve Simülasyon Doğrulama (`test_cluster.bat`)
+
+Fabrika sahasına çıkmadan veya çoklu fiziksel bilgisayara ihtiyaç duymadan, tüm küme mimarisi (1 Yönetici Host + 3 İstasyon) ve sanal DRX donanımı tek bir geliştirici/test makinesinde doğrulanabilir:
+
+* **Sanal Küme Başlatıcı:** Kök dizindeki `test_cluster.bat` (veya `tools/test_single_pc_cluster.bat`) aracı çalıştırılır.
+* **Ağ Ayrımı:** Windows loopback arayüzü (`127.0.0.1` veya `127.0.0.x`) üzerinden her istasyon bağımsız bir TCP soket oturumu açar.
+* **Kilit Hakemi Doğrulaması:** İstasyon 1 test başlatıp referansı kilitlediğinde, İstasyon 2 ve 3 aynı anda test talep ederse `LockArbiter` FIFO kuyruğuna alınır ve kilit İstasyon 1 bittiğinde sırayla aktarılır.
+* **Konsol Log Standardı:** Konsol çıktılarında karakter seti uyumsuzluklarını önlemek ve uluslararası mühendislik standartlarına uymak amacıyla arka plan logları (`AppLogger`, `qInfo`, `qWarning`) yalın İngilizce (A1–A2) olarak üretilir.
+
+---
+
 > **Telif Hakkı ve Sorumluluk Beyanı:**  
 > Bu sistem ve kaynak kodları **Semi Eren Gökyıldız** tarafından **NETA ELEKTRONİK A.Ş.** için geliştirilmiştir. Tüm hakları saklıdır.

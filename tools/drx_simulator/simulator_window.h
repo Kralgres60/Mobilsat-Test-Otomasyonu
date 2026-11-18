@@ -40,6 +40,23 @@ public:
     explicit SimulatorWindow(QWidget *parent = nullptr);
     ~SimulatorWindow() override;
 
+    /**
+     * @brief Sets the TCP port spinbox value and updates endpoint hint.
+     * @param port TCP port number (1-65535).
+     */
+    void setListenPort(quint16 port);
+
+    /**
+     * @brief Sets custom window title and header tag for multi-instance identification.
+     * @param title Title prefix (e.g., "Referans DRX (Host :8080)").
+     */
+    void setCustomTitle(const QString &title);
+
+    /**
+     * @brief Immediately starts TCP HTTP-CGI server listening.
+     */
+    void startListening();
+
 private slots:
     void onToggleServer();
     void onPlayPause();
