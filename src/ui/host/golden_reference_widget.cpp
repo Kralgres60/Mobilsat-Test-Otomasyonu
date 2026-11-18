@@ -94,6 +94,40 @@ void GoldenReferenceWidget::setupUi() {
     QVBoxLayout *ctrlVBox = new QVBoxLayout(grpControls);
     ctrlVBox->setSpacing(8);
 
+    // Row 0: Target Transponder Parameters (Frequency, Symbol Rate, Polarization)
+    QHBoxLayout *rowTarget = new QHBoxLayout();
+    rowTarget->setSpacing(8);
+    QLabel *lblTargetTitle = new QLabel("🎯 Hedef Transponder:", grpControls);
+    lblTargetTitle->setStyleSheet("font-weight: bold; color: #FBBF24;");
+    rowTarget->addWidget(lblTargetTitle);
+
+    rowTarget->addWidget(new QLabel("Frekans:", grpControls));
+    m_spinTargetFreq = new QSpinBox(grpControls);
+    m_spinTargetFreq->setRange(950, 14500);
+    m_spinTargetFreq->setValue(12000);
+    m_spinTargetFreq->setSuffix(" MHz");
+    m_spinTargetFreq->setFixedWidth(115);
+    rowTarget->addWidget(m_spinTargetFreq);
+
+    rowTarget->addWidget(new QLabel("Sembol Oranı:", grpControls));
+    m_spinTargetSr = new QSpinBox(grpControls);
+    m_spinTargetSr->setRange(1000, 45000);
+    m_spinTargetSr->setValue(30000);
+    m_spinTargetSr->setSuffix(" kS/s");
+    m_spinTargetSr->setFixedWidth(115);
+    rowTarget->addWidget(m_spinTargetSr);
+
+    rowTarget->addWidget(new QLabel("Pol:", grpControls));
+    m_comboTargetPol = new QComboBox(grpControls);
+    m_comboTargetPol->addItem("H");
+    m_comboTargetPol->addItem("V");
+    m_comboTargetPol->setCurrentText("H");
+    m_comboTargetPol->setFixedWidth(65);
+    rowTarget->addWidget(m_comboTargetPol);
+
+    rowTarget->addStretch();
+    ctrlVBox->addLayout(rowTarget);
+
     // Row A: Live Record Button ("Ses kaydeder gibi başlat & kaydet")
     QHBoxLayout *rowRecord = new QHBoxLayout();
     m_btnLiveRecord = new QPushButton("🔴 Canlı Ölçüm Kaydını Başlat", grpControls);
@@ -163,9 +197,9 @@ void GoldenReferenceWidget::setupUi() {
     tableVBox->setSpacing(8);
 
     m_tableMeasurements = new QTableWidget(grpTable);
-    m_tableMeasurements->setColumnCount(8);
+    m_tableMeasurements->setColumnCount(11);
     m_tableMeasurements->setHorizontalHeaderLabels({
-        "#", "Ölçüm Adı / Etiket", "Ortalama C/N", "Ortalama Güç", "Tolerans", "Kayıt Türü & Süre", "Tarih / Saat", "Aktif Referans Seçimi"
+        "#", "Ölçüm Adı / Etiket", "Frekans", "Sembol Oranı", "Pol", "Ortalama C/N", "Ortalama Güç", "Tolerans", "Kayıt Türü & Süre", "Tarih / Saat", "Aktif Referans Seçimi"
     });
     m_tableMeasurements->verticalHeader()->setVisible(false);
     m_tableMeasurements->setAlternatingRowColors(true);
@@ -173,12 +207,15 @@ void GoldenReferenceWidget::setupUi() {
     m_tableMeasurements->setSelectionMode(QAbstractItemView::SingleSelection);
     m_tableMeasurements->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     m_tableMeasurements->setColumnWidth(0, 36);
-    m_tableMeasurements->setColumnWidth(2, 110);
-    m_tableMeasurements->setColumnWidth(3, 115);
-    m_tableMeasurements->setColumnWidth(4, 95);
-    m_tableMeasurements->setColumnWidth(5, 130);
-    m_tableMeasurements->setColumnWidth(6, 145);
-    m_tableMeasurements->setColumnWidth(7, 150);
+    m_tableMeasurements->setColumnWidth(2, 95);
+    m_tableMeasurements->setColumnWidth(3, 95);
+    m_tableMeasurements->setColumnWidth(4, 55);
+    m_tableMeasurements->setColumnWidth(5, 100);
+    m_tableMeasurements->setColumnWidth(6, 105);
+    m_tableMeasurements->setColumnWidth(7, 85);
+    m_tableMeasurements->setColumnWidth(8, 120);
+    m_tableMeasurements->setColumnWidth(9, 130);
+    m_tableMeasurements->setColumnWidth(10, 140);
     connect(m_tableMeasurements, &QTableWidget::itemSelectionChanged, this, &GoldenReferenceWidget::onTableSelectionChanged);
     tableVBox->addWidget(m_tableMeasurements, 1);
 
@@ -341,9 +378,11 @@ void GoldenReferenceWidget::refreshActiveGoldenUi() {
             for (int i = 0; i < m_records.size(); ++i) {
                 const auto &r = m_records[i];
                 bool isAct = (r.id == m_activeGoldenId);
-                QString txt = QString("%1%2 (%3 dB)")
+                QString txt = QString("%1%2 (%3 MHz %4 — %5 dB)")
                                   .arg(isAct ? "⭐ [AKTİF] " : "")
                                   .arg(r.label)
+                                  .arg(r.frequencyMhz)
+                                  .arg(r.polarization)
                                   .arg(r.goldenCnDb, 0, 'f', 1);
                 m_comboActiveGolden->addItem(txt, r.id);
                 if (isAct) activeIdx = i;
@@ -353,16 +392,16 @@ void GoldenReferenceWidget::refreshActiveGoldenUi() {
         m_comboActiveGolden->blockSignals(false);
     }
 
-    // 2. Update table column 7 action buttons
+    // 2. Update table column 10 action buttons
     if (!m_tableMeasurements) return;
     for (int row = 0; row < m_tableMeasurements->rowCount() && row < m_records.size(); ++row) {
         const auto &rec = m_records[row];
         bool isAct = (rec.id == m_activeGoldenId);
-        auto *btnAct = qobject_cast<QPushButton*>(m_tableMeasurements->cellWidget(row, 7));
+        auto *btnAct = qobject_cast<QPushButton*>(m_tableMeasurements->cellWidget(row, 10));
         if (!btnAct) {
             btnAct = new QPushButton(m_tableMeasurements);
             btnAct->setCursor(Qt::PointingHandCursor);
-            m_tableMeasurements->setCellWidget(row, 7, btnAct);
+            m_tableMeasurements->setCellWidget(row, 10, btnAct);
         }
         btnAct->disconnect();
         int recId = rec.id;
@@ -407,6 +446,17 @@ void GoldenReferenceWidget::onToggleLiveRecordClicked() {
             return;
         }
 
+        int targetFreq = m_spinTargetFreq ? m_spinTargetFreq->value() : 12000;
+        int targetSr = m_spinTargetSr ? m_spinTargetSr->value() : 30000;
+        QString targetPol = m_comboTargetPol ? m_comboTargetPol->currentText() : "H";
+
+        // Tune reference DRX to specified target frequency prior to recording
+        if (m_refWebClient && m_refWebClient->isReachable()) {
+            m_refWebClient->sendTune(targetFreq, targetSr, targetPol);
+        } else if (m_refSerial && m_refSerial->isConnected()) {
+            m_refSerial->sendTune(targetFreq, targetSr, targetPol);
+        }
+
         m_isRecording = true;
         m_recordingElapsedSec = 0;
         m_currentRecCn.clear();
@@ -415,10 +465,11 @@ void GoldenReferenceWidget::onToggleLiveRecordClicked() {
 
         m_btnLiveRecord->setText("⏹️ Kaydı Bitir & Listeye Ekle");
         m_btnLiveRecord->setStyleSheet("background-color: #DC2626; color: #FFFFFF; border: none; border-radius: 4px; padding: 8px 16px; font-weight: bold; font-size: 10pt;");
-        m_lblLiveRecordStatus->setText("🔴 KAYDEDİLİYOR... 00:00 sn | Referans alıcıdan canlı telemetri alınıyor...");
+        m_lblLiveRecordStatus->setText(QString("🔴 KAYDEDİLİYOR... (%1 MHz %2) 00:00 sn | Referans alıcıdan telemetri alınıyor...")
+                                           .arg(targetFreq).arg(targetPol));
         m_lblLiveRecordStatus->setStyleSheet("color: #F87171; font-weight: bold; padding-left: 8px;");
 
-        m_lblPlotTitle->setText("📊 Canlı Kaydedilen Referans Ölçüm Eğrisi");
+        m_lblPlotTitle->setText(QString("📊 Canlı Kaydedilen Referans Ölçüm Eğrisi (%1 MHz %2)").arg(targetFreq).arg(targetPol));
         m_miniPlot->graph(0)->data()->clear();
         m_miniPlot->graph(1)->data()->clear();
         m_miniPlot->graph(2)->data()->clear();
@@ -426,7 +477,8 @@ void GoldenReferenceWidget::onToggleLiveRecordClicked() {
         m_miniPlot->replot();
 
         m_recordTimer.start();
-        emit logMessage("[Golden Reference] Canlı telemetri kaydı başlatıldı.");
+        emit logMessage(QString("[Golden Reference] %1 MHz %2 için canlı telemetri kaydı başlatıldı.")
+                            .arg(targetFreq).arg(targetPol));
     } else {
         // Stop Recording & Save to List
         m_isRecording = false;
@@ -452,12 +504,16 @@ void GoldenReferenceWidget::onToggleLiveRecordClicked() {
         }
         if (curveStr.endsWith(',')) curveStr.chop(1);
 
+        int targetFreq = m_spinTargetFreq ? m_spinTargetFreq->value() : 12000;
+        int targetSr = m_spinTargetSr ? m_spinTargetSr->value() : 30000;
+        QString targetPol = m_comboTargetPol ? m_comboTargetPol->currentText() : "H";
+
         GoldenFrequencyRecord rec;
         rec.id = 0;
-        rec.label = QString("Canlı Ölçüm #%1").arg(m_records.size() + 1);
-        rec.frequencyMhz = 11054 + (m_records.size() * 10);
-        rec.symbolRate = 30000;
-        rec.polarization = "V";
+        rec.label = QString("Canlı Ölçüm (%1 MHz %2)").arg(targetFreq).arg(targetPol);
+        rec.frequencyMhz = targetFreq;
+        rec.symbolRate = targetSr;
+        rec.polarization = targetPol;
         rec.goldenCnDb = avgCn;
         rec.goldenPowDbm = avgPow;
         rec.toleranceDb = 1.50;
@@ -471,9 +527,9 @@ void GoldenReferenceWidget::onToggleLiveRecordClicked() {
             setActiveGoldenRecord(m_records.first().id, false);
         }
 
-        m_lblLiveRecordStatus->setText(QString("✔ Kayıt tamamlandı ve Aktif Referans yapıldı! Süre: %1 sn, Örnek: %2 adet, Ort C/N: %3 dB")
+        m_lblLiveRecordStatus->setText(QString("✔ Kayıt tamamlandı ve Aktif Referans yapıldı! Frekans: %1 MHz, Süre: %2 sn, Ort C/N: %3 dB")
+                                           .arg(targetFreq)
                                            .arg(m_recordingElapsedSec)
-                                           .arg(m_currentRecCn.size())
                                            .arg(avgCn, 0, 'f', 2));
         m_lblLiveRecordStatus->setStyleSheet("color: #34D399; font-weight: bold; padding-left: 8px;");
 
@@ -508,17 +564,21 @@ void GoldenReferenceWidget::onRecordTick() {
 }
 
 void GoldenReferenceWidget::onAddFixedMeasurementClicked() {
+    int targetFreq = m_spinTargetFreq ? m_spinTargetFreq->value() : 12000;
+    int targetSr = m_spinTargetSr ? m_spinTargetSr->value() : 30000;
+    QString targetPol = m_comboTargetPol ? m_comboTargetPol->currentText() : "H";
+
     QString lbl = m_txtFixedLabel ? m_txtFixedLabel->text().trimmed() : QString();
-    if (lbl.isEmpty()) {
-        lbl = QString("Sabit Ölçüm #%1").arg(m_records.size() + 1);
+    if (lbl.isEmpty() || lbl == "Sabit Referans - 14.5 dB") {
+        lbl = QString("Sabit Ölçüm (%1 MHz %2)").arg(targetFreq).arg(targetPol);
     }
 
     GoldenFrequencyRecord rec;
     rec.id = 0;
     rec.label = lbl;
-    rec.frequencyMhz = 11054 + (m_records.size() * 10);
-    rec.symbolRate = 30000;
-    rec.polarization = "V";
+    rec.frequencyMhz = targetFreq;
+    rec.symbolRate = targetSr;
+    rec.polarization = targetPol;
     rec.goldenCnDb = m_spinFixedCn ? m_spinFixedCn->value() : 14.50;
     rec.goldenPowDbm = m_spinFixedPow ? m_spinFixedPow->value() : -42.00;
     rec.toleranceDb = m_spinFixedTol ? m_spinFixedTol->value() : 1.50;
@@ -539,7 +599,8 @@ void GoldenReferenceWidget::onAddFixedMeasurementClicked() {
         setActiveGoldenRecord(m_records.first().id, false);
     }
 
-    emit logMessage("[Golden Reference] Sabit referans ölçümü eklendi ve aktif seçildi: " + rec.label);
+    emit logMessage(QString("[Golden Reference] %1 MHz %2 için sabit referans eklendi: %3 (C/N: %4 dB, Tol: ±%5 dB)")
+                        .arg(targetFreq).arg(targetPol).arg(rec.label).arg(rec.goldenCnDb, 0, 'f', 2).arg(rec.toleranceDb, 0, 'f', 2));
 }
 
 void GoldenReferenceWidget::onRemoveSelectedRowClicked() {
@@ -628,6 +689,38 @@ void GoldenReferenceWidget::populateRow(int row, const GoldenFrequencyRecord &re
 
     m_tableMeasurements->setItem(row, 1, new QTableWidgetItem(rec.label));
 
+    // Frekans (MHz)
+    auto *spinFreq = new QSpinBox(m_tableMeasurements);
+    spinFreq->setRange(950, 14500);
+    spinFreq->setValue(rec.frequencyMhz > 0 ? rec.frequencyMhz : 12000);
+    spinFreq->setSuffix(" MHz");
+    spinFreq->setAlignment(Qt::AlignCenter);
+    connect(spinFreq, QOverload<int>::of(&QSpinBox::valueChanged), this, [this, row](int val) {
+        if (row < m_records.size()) m_records[row].frequencyMhz = val;
+    });
+    m_tableMeasurements->setCellWidget(row, 2, spinFreq);
+
+    // Sembol Oranı (kS/s)
+    auto *spinSr = new QSpinBox(m_tableMeasurements);
+    spinSr->setRange(1000, 45000);
+    spinSr->setValue(rec.symbolRate > 0 ? rec.symbolRate : 30000);
+    spinSr->setSuffix(" kS/s");
+    spinSr->setAlignment(Qt::AlignCenter);
+    connect(spinSr, QOverload<int>::of(&QSpinBox::valueChanged), this, [this, row](int val) {
+        if (row < m_records.size()) m_records[row].symbolRate = val;
+    });
+    m_tableMeasurements->setCellWidget(row, 3, spinSr);
+
+    // Polarizasyon (H/V)
+    auto *comboPol = new QComboBox(m_tableMeasurements);
+    comboPol->addItem("H");
+    comboPol->addItem("V");
+    comboPol->setCurrentText(rec.polarization.isEmpty() ? "H" : rec.polarization.toUpper());
+    connect(comboPol, &QComboBox::currentTextChanged, this, [this, row](const QString &val) {
+        if (row < m_records.size()) m_records[row].polarization = val;
+    });
+    m_tableMeasurements->setCellWidget(row, 4, comboPol);
+
     // Ortalama C/N
     auto *spinCn = new QDoubleSpinBox(m_tableMeasurements);
     spinCn->setRange(0.0, 35.0);
@@ -639,7 +732,7 @@ void GoldenReferenceWidget::populateRow(int row, const GoldenFrequencyRecord &re
         if (row < m_records.size()) m_records[row].goldenCnDb = val;
         onTableSelectionChanged();
     });
-    m_tableMeasurements->setCellWidget(row, 2, spinCn);
+    m_tableMeasurements->setCellWidget(row, 5, spinCn);
 
     // Ortalama Güç
     auto *spinPow = new QDoubleSpinBox(m_tableMeasurements);
@@ -651,7 +744,7 @@ void GoldenReferenceWidget::populateRow(int row, const GoldenFrequencyRecord &re
     connect(spinPow, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this, row](double val) {
         if (row < m_records.size()) m_records[row].goldenPowDbm = val;
     });
-    m_tableMeasurements->setCellWidget(row, 3, spinPow);
+    m_tableMeasurements->setCellWidget(row, 6, spinPow);
 
     // Tolerans
     auto *spinTol = new QDoubleSpinBox(m_tableMeasurements);
@@ -664,7 +757,7 @@ void GoldenReferenceWidget::populateRow(int row, const GoldenFrequencyRecord &re
         if (row < m_records.size()) m_records[row].toleranceDb = val;
         onTableSelectionChanged();
     });
-    m_tableMeasurements->setCellWidget(row, 4, spinTol);
+    m_tableMeasurements->setCellWidget(row, 7, spinTol);
 
     // Kayıt Türü & Süre
     QString typeStr = (rec.durationSec > 0) ? QString("🔴 Canlı (%1 sn)").arg(rec.durationSec) : "📌 Sabit Değer";
@@ -672,18 +765,18 @@ void GoldenReferenceWidget::populateRow(int row, const GoldenFrequencyRecord &re
     itType->setTextAlignment(Qt::AlignCenter);
     itType->setFlags(itType->flags() & ~Qt::ItemIsEditable);
     itType->setForeground(QBrush(QColor(rec.durationSec > 0 ? "#F87171" : "#38BDF8")));
-    m_tableMeasurements->setItem(row, 5, itType);
+    m_tableMeasurements->setItem(row, 8, itType);
 
     // Tarih / Saat
     auto *itDate = new QTableWidgetItem(rec.updatedAt.isEmpty() ? QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm") : rec.updatedAt);
     itDate->setTextAlignment(Qt::AlignCenter);
     itDate->setFlags(itDate->flags() & ~Qt::ItemIsEditable);
-    m_tableMeasurements->setItem(row, 6, itDate);
+    m_tableMeasurements->setItem(row, 9, itDate);
 
     // Aktif Seçim Butonu
     auto *btnAct = new QPushButton(m_tableMeasurements);
     btnAct->setCursor(Qt::PointingHandCursor);
-    m_tableMeasurements->setCellWidget(row, 7, btnAct);
+    m_tableMeasurements->setCellWidget(row, 10, btnAct);
 }
 
 GoldenFrequencyRecord GoldenReferenceWidget::readRow(int row) const {
@@ -700,13 +793,22 @@ GoldenFrequencyRecord GoldenReferenceWidget::readRow(int row) const {
     if (auto *itLbl = m_tableMeasurements->item(row, 1)) {
         rec.label = itLbl->text().trimmed();
     }
-    if (auto *wCn = qobject_cast<QDoubleSpinBox*>(m_tableMeasurements->cellWidget(row, 2))) {
+    if (auto *wFreq = qobject_cast<QSpinBox*>(m_tableMeasurements->cellWidget(row, 2))) {
+        rec.frequencyMhz = wFreq->value();
+    }
+    if (auto *wSr = qobject_cast<QSpinBox*>(m_tableMeasurements->cellWidget(row, 3))) {
+        rec.symbolRate = wSr->value();
+    }
+    if (auto *wPol = qobject_cast<QComboBox*>(m_tableMeasurements->cellWidget(row, 4))) {
+        rec.polarization = wPol->currentText();
+    }
+    if (auto *wCn = qobject_cast<QDoubleSpinBox*>(m_tableMeasurements->cellWidget(row, 5))) {
         rec.goldenCnDb = wCn->value();
     }
-    if (auto *wPow = qobject_cast<QDoubleSpinBox*>(m_tableMeasurements->cellWidget(row, 3))) {
+    if (auto *wPow = qobject_cast<QDoubleSpinBox*>(m_tableMeasurements->cellWidget(row, 6))) {
         rec.goldenPowDbm = wPow->value();
     }
-    if (auto *wTol = qobject_cast<QDoubleSpinBox*>(m_tableMeasurements->cellWidget(row, 4))) {
+    if (auto *wTol = qobject_cast<QDoubleSpinBox*>(m_tableMeasurements->cellWidget(row, 7))) {
         rec.toleranceDb = wTol->value();
     }
     return rec;

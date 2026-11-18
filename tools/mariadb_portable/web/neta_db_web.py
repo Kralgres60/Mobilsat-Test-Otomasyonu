@@ -24,7 +24,7 @@ except ImportError:
     from http.server import HTTPServer as HttpServerClass, BaseHTTPRequestHandler
 from http.cookies import SimpleCookie
 
-PORT = 8080
+PORT = 8000
 DB_HOST = "127.0.0.1"
 DB_PORT = "3306"
 DB_USER = "root"
@@ -3636,6 +3636,15 @@ class NetaWebHandler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(data, ensure_ascii=False).encode("utf-8"))
 
 def main():
+    global PORT
+    if "--port" in sys.argv:
+        try:
+            idx = sys.argv.index("--port")
+            if idx + 1 < len(sys.argv):
+                PORT = int(sys.argv[idx + 1])
+        except Exception:
+            pass
+
     print("=" * 65)
     print("      NETA DRX9000 - ENTERPRISE FILO VE YONETIM PLATFORMU      ")
     print("=" * 65)

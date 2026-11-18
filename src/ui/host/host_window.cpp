@@ -33,6 +33,12 @@
 #include <QAction>
 #include <QStatusBar>
 #include <QMessageBox>
+#include <QDesktopServices>
+#include <QUrl>
+#include <QProcess>
+#include <QTcpSocket>
+#include <QFile>
+#include <QDir>
 #include <QFileDialog>
 #include <QDateTime>
 #include <QPixmap>
@@ -273,6 +279,49 @@ void HostWindow::setupMenuBar() {
         auto *dbWin = new DbDebugWindow(this);
         dbWin->setAttribute(Qt::WA_DeleteOnClose);
         dbWin->show();
+    });
+
+    QAction *actWebDb = menuAraclar->addAction("🌍 Web Veritabanı Konsolu");
+    actWebDb->setShortcut(QKeySequence("Ctrl+W"));
+    connect(actWebDb, &QAction::triggered, this, [this]() {
+        // Check if test port 8888 is already active, otherwise use default production port 8000
+        int targetPort = 8000;
+        QTcpSocket probeTest;
+        probeTest.connectToHost("127.0.0.1", 8888);
+        if (probeTest.waitForConnected(200)) {
+            targetPort = 8888;
+        }
+        probeTest.abort();
+
+        QTcpSocket probe;
+        probe.connectToHost("127.0.0.1", targetPort);
+        bool running = probe.waitForConnected(250);
+        probe.abort();
+
+        if (!running) {
+            QString appDir = QCoreApplication::applicationDirPath();
+            QString scriptPath;
+            const QStringList candidates = {
+                appDir + "/tools/mariadb_portable/web/neta_db_web.py",
+                QDir::currentPath() + "/tools/mariadb_portable/web/neta_db_web.py",
+                appDir + "/../../tools/mariadb_portable/web/neta_db_web.py"
+            };
+            for (const QString &c : candidates) {
+                if (QFile::exists(c)) {
+                    scriptPath = QDir::cleanPath(c);
+                    break;
+                }
+            }
+            if (!scriptPath.isEmpty()) {
+                QProcess::startDetached("python", QStringList() << scriptPath << "--port" << QString::number(targetPort));
+                appendLog(QString("Web Veritabanı Konsolu arka planda başlatılıyor (http://localhost:%1)...").arg(targetPort));
+            } else {
+                QMessageBox::warning(this, "Web Konsol Bulunamadı",
+                                     "neta_db_web.py dosyası bulunamadı. Lütfen tools/mariadb_portable/start_web_db.bat ile başlatın.");
+                return;
+            }
+        }
+        QDesktopServices::openUrl(QUrl(QString("http://localhost:%1").arg(targetPort)));
     });
 
     QMenu *menuAyarlar = menuBar()->addMenu("Ayarlar");

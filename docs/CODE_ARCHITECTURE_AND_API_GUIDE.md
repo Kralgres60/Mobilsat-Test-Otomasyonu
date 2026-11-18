@@ -336,7 +336,12 @@ Host PC üzerinde `:9100` portundan dinleme yapar. İstasyonların bağlantılar
 
 ### Sunucu / Yönetici Arayüzü (`src/ui/host/`)
 - **`HostWindow`**: Yönetici PC ekranıdır. Bağlı test masalarını, FIFO kilit sırasını, aktif referans almacı durumunu, veri tabanını ve test istatistiklerini izler.
-- **`GoldenReferenceWidget`**: Sabit referans antenin kalibrasyon ve ölçüm havuzu yönetim panelidir. Yönetici bu ekrandan canlı/sabit Golden Sample ölçümleri kaydedebilir ve tablodaki **"⭐ Aktif Seçili / ☑️ Aktif Yap"** butonlarıyla istasyonlarda varsayılan olarak kullanılacak referans kaydını (`ACTIVE_GOLDEN_RECORD_ID`) belirleyip TCP üzerinden tüm istasyonlara bildirebilir.
+- **`GoldenReferenceWidget`**: Sabit referans antenin kalibrasyon ve frekansa özel ölçüm havuzu yönetim panelidir. Yönetici bu ekrandan hedef frekans (MHz), sembol oranı (kS/s) ve polarizasyon (H/V) belirterek canlı/sabit Golden Sample ölçümleri kaydedebilir. Tabloda tüm transponder parametreleri düzenlenebilir; **"⭐ Aktif Seçili / ☑️ Aktif Yap"** butonlarıyla istasyonlarda varsayılan olarak kullanılacak referans kaydı (`ACTIVE_GOLDEN_RECORD_ID`) belirlenip TCP üzerinden tüm istasyonlara bildirilir.
+- **`Frekans Bazlı Hibrit Referans Mimarisi (Golden Sample & Canlı Fallback)`**:
+  - Test esnasında her transponder kanalı için frekans, sembol oranı ve polarizasyon bazında Golden Sample kaydı veya sabit profil eşiği aranır.
+  - İlgili frekans için geçerli bir kayıt/sabit değer varsa test o kayıtla karşılaştırılarak yürütülür (`m_currentChannelIsGolden = true`).
+  - Eğer o frekans için herhangi bir Golden kaydı bulunamazsa, sistem kesintiye uğramadan otomatik olarak **Canlı Referans Anten (Live Reference DRX)** ölçümüne geçer (`m_currentChannelIsGolden = false`).
+  - İstasyon arayüzünde her kanalın kayıtlı mı yoksa canlı referansla mı test edileceği renkli durum rozetleriyle (`Kayıtlı (Gold)` / `Canlı Ölçüm (Yeşil)`) anlık gösterilir.
 - **`UserManagerWidget`**: Fabrika kullanıcılarının, rollerinin ve şifrelerinin yönetildiği ekrandır.
 
 ### Geliştirici ve Teşhis Konsolu (`src/ui/debug/`)

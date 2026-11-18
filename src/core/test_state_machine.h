@@ -198,6 +198,7 @@ private:
     double m_lastRefPow = 0.0;
     ReferenceMode m_referenceMode = ReferenceMode::LiveReference;
     GoldenFrequencyRecord m_selectedGoldenRecord; ///< Active Golden Reference record for recorded testing
+    bool m_currentChannelIsGolden = false;        ///< True if active channel is evaluated against Golden Sample; false if Live Reference fallback
 
     // Time tracking & collection
     QDateTime m_lastDutDeviceTime;

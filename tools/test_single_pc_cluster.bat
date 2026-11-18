@@ -49,15 +49,16 @@ echo - Yonetici (Host) icin 1 adet Referans DRX [Port 8080]
 echo - Her Test Istasyonu icin ayri birer Test DRX [Port 8081, 8082, 8083]
 echo acarak tam fabrika kume simulasyonunu test edebilirsiniz.
 echo =====================================================================
-echo [1] Tam Fabrika Testini Baslat (4 DRX Sim + 1 Host + 3 Istasyon)
-echo [2] Ikili Test (2 DRX Sim + 1 Host + 1 Istasyon)
+echo [1] Tam Fabrika Testini Baslat (4 DRX Sim + 1 Host + 3 Istasyon + Web DB)
+echo [2] Ikili Test (2 DRX Sim + 1 Host + 1 Istasyon + Web DB)
 echo [3] Sadece 4 Adet DRX Simulatorunu Baslat (Port 8080, 8081, 8082, 8083)
 echo [4] Sadece Yonetici Sunucuyu (HOST) Baslat (Port 9100)
-echo [5] Sadece Bir Test Istasyonu Baslat (Masa 1, 2 veya 3)
+echo [5] Sadece Bir Test Istasyonu Baslat (Masa 1, 2, 3 ... N)
 echo [6] Calisan Tum Simule Surecleri Kapat (Temizle)
+echo [7] Web Veritabani Yonetim Konsolunu Ac [http://localhost:8888]
 echo [0] Cikis
 echo =====================================================================
-set /p SECIM="Lutfen seciminizi giriniz [1-6]: "
+set /p SECIM="Lutfen seciminizi giriniz [0-7]: "
 
 if "%SECIM%"=="1" goto START_FULL
 if "%SECIM%"=="2" goto START_DUAL
@@ -65,6 +66,7 @@ if "%SECIM%"=="3" goto START_SIMS
 if "%SECIM%"=="4" goto START_HOST
 if "%SECIM%"=="5" goto START_STATION
 if "%SECIM%"=="6" goto STOP_ALL
+if "%SECIM%"=="7" goto START_WEB_DB_MENU
 if "%SECIM%"=="0" goto EXIT
 goto MENU
 
@@ -102,9 +104,12 @@ timeout /t 1 >nul
 echo [8/8] Test Istasyonu 3 baslatiliyor - Masa 3, DUT DRX 8083...
 start "" /D "%APP_DIR%" "%APP_EXE%" --client -s 3 --drx 127.0.0.1:8083
 
+call :LAUNCH_WEB_DB
+
 echo.
 echo =====================================================================
-echo [BASARILI] 4 DRX Alicisi + 1 Host + 3 Istasyon calisiyor!
+echo [BASARILI] 4 DRX Alicisi + 1 Host + 3 Istasyon + Web DB calisiyor!
+echo Web DB URL: http://localhost:8888
 echo =====================================================================
 pause
 goto MENU
@@ -126,11 +131,15 @@ timeout /t 3 >nul
 
 echo [4/4] Test Istasyonu 1 baslatiliyor - Masa 1, DUT DRX 8081...
 start "" /D "%APP_DIR%" "%APP_EXE%" --client -s 1 --drx 127.0.0.1:8081
+
+call :LAUNCH_WEB_DB
+
 echo.
 echo =====================================================================
-echo [BASARILI] Ikili test ortami baslatildi!
+echo [BASARILI] Ikili test ortami ve Web DB baslatildi!
 echo - Host: Ref DRX 127.0.0.1:8080
 echo - Istasyon 1: DUT DRX 127.0.0.1:8081
+echo - Web DB: http://localhost:8888
 echo =====================================================================
 pause
 goto MENU
@@ -180,6 +189,46 @@ taskkill /f /im NETA_DRX_Simulator.exe >nul 2>&1
 echo [OK] Tum test surecleri temizlendi.
 pause
 goto MENU
+
+:START_WEB_DB_MENU
+cls
+call :LAUNCH_WEB_DB
+pause
+goto MENU
+
+:LAUNCH_WEB_DB
+set "WEB_SCRIPT="
+if exist "%APP_DIR%\tools\mariadb_portable\web\neta_db_web.py" set "WEB_SCRIPT=%APP_DIR%\tools\mariadb_portable\web\neta_db_web.py"
+if "%WEB_SCRIPT%"=="" if exist "%~dp0mariadb_portable\web\neta_db_web.py" set "WEB_SCRIPT=%~dp0mariadb_portable\web\neta_db_web.py"
+if "%WEB_SCRIPT%"=="" goto WEB_DB_MISSING
+
+set "PY_EXE="
+where python >nul 2>nul
+if %errorlevel% equ 0 set "PY_EXE=python"
+if "%PY_EXE%"=="" if exist "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" set "PY_EXE=%LOCALAPPDATA%\Programs\Python\Python311\python.exe"
+if "%PY_EXE%"=="" if exist "C:\Python311\python.exe" set "PY_EXE=C:\Python311\python.exe"
+if "%PY_EXE%"=="" if exist "C:\Python310\python.exe" set "PY_EXE=C:\Python310\python.exe"
+if "%PY_EXE%"=="" goto WEB_DB_NO_PY
+
+netstat -ano | findstr ":8888" | findstr "LISTENING" >nul
+if %errorlevel% equ 0 goto WEB_DB_OPEN_BROWSER
+
+echo [WEB DB] Veritabani web konsolu baslatiliyor [Port 8888]...
+start "NETA Web DB Server" /min "%PY_EXE%" "%WEB_SCRIPT%" --port 8888
+timeout /t 1 /nobreak >nul
+
+:WEB_DB_OPEN_BROWSER
+echo [WEB DB] Tarayici aciliyor: http://localhost:8888
+start http://localhost:8888
+exit /b 0
+
+:WEB_DB_MISSING
+echo [UYARI] Web veritabani scripti bulunamadi: neta_db_web.py
+exit /b 0
+
+:WEB_DB_NO_PY
+echo [UYARI] Sistemde Python 3 bulunamadigi icin Web DB konsolu baslatilamadi.
+exit /b 0
 
 :ERR_NO_APP
 cls

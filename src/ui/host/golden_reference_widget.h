@@ -15,6 +15,7 @@
 #include <QPushButton>
 #include <QLabel>
 #include <QLineEdit>
+#include <QSpinBox>
 #include <QDoubleSpinBox>
 #include <QTimer>
 #include <QVector>
@@ -98,6 +99,11 @@ private:
     QComboBox    *m_comboRefMode      = nullptr;
     QComboBox    *m_comboActiveGolden = nullptr;
     int           m_activeGoldenId    = 0;
+
+    // Target Transponder Configuration for Recording & Fixed Entry
+    QSpinBox     *m_spinTargetFreq      = nullptr;
+    QSpinBox     *m_spinTargetSr        = nullptr;
+    QComboBox    *m_comboTargetPol      = nullptr;
 
     // Live Recording Controls ("Ses kaydeder gibi")
     QPushButton  *m_btnLiveRecord       = nullptr;

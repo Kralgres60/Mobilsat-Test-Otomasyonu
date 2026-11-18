@@ -1337,15 +1337,19 @@ void ClientWindow::reloadGoldenRecordsList() {
             QString prefix = isHostActive ? "⭐ [AKTİF REFERANS] " : "";
             QString itemText;
             if (rec.durationSec > 0) {
-                itemText = QString("%1🔴 %2 — %3 dB (%4 sn Canlı)")
+                itemText = QString("%1🔴 %2 (%3 MHz %4) — %5 dB (%6 sn Canlı)")
                                .arg(prefix)
                                .arg(rec.label)
+                               .arg(rec.frequencyMhz)
+                               .arg(rec.polarization)
                                .arg(rec.goldenCnDb, 0, 'f', 1)
                                .arg(rec.durationSec);
             } else {
-                itemText = QString("%1📌 %2 — %3 dB (±%4 dB Sabit)")
+                itemText = QString("%1📌 %2 (%3 MHz %4) — %5 dB (±%6 dB Sabit)")
                                .arg(prefix)
                                .arg(rec.label)
+                               .arg(rec.frequencyMhz)
+                               .arg(rec.polarization)
                                .arg(rec.goldenCnDb, 0, 'f', 1)
                                .arg(rec.toleranceDb, 0, 'f', 2);
             }
@@ -1378,17 +1382,19 @@ void ClientWindow::onGoldenRecordComboChanged(int /*index*/) {
         loadGoldenOverlayCurve(selected);
         populateChannelTable();
         if (m_lblTestModeHint) {
+            QString freqDesc = QString("%1 MHz %2").arg(selected.frequencyMhz).arg(selected.polarization);
             if (selected.durationSec > 0) {
-                m_lblTestModeHint->setText(QString("⭐ Aktif Canlı Kayıt ('%1'): Her frekans %2 saniye test edilecektir (Ref: %3 dB, POW: %4 dBm).")
+                m_lblTestModeHint->setText(QString("⭐ Seçili Canlı Kayıt ('%1' - %2): %3 sn test süresi (Ref: %4 dB, POW: %5 dBm). Kaydı olmayan diğer frekanslar canlı ölçülecektir.")
                                                .arg(selected.label)
+                                               .arg(freqDesc)
                                                .arg(selected.durationSec)
                                                .arg(selected.goldenCnDb, 0, 'f', 1)
                                                .arg(selected.goldenPowDbm, 0, 'f', 1));
                 m_lblTestModeHint->setStyleSheet("color: #FBBF24; font-size: 8.5pt; font-weight: bold;");
             } else {
-                m_lblTestModeHint->setText(QString("⭐ Aktif Sabit Kayıt ('%1'): Varsayılan test süresi (%2 sn) kullanılacaktır (Ref: %3 dB, ±%4 dB).")
+                m_lblTestModeHint->setText(QString("⭐ Seçili Sabit Kayıt ('%1' - %2): Ref: %3 dB, ±%4 dB. Kaydı olmayan diğer frekanslar canlı ölçülecektir.")
                                                .arg(selected.label)
-                                               .arg(AppConfig::instance().sampleDurationSec())
+                                               .arg(freqDesc)
                                                .arg(selected.goldenCnDb, 0, 'f', 1)
                                                .arg(selected.toleranceDb, 0, 'f', 2));
                 m_lblTestModeHint->setStyleSheet("color: #60A5FA; font-size: 8.5pt; font-weight: bold;");
@@ -1396,9 +1402,13 @@ void ClientWindow::onGoldenRecordComboChanged(int /*index*/) {
         }
     } else {
         clearGoldenOverlay();
+        if (m_stateMachine) {
+            m_stateMachine->setSelectedGoldenRecord(GoldenFrequencyRecord());
+        }
+        populateChannelTable();
         if (m_lblTestModeHint) {
-            m_lblTestModeHint->setText("⚠️ Kayıtlı Golden Reference ölçümü bulunmuyor.");
-            m_lblTestModeHint->setStyleSheet("color: #EF4444; font-size: 8.5pt;");
+            m_lblTestModeHint->setText("ℹ️ Genel Golden Mod: Her kanal için veritabanında veya profilde tanımlı frekansa özel kayıt aranır; bulunamayanlar canlı ölçülür.");
+            m_lblTestModeHint->setStyleSheet("color: #38BDF8; font-size: 8.5pt;");
         }
     }
 }
@@ -1419,22 +1429,32 @@ void ClientWindow::populateChannelTable() {
 
         QString chLabel = QString("Kanal %1").arg(i + 1);
         QString refPreview = "-- dB";
+        bool hasGoldenForThisChannel = false;
+
         if (i < m_currentProfile.channels.size()) {
             const auto &ch = m_currentProfile.channels[i];
             chLabel = QString("%1 (%2 MHz %3)").arg(ch.channelName).arg(ch.frequencyMhz).arg(ch.polarization);
             if (isGoldenMode) {
-                if (m_stateMachine && m_stateMachine->selectedGoldenRecord().id > 0) {
+                if (m_stateMachine && m_stateMachine->selectedGoldenRecord().id > 0 &&
+                    m_stateMachine->selectedGoldenRecord().frequencyMhz == ch.frequencyMhz &&
+                    (m_stateMachine->selectedGoldenRecord().polarization.isEmpty() || m_stateMachine->selectedGoldenRecord().polarization == ch.polarization)) {
                     const auto &sel = m_stateMachine->selectedGoldenRecord();
-                    refPreview = QString("%1 dB (%2)").arg(sel.goldenCnDb, 0, 'f', 1).arg(sel.durationSec > 0 ? QString("%1s").arg(sel.durationSec) : "Sabit");
+                    refPreview = QString("%1 dB (%2)").arg(sel.goldenCnDb, 0, 'f', 1).arg(sel.durationSec > 0 ? QString("%1s Canlı").arg(sel.durationSec) : "Sabit");
+                    hasGoldenForThisChannel = true;
+                } else if (ch.hasGoldenSample && ch.goldenCnDb > 0.05) {
+                    refPreview = QString("%1 dB (Profil Sabit)").arg(ch.goldenCnDb, 0, 'f', 1);
+                    hasGoldenForThisChannel = true;
                 } else {
-                    double gCn = ch.goldenCnDb;
-                    double gPow = ch.goldenPowDbm;
-                    double gTol = ch.toleranceDb;
+                    double gCn = 0.0, gPow = 0.0, gTol = 0.0;
                     bool found = DbManager::instance().findGoldenSampleForChannel(
                         ch.frequencyMhz, ch.symbolRate, ch.polarization, gCn, gPow, gTol);
-                    refPreview = (found || ch.hasGoldenSample)
-                                     ? QString("%1 dB (G)").arg(gCn, 0, 'f', 1)
-                                     : "Ölçülmedi";
+                    if (found) {
+                        refPreview = QString("%1 dB (Kayıtlı)").arg(gCn, 0, 'f', 1);
+                        hasGoldenForThisChannel = true;
+                    } else {
+                        refPreview = "📡 Canlı Ölçüm (Kayıt Yok)";
+                        hasGoldenForThisChannel = false;
+                    }
                 }
             }
         }
@@ -1445,7 +1465,7 @@ void ClientWindow::populateChannelTable() {
         QTableWidgetItem *itRef = new QTableWidgetItem(refPreview);
         itRef->setTextAlignment(Qt::AlignCenter);
         if (isGoldenMode) {
-            itRef->setForeground(QBrush(QColor("#FBBF24")));
+            itRef->setForeground(QBrush(QColor(hasGoldenForThisChannel ? "#FBBF24" : "#34D399")));
         }
         QTableWidgetItem *itDelta = new QTableWidgetItem("--");
         itDelta->setTextAlignment(Qt::AlignCenter);

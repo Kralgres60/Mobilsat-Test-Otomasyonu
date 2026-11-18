@@ -151,13 +151,39 @@ bool TestStateMachine::startTest(const QString &antennaSn,
         QString("Tester=%1 | SN=%2 | Profile=%3 | Mode=%4")
             .arg(m_testRun.testerName, antennaSn, profile.profileName, modeDesc));
 
-    if (m_referenceMode == ReferenceMode::GoldenSample) {
-        emit logMessage(QString("[Kayıtlı Test] Golden Referans kullanılıyor: '%1' (%2 dB). Donanımsal anten kilidi aranmaz.")
-                            .arg(m_selectedGoldenRecord.label.isEmpty() ? "Kayıtlı Referans" : m_selectedGoldenRecord.label)
-                            .arg(m_selectedGoldenRecord.goldenCnDb, 0, 'f', 2));
+    bool needsLiveLock = false;
+    if (m_referenceMode == ReferenceMode::LiveReference) {
+        needsLiveLock = true;
+    } else {
+        // In Golden Sample mode, check if any profile transponder channel lacks a Golden Sample baseline
+        for (const auto &ch : profile.channels) {
+            bool hasGolden = false;
+            if (m_selectedGoldenRecord.id > 0 && m_selectedGoldenRecord.frequencyMhz == ch.frequencyMhz &&
+                (m_selectedGoldenRecord.polarization.isEmpty() || m_selectedGoldenRecord.polarization == ch.polarization)) {
+                hasGolden = true;
+            } else if (ch.hasGoldenSample && ch.goldenCnDb > 0.05) {
+                hasGolden = true;
+            } else {
+                double gCn = 0.0, gPow = 0.0, gTol = 0.0;
+                if (DbManager::instance().findGoldenSampleForChannel(ch.frequencyMhz, ch.symbolRate, ch.polarization, gCn, gPow, gTol)) {
+                    hasGolden = true;
+                }
+            }
+            if (!hasGolden) {
+                needsLiveLock = true;
+                break;
+            }
+        }
+    }
+
+    if (!needsLiveLock) {
+        emit logMessage(QString("[Kayıtlı Test] Tüm frekanslar için Golden Sample mevcut. Donanımsal anten kilidi aranmaz."));
         changeState(TestState::WaitingForLock);
         onLockGranted(90);
     } else {
+        if (m_referenceMode == ReferenceMode::GoldenSample) {
+            emit logMessage(QString("[Hibrit Referans] Bazı frekanslar için Golden kayıt bulunamadığından Canlı Referans Anten kilidi talep ediliyor..."));
+        }
         changeState(TestState::WaitingForLock);
 
 #if defined(NETA_ALGORITMA_2_THREE_PC)
@@ -289,29 +315,43 @@ void TestStateMachine::runCurrentChannel() {
     }
 
     // 2. Reference comparison handling:
-    //    - GoldenSample: use selected Golden Sample record (live or fixed), fallback to channel/pool
-    //    - LiveReference: tune shared Reference DRX (via Host TCP in Alg 1, or direct LAN in Alg 2)
-    if (m_referenceMode == ReferenceMode::GoldenSample) {
-        double gCn = 0.0;
-        double gPow = 0.0;
-        double gTol = ch.toleranceDb;
+    //    Determine whether this transponder frequency has a Golden Sample baseline
+    m_currentChannelIsGolden = false;
+    double gCn = 0.0;
+    double gPow = 0.0;
+    double gTol = ch.toleranceDb;
+    QString goldenLabel;
 
-        if (m_selectedGoldenRecord.id > 0) {
+    if (m_referenceMode == ReferenceMode::GoldenSample) {
+        // Priority 1: Check selected Golden Record matching this frequency & polarization
+        if (m_selectedGoldenRecord.id > 0 && m_selectedGoldenRecord.frequencyMhz == ch.frequencyMhz &&
+            (m_selectedGoldenRecord.polarization.isEmpty() || m_selectedGoldenRecord.polarization == ch.polarization)) {
             gCn = m_selectedGoldenRecord.goldenCnDb;
             gPow = m_selectedGoldenRecord.goldenPowDbm;
-            if (m_selectedGoldenRecord.toleranceDb > 0.05) {
-                gTol = m_selectedGoldenRecord.toleranceDb;
-            }
-        } else {
+            if (m_selectedGoldenRecord.toleranceDb > 0.05) gTol = m_selectedGoldenRecord.toleranceDb;
+            goldenLabel = m_selectedGoldenRecord.label.isEmpty() ? QString("%1 MHz %2").arg(ch.frequencyMhz).arg(ch.polarization) : m_selectedGoldenRecord.label;
+            m_currentChannelIsGolden = true;
+        }
+        // Priority 2: Check profile channel fixed golden sample
+        else if (ch.hasGoldenSample && ch.goldenCnDb > 0.05) {
             gCn = ch.goldenCnDb;
             gPow = ch.goldenPowDbm;
+            gTol = ch.toleranceDb;
+            goldenLabel = QString("Profil Sabiti (%1)").arg(ch.channelName);
+            m_currentChannelIsGolden = true;
+        }
+        // Priority 3: Check database golden_frequencies table for matching frequency & polarization
+        else {
             bool foundInPool = DbManager::instance().findGoldenSampleForChannel(
                 ch.frequencyMhz, ch.symbolRate, ch.polarization, gCn, gPow, gTol);
-            if (foundInPool && gTol > 0.05) {
-                m_profile.channels[m_currentChannelIndex].toleranceDb = gTol;
+            if (foundInPool) {
+                goldenLabel = QString("DB Kayıtlı (%1 MHz %2)").arg(ch.frequencyMhz).arg(ch.polarization);
+                m_currentChannelIsGolden = true;
             }
         }
+    }
 
+    if (m_currentChannelIsGolden) {
         m_lastRefCn = gCn;
         m_lastRefPow = gPow;
         m_profile.channels[m_currentChannelIndex].toleranceDb = gTol;
@@ -319,14 +359,20 @@ void TestStateMachine::runCurrentChannel() {
         m_refVideoLocked = true;
         m_refCnSamples.append(gCn);
         m_refPowSamples.append(gPow);
-        emit logMessage(QString("[Kayıtlı Test] Referans: '%1' (%2 MHz %3) -> C/N=%4 dB | POW=%5 dBm | Tolerans=±%6 dB")
-                            .arg(m_selectedGoldenRecord.label.isEmpty() ? ch.channelName : m_selectedGoldenRecord.label)
+        emit logMessage(QString("[Kayıtlı Test] Frekans: %1 MHz %2 (%3) -> Kayıtlı Golden Sample kullanılıyor: C/N=%4 dB | POW=%5 dBm | Tolerans=±%6 dB (%7)")
                             .arg(ch.frequencyMhz)
                             .arg(ch.polarization)
+                            .arg(ch.channelName)
                             .arg(gCn, 0, 'f', 2)
                             .arg(gPow, 0, 'f', 2)
-                            .arg(gTol, 0, 'f', 2));
+                            .arg(gTol, 0, 'f', 2)
+                            .arg(goldenLabel));
     } else {
+        // Fallback to Live Reference DRX measurement (either mode is LiveReference or no golden baseline exists for this frequency)
+        if (m_referenceMode == ReferenceMode::GoldenSample) {
+            emit logMessage(QString("[Hibrit Referans] Frekans: %1 MHz %2 (%3) için Golden kayıt bulunamadı -> Canlı Referans Anten ölçümüne geçildi.")
+                                .arg(ch.frequencyMhz).arg(ch.polarization).arg(ch.channelName));
+        }
 #if defined(NETA_ALGORITMA_2_THREE_PC)
         // Algorithm 2: Update MariaDB lock heartbeat and tune shared Reference DRX9000 via Web CGI
         DbManager::instance().updateDbLockHeartbeat(AppConfig::instance().stationId(), ch.channelNo);
@@ -363,15 +409,16 @@ void TestStateMachine::onDutStatus(bool signalLocked, bool videoProducing, bool 
         }
 
         int sampleSec = AppConfig::instance().sampleDurationSec();
-        if (m_referenceMode == ReferenceMode::GoldenSample && m_selectedGoldenRecord.id > 0 && m_selectedGoldenRecord.durationSec > 0) {
+        if (m_currentChannelIsGolden && m_selectedGoldenRecord.id > 0 && m_selectedGoldenRecord.durationSec > 0 &&
+            m_selectedGoldenRecord.frequencyMhz == m_profile.channels[m_currentChannelIndex].frequencyMhz) {
             sampleSec = m_selectedGoldenRecord.durationSec;
         }
         m_sampleDurationTimer.start(sampleSec * 1000);
         m_sampleTickTimer.start(250); // Sample telemetry at 250ms intervals
         emit logMessage(QString("Taşıyıcı kilitlendi (S:+). Telemetri toplanıyor: %1 saniye (%2)...")
                             .arg(sampleSec)
-                            .arg(m_referenceMode == ReferenceMode::GoldenSample
-                                     ? (m_selectedGoldenRecord.durationSec > 0 ? "Kayıtlı Canlı Süre" : "Sabit Kayıt - Varsayılan Süre")
+                            .arg(m_currentChannelIsGolden
+                                     ? "Kayıtlı/Sabit Golden Referans"
                                      : "Canlı Referans Anten Testi"));
     }
 }
@@ -405,7 +452,7 @@ void TestStateMachine::onDutTimestampReceived(const QDateTime &deviceTime, const
 }
 
 void TestStateMachine::onRefData(double refCn, double refPow, bool carrierLocked, bool videoLocked) {
-    if (m_referenceMode == ReferenceMode::GoldenSample) {
+    if (m_currentChannelIsGolden) {
         return; // Keep stored Golden Sample baseline unchanged
     }
     m_lastRefCn = refCn;
@@ -431,7 +478,7 @@ void TestStateMachine::onSampleTimerTick() {
         }
     }
 #if defined(NETA_ALGORITMA_2_THREE_PC)
-    if (m_referenceMode == ReferenceMode::LiveReference) {
+    if (!m_currentChannelIsGolden) {
         if (m_refTransfer) {
             m_refTransfer->requestStatus();
         } else if (m_refWebClient) {

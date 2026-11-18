@@ -39,21 +39,25 @@ if "%PYTHON_CMD%"=="" (
     exit /b 1
 )
 
-REM 3. Web Konsol Servisi Baslat
-echo [2/3] Web Konsol Servisi Baslatiliyor (Port 8080)...
-start "NETA Web DB Server" "%PYTHON_CMD%" "%~dp0web\neta_db_web.py"
-
-timeout /t 1 /nobreak >nul
+REM 3. Web Konsol Servisi Baslat (Port 8000)
+netstat -ano | findstr ":8000" | findstr "LISTENING" >nul
+if %errorlevel% equ 0 (
+    echo [2/3] Web Konsol Servisi Port 8000 uzerinde zaten calisiyor!
+) else (
+    echo [2/3] Web Konsol Servisi Baslatiliyor [Port 8000]...
+    start "NETA Web DB Server" "%PYTHON_CMD%" "%~dp0web\neta_db_web.py" --port 8000
+    timeout /t 1 /nobreak >nul
+)
 
 REM 4. Tarayicida Ac
-echo [3/3] Tarayici baslatiliyor: http://localhost:8080
-start http://localhost:8080
+echo [3/3] Tarayici baslatiliyor: http://localhost:8000
+start http://localhost:8000
 
 echo.
 echo =====================================================================
 echo [BASARILI] Web Veritabani Konsolu Baslatildi!
-echo URL: http://localhost:8080
-echo Ayni agdaki diger cihazlardan erisim: http://[BU_PC_IP_ADRESI]:8080
+echo URL: http://localhost:8000
+echo Ayni agdaki diger cihazlardan erisim: http://[BU_PC_IP_ADRESI]:8000
 echo =====================================================================
 echo.
 echo Bu pencereyi kapatabilirsiniz. Web konsol arka planda calisacaktir.
