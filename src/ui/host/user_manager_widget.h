@@ -37,16 +37,24 @@ signals:
 
 private slots:
     void onAddUserClicked();
-    void onSaveAllClicked();
+    void onEditUserPopup(int row);
     void onChangePasswordClicked();
     void onDeleteUserClicked();
+    void showTableContextMenu(const QPoint &pos);
+
+protected:
+    /** @brief Handles Delete key press on the users table. */
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     void setupUi();
+    /** @brief Automatically persists inline role or active-status edits to the database. */
+    void autoSaveRow(int row);
 
     QTableWidget *m_tableUsers = nullptr;
     QLabel       *m_lblStatus  = nullptr;
     QVector<UserRecord> m_users;
+    bool m_isPopulating = false;
 };
 
 #endif // USER_MANAGER_WIDGET_H

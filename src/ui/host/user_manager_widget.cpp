@@ -19,6 +19,9 @@
 #include <QDialogButtonBox>
 #include <QInputDialog>
 #include <QMessageBox>
+#include <QMenu>
+#include <QAction>
+#include <QKeyEvent>
 
 UserManagerWidget::UserManagerWidget(QWidget *parent)
     : QWidget(parent) {
@@ -42,34 +45,12 @@ void UserManagerWidget::setupUi() {
     btnAdd->setStyleSheet("background-color: #059669; color: white; border: none; border-radius: 4px; padding: 6px 14px; font-weight: bold;");
     connect(btnAdd, &QPushButton::clicked, this, &UserManagerWidget::onAddUserClicked);
 
-    auto *btnPass = new QPushButton("🔑 Şifre Değiştir", grp);
-    btnPass->setCursor(Qt::PointingHandCursor);
-    connect(btnPass, &QPushButton::clicked, this, &UserManagerWidget::onChangePasswordClicked);
-
-    auto *btnDel = new QPushButton("🗑️ Seçili Kullanıcıyı Sil", grp);
-    btnDel->setCursor(Qt::PointingHandCursor);
-    btnDel->setStyleSheet("background-color: #991B1B; color: white; border: none; border-radius: 4px; padding: 6px 14px; font-weight: bold;");
-    connect(btnDel, &QPushButton::clicked, this, &UserManagerWidget::onDeleteUserClicked);
-
-    auto *btnRefresh = new QPushButton("🔄 Yenile", grp);
-    btnRefresh->setCursor(Qt::PointingHandCursor);
-    connect(btnRefresh, &QPushButton::clicked, this, &UserManagerWidget::reloadUsers);
-
-    auto *btnSave = new QPushButton("💾 Yetki Değişikliklerini Kaydet", grp);
-    btnSave->setCursor(Qt::PointingHandCursor);
-    btnSave->setStyleSheet("background-color: #10B981; color: #071210; border: none; border-radius: 4px; padding: 6px 16px; font-weight: bold;");
-    connect(btnSave, &QPushButton::clicked, this, &UserManagerWidget::onSaveAllClicked);
-
     topBar->addWidget(btnAdd);
-    topBar->addWidget(btnPass);
-    topBar->addWidget(btnDel);
     topBar->addStretch();
-    topBar->addWidget(btnRefresh);
-    topBar->addWidget(btnSave);
     vLay->addLayout(topBar);
 
     m_lblStatus = new QLabel(
-        "İpucu: ADMIN (Mühendis) tüm ayarlara ve profil yönetimine erişir; OPERATOR (Tekniker) yalnızca test ekranını kullanır.",
+        "İpucu: Değişiklikler otomatik kaydedilir. Düzenlemek için satıra çift tıklayın; silmek için Sağ Tık veya Delete tuşunu kullanın.",
         grp);
     m_lblStatus->setWordWrap(true);
     m_lblStatus->setStyleSheet("color: #A7C4B5; font-size: 8.5pt;");
@@ -85,6 +66,14 @@ void UserManagerWidget::setupUi() {
     m_tableUsers->setAlternatingRowColors(true);
     m_tableUsers->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_tableUsers->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_tableUsers->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_tableUsers->setContextMenuPolicy(Qt::CustomContextMenu);
+    m_tableUsers->installEventFilter(this);
+    m_tableUsers->viewport()->installEventFilter(this);
+    connect(m_tableUsers, &QTableWidget::cellDoubleClicked, this, [this](int row, int) {
+        onEditUserPopup(row);
+    });
+    connect(m_tableUsers, &QTableWidget::customContextMenuRequested, this, &UserManagerWidget::showTableContextMenu);
     vLay->addWidget(m_tableUsers, 1);
 
     root->addWidget(grp);
@@ -100,6 +89,7 @@ void UserManagerWidget::reloadUsers() {
         return;
     }
 
+    m_isPopulating = true;
     m_users = DbManager::instance().getUsers();
     m_tableUsers->setUpdatesEnabled(false);
     m_tableUsers->setRowCount(m_users.size());
@@ -114,21 +104,17 @@ void UserManagerWidget::reloadUsers() {
         itId->setData(Qt::UserRole, u.id);
         m_tableUsers->setItem(i, 0, itId);
 
-        auto *itUser = new QTableWidgetItem(u.username);
-        if (u.username.compare("admin", Qt::CaseInsensitive) == 0) {
-            itUser->setFlags(itUser->flags() & ~Qt::ItemIsEditable);
-        }
-        m_tableUsers->setItem(i, 1, itUser);
+        m_tableUsers->setItem(i, 1, new QTableWidgetItem(u.username));
         m_tableUsers->setItem(i, 2, new QTableWidgetItem(u.fullName));
 
-        auto *comboRole = new QComboBox(m_tableUsers);
-        comboRole->addItem("ADMIN (Mühendis / Yönetici)", "ADMIN");
-        comboRole->addItem("OPERATOR (Tekniker)", "OPERATOR");
-        comboRole->setCurrentIndex(u.role == "ADMIN" ? 0 : 1);
-        if (u.username.compare("admin", Qt::CaseInsensitive) == 0) {
-            comboRole->setEnabled(false);
+        const bool isAdmin = (u.role == "ADMIN");
+        auto *itRole = new QTableWidgetItem(isAdmin ? "🛡️ ADMIN (Mühendis / Yönetici)" : "🔧 OPERATOR (Tekniker)");
+        itRole->setTextAlignment(Qt::AlignCenter);
+        itRole->setForeground(QBrush(QColor(isAdmin ? "#FBBF24" : "#38BDF8")));
+        if (isAdmin) {
+            itRole->setFont(QFont("Segoe UI", 9, QFont::Bold));
         }
-        m_tableUsers->setCellWidget(i, 3, comboRole);
+        m_tableUsers->setItem(i, 3, itRole);
 
         auto *chkWrap = new QWidget(m_tableUsers);
         auto *chkLay = new QHBoxLayout(chkWrap);
@@ -139,12 +125,16 @@ void UserManagerWidget::reloadUsers() {
         if (u.username.compare("admin", Qt::CaseInsensitive) == 0) {
             chkActive->setEnabled(false);
         }
+        connect(chkActive, &QCheckBox::toggled, this, [this, i](bool) {
+            autoSaveRow(i);
+        });
         chkLay->addWidget(chkActive);
         m_tableUsers->setCellWidget(i, 4, chkWrap);
     }
 
     m_tableUsers->setUpdatesEnabled(true);
-    m_lblStatus->setText(QString("🟢 Toplam %1 kullanıcı listelendi. ADMIN (Mühendis) / OPERATOR (Tekniker) rollerini değiştirebilirsiniz.")
+    m_isPopulating = false;
+    m_lblStatus->setText(QString("🟢 Toplam %1 kullanıcı listelendi. Değişiklikler otomatik kaydedilir; düzenlemek için çift tıklayın, silmek için Sağ Tık / Delete kullanın.")
                              .arg(m_users.size()));
     m_lblStatus->setStyleSheet("color: #34D399; font-size: 8.5pt;");
 }
@@ -198,39 +188,142 @@ void UserManagerWidget::onAddUserClicked() {
     if (DbManager::instance().saveUser(u)) {
         emit logMessage(QString("[Yetkilendirme] Yeni kullanıcı eklendi: %1 (%2)").arg(u.username, u.role));
         reloadUsers();
+        emit usersUpdated();
     } else {
         QMessageBox::warning(this, "Hata", "Kullanıcı oluşturulamadı:\n" + DbManager::instance().lastError());
     }
 }
 
-void UserManagerWidget::onSaveAllClicked() {
-    if (!m_tableUsers) return;
-    int saved = 0;
-    for (int r = 0; r < m_tableUsers->rowCount(); ++r) {
-        UserRecord u;
-        u.id = m_tableUsers->item(r, 0) ? m_tableUsers->item(r, 0)->data(Qt::UserRole).toInt() : 0;
-        u.username = m_tableUsers->item(r, 1) ? m_tableUsers->item(r, 1)->text().trimmed() : QString();
-        u.fullName = m_tableUsers->item(r, 2) ? m_tableUsers->item(r, 2)->text().trimmed() : QString();
-        if (auto *combo = qobject_cast<QComboBox*>(m_tableUsers->cellWidget(r, 3))) {
-            u.role = combo->currentData().toString();
-        }
-        if (auto *wrap = m_tableUsers->cellWidget(r, 4)) {
-            if (auto *chk = wrap->findChild<QCheckBox*>()) {
-                u.isActive = chk->isChecked();
-            }
-        }
-        // Keep password unchanged when saving role/name/active edits
-        u.password.clear();
+void UserManagerWidget::autoSaveRow(int row) {
+    if (m_isPopulating || !m_tableUsers || row < 0 || row >= m_users.size()) return;
 
-        if (u.id > 0 && DbManager::instance().saveUser(u)) {
-            ++saved;
+    UserRecord u = m_users[row];
+    u.id = m_tableUsers->item(row, 0) ? m_tableUsers->item(row, 0)->data(Qt::UserRole).toInt() : u.id;
+    u.username = m_tableUsers->item(row, 1) ? m_tableUsers->item(row, 1)->text().trimmed() : u.username;
+    u.fullName = m_tableUsers->item(row, 2) ? m_tableUsers->item(row, 2)->text().trimmed() : u.fullName;
+    if (auto *wrap = m_tableUsers->cellWidget(row, 4)) {
+        if (auto *chk = wrap->findChild<QCheckBox*>()) {
+            u.isActive = chk->isChecked();
         }
     }
+    u.password.clear(); // Keep password unchanged during inline edits
 
-    reloadUsers();
-    emit usersUpdated();
-    emit logMessage(QString("[Yetkilendirme] %1 kullanıcı yetkisi güncellendi.").arg(saved));
-    QMessageBox::information(this, "Kaydedildi", QString("%1 kullanıcı kaydı güncellendi.").arg(saved));
+    if (u.id > 0 && DbManager::instance().saveUser(u)) {
+        if (row < m_users.size()) {
+            m_users[row] = u;
+        }
+        emit usersUpdated();
+        emit logMessage(QString("[Yetkilendirme] Kullanıcı otomatik güncellendi: %1 (%2, %3)")
+                            .arg(u.username, u.role, u.isActive ? "Aktif" : "Pasif"));
+        if (m_lblStatus) {
+            m_lblStatus->setText(QString("✔ Otomatik kaydedildi: %1 (%2)").arg(u.username, u.role));
+            m_lblStatus->setStyleSheet("color: #34D399; font-size: 8.5pt;");
+        }
+    }
+}
+
+void UserManagerWidget::onEditUserPopup(int row) {
+    if (row < 0 || row >= m_users.size()) return;
+    UserRecord u = m_users[row];
+    bool isAdminAccount = (u.username.compare("admin", Qt::CaseInsensitive) == 0);
+
+    QDialog dlg(this);
+    dlg.setWindowTitle(QString("Kullanıcı Düzenle: %1").arg(u.username));
+    dlg.setMinimumWidth(380);
+
+    auto *form = new QFormLayout(&dlg);
+    auto *txtUser = new QLineEdit(u.username, &dlg);
+    txtUser->setEnabled(!isAdminAccount);
+
+    auto *txtFull = new QLineEdit(u.fullName, &dlg);
+    txtFull->setPlaceholderText("Ad Soyad giriniz");
+
+    auto *txtPass = new QLineEdit(&dlg);
+    txtPass->setEchoMode(QLineEdit::Password);
+    txtPass->setPlaceholderText("Değiştirmek istemiyorsanız boş bırakın");
+
+    auto *comboRole = new QComboBox(&dlg);
+    comboRole->addItem("OPERATOR (Tekniker)", "OPERATOR");
+    comboRole->addItem("ADMIN (Mühendis / Yönetici)", "ADMIN");
+    comboRole->setCurrentIndex(u.role == "ADMIN" ? 1 : 0);
+    comboRole->setEnabled(!isAdminAccount);
+
+    auto *chkActive = new QCheckBox("Hesap Aktif", &dlg);
+    chkActive->setChecked(u.isActive);
+    chkActive->setEnabled(!isAdminAccount);
+
+    form->addRow("Kullanıcı Adı*:", txtUser);
+    form->addRow("Ad Soyad:", txtFull);
+    form->addRow("Yeni Şifre:", txtPass);
+    form->addRow("Yetki Rolü:", comboRole);
+    form->addRow("", chkActive);
+
+    auto *btns = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dlg);
+    connect(btns, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(btns, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    form->addRow(btns);
+
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    const QString newUser = txtUser->text().trimmed();
+    if (newUser.isEmpty()) {
+        QMessageBox::warning(this, "Eksik Bilgi", "Kullanıcı adı boş olamaz.");
+        return;
+    }
+
+    u.username = newUser;
+    u.fullName = txtFull->text().trimmed().isEmpty() ? newUser : txtFull->text().trimmed();
+    u.password = txtPass->text(); // Empty = keep existing password
+    u.role = comboRole->currentData().toString();
+    u.isActive = chkActive->isChecked();
+
+    if (DbManager::instance().saveUser(u)) {
+        emit logMessage(QString("[Yetkilendirme] Kullanıcı güncellendi: %1 (%2)").arg(u.username, u.role));
+        reloadUsers();
+        emit usersUpdated();
+    } else {
+        QMessageBox::warning(this, "Hata", "Kullanıcı güncellenemedi:\n" + DbManager::instance().lastError());
+    }
+}
+
+void UserManagerWidget::showTableContextMenu(const QPoint &pos) {
+    if (!m_tableUsers) return;
+    QModelIndex idx = m_tableUsers->indexAt(pos);
+    if (!idx.isValid()) return;
+
+    int row = idx.row();
+    m_tableUsers->selectRow(row);
+    if (row < 0 || row >= m_users.size()) return;
+
+    QMenu menu(this);
+    QAction *actEdit = menu.addAction("✏️ Kullanıcıyı Düzenle");
+    QAction *actPass = menu.addAction("🔑 Şifre Değiştir");
+    menu.addSeparator();
+    QAction *actDel = menu.addAction("🗑️ Kullanıcıyı Sil (Delete)");
+    if (m_users[row].username.compare("admin", Qt::CaseInsensitive) == 0) {
+        actDel->setEnabled(false);
+    }
+
+    QAction *chosen = menu.exec(m_tableUsers->viewport()->mapToGlobal(pos));
+    if (chosen == actEdit) {
+        onEditUserPopup(row);
+    } else if (chosen == actPass) {
+        onChangePasswordClicked();
+    } else if (chosen == actDel) {
+        onDeleteUserClicked();
+    }
+}
+
+bool UserManagerWidget::eventFilter(QObject *watched, QEvent *event) {
+    if (event->type() == QEvent::KeyPress && m_tableUsers &&
+        (watched == m_tableUsers || watched == m_tableUsers->viewport())) {
+        auto *ke = static_cast<QKeyEvent*>(event);
+        if (ke->key() == Qt::Key_Delete) {
+            onDeleteUserClicked();
+            return true;
+        }
+    }
+    return QWidget::eventFilter(watched, event);
 }
 
 void UserManagerWidget::onChangePasswordClicked() {
