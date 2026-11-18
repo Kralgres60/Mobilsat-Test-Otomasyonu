@@ -352,7 +352,7 @@ bool DbManager::ensureDefaultDataIfMissing() {
     q.exec("CREATE TABLE IF NOT EXISTS `test_runs` ("
            "`id` BIGINT AUTO_INCREMENT PRIMARY KEY,"
            "`work_order_id` INT DEFAULT NULL,"
-           "`station_id` TINYINT NOT NULL,"
+           "`station_id` INT NOT NULL,"
            "`operator_id` INT DEFAULT NULL,"
            "`tester_name` VARCHAR(100) NOT NULL DEFAULT '',"
            "`operator_username` VARCHAR(64) NOT NULL DEFAULT '',"
@@ -369,6 +369,9 @@ bool DbManager::ensureDefaultDataIfMissing() {
            "INDEX `idx_timestamp` (`test_timestamp`),"
            "INDEX `idx_station` (`station_id`)"
            ") ENGINE=InnoDB;");
+
+    // Guarantee station_id supports large numbers (e.g., up to 1000+ stations)
+    q.exec("ALTER TABLE test_runs MODIFY COLUMN station_id INT NOT NULL;");
 
     q.exec("CREATE TABLE IF NOT EXISTS `test_run_channels` ("
            "`id` BIGINT AUTO_INCREMENT PRIMARY KEY,"

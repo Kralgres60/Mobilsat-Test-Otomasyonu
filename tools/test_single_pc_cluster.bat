@@ -42,14 +42,11 @@ echo Calisma Dizini : %APP_DIR%
 echo DRX Simulator  : %SIM_EXE%
 echo Sim Dizini     : %SIM_DIR%
 echo.
-if "%APP_EXE%"=="" (
-    echo [HATA] NETA_Antenna_Test.exe bulunamadi! Lutfen once projeyi derleyiniz (build.bat).
-    pause
-    goto EXIT
-)
+if "%APP_EXE%"=="" goto ERR_NO_APP
+
 echo Bu arac ile gercek ag kablolarina ihtiyac duymadan tek PC'de:
-echo - Yonetici (Host) icin 1 adet Referans DRX (Port 8080)
-echo - Her Test Istasyonu icin ayri birer Test DRX (Port 8081, 8082, 8083)
+echo - Yonetici (Host) icin 1 adet Referans DRX [Port 8080]
+echo - Her Test Istasyonu icin ayri birer Test DRX [Port 8081, 8082, 8083]
 echo acarak tam fabrika kume simulasyonunu test edebilirsiniz.
 echo =====================================================================
 echo [1] Tam Fabrika Testini Baslat (4 DRX Sim + 1 Host + 3 Istasyon)
@@ -74,43 +71,35 @@ goto MENU
 :START_FULL
 cls
 echo =====================================================================
-echo [1/8] DRX Referans Simulatoru baslatiliyor (Host icin Port 8080)...
-if not "%SIM_EXE%"=="" (
-    start "" /D "%SIM_DIR%" "%SIM_EXE%" --port 8080 --name "Referans DRX (Host)" --auto-start
-)
+echo [1/8] DRX Referans Simulatoru baslatiliyor - Host icin Port 8080...
+if not "%SIM_EXE%"=="" start "" /D "%SIM_DIR%" "%SIM_EXE%" --port 8080 --name "Referans DRX - Host" --auto-start
 timeout /t 1 >nul
 
-echo [2/8] DRX Istasyon 1 Simulatoru baslatiliyor (Masa 1 icin Port 8081)...
-if not "%SIM_EXE%"=="" (
-    start "" /D "%SIM_DIR%" "%SIM_EXE%" --port 8081 --name "Istasyon 1 DRX" --auto-start
-)
+echo [2/8] DRX Istasyon 1 Simulatoru baslatiliyor - Masa 1 icin Port 8081...
+if not "%SIM_EXE%"=="" start "" /D "%SIM_DIR%" "%SIM_EXE%" --port 8081 --name "Istasyon 1 DRX" --auto-start
 timeout /t 1 >nul
 
-echo [3/8] DRX Istasyon 2 Simulatoru baslatiliyor (Masa 2 icin Port 8082)...
-if not "%SIM_EXE%"=="" (
-    start "" /D "%SIM_DIR%" "%SIM_EXE%" --port 8082 --name "Istasyon 2 DRX" --auto-start
-)
+echo [3/8] DRX Istasyon 2 Simulatoru baslatiliyor - Masa 2 icin Port 8082...
+if not "%SIM_EXE%"=="" start "" /D "%SIM_DIR%" "%SIM_EXE%" --port 8082 --name "Istasyon 2 DRX" --auto-start
 timeout /t 1 >nul
 
-echo [4/8] DRX Istasyon 3 Simulatoru baslatiliyor (Masa 3 icin Port 8083)...
-if not "%SIM_EXE%"=="" (
-    start "" /D "%SIM_DIR%" "%SIM_EXE%" --port 8083 --name "Istasyon 3 DRX" --auto-start
-)
+echo [4/8] DRX Istasyon 3 Simulatoru baslatiliyor - Masa 3 icin Port 8083...
+if not "%SIM_EXE%"=="" start "" /D "%SIM_DIR%" "%SIM_EXE%" --port 8083 --name "Istasyon 3 DRX" --auto-start
 timeout /t 1 >nul
 
-echo [5/8] Merkezi Yonetici Sunucu (HOST) baslatiliyor (TCP 9100, Ref DRX 8080)...
+echo [5/8] Merkezi Yonetici Sunucu (HOST) baslatiliyor - TCP 9100, Ref DRX 8080...
 start "" /D "%APP_DIR%" "%APP_EXE%" --host --drx 127.0.0.1:8080
 timeout /t 3 >nul
 
-echo [6/8] Test Istasyonu 1 baslatiliyor (Masa 1 -> DUT DRX 8081)...
+echo [6/8] Test Istasyonu 1 baslatiliyor - Masa 1, DUT DRX 8081...
 start "" /D "%APP_DIR%" "%APP_EXE%" --client -s 1 --drx 127.0.0.1:8081
 timeout /t 1 >nul
 
-echo [7/8] Test Istasyonu 2 baslatiliyor (Masa 2 -> DUT DRX 8082)...
+echo [7/8] Test Istasyonu 2 baslatiliyor - Masa 2, DUT DRX 8082...
 start "" /D "%APP_DIR%" "%APP_EXE%" --client -s 2 --drx 127.0.0.1:8082
 timeout /t 1 >nul
 
-echo [8/8] Test Istasyonu 3 baslatiliyor (Masa 3 -> DUT DRX 8083)...
+echo [8/8] Test Istasyonu 3 baslatiliyor - Masa 3, DUT DRX 8083...
 start "" /D "%APP_DIR%" "%APP_EXE%" --client -s 3 --drx 127.0.0.1:8083
 
 echo.
@@ -123,23 +112,19 @@ goto MENU
 :START_DUAL
 cls
 echo =====================================================================
-echo [1/4] DRX Referans Simulatoru baslatiliyor (Host icin Port 8080)...
-if not "%SIM_EXE%"=="" (
-    start "" /D "%SIM_DIR%" "%SIM_EXE%" --port 8080 --name "Referans DRX (Host)" --auto-start
-)
+echo [1/4] DRX Referans Simulatoru baslatiliyor - Host icin Port 8080...
+if not "%SIM_EXE%"=="" start "" /D "%SIM_DIR%" "%SIM_EXE%" --port 8080 --name "Referans DRX - Host" --auto-start
 timeout /t 1 >nul
 
-echo [2/4] DRX Istasyon 1 Simulatoru baslatiliyor (Masa 1 icin Port 8081)...
-if not "%SIM_EXE%"=="" (
-    start "" /D "%SIM_DIR%" "%SIM_EXE%" --port 8081 --name "Istasyon 1 DRX" --auto-start
-)
+echo [2/4] DRX Istasyon 1 Simulatoru baslatiliyor - Masa 1 icin Port 8081...
+if not "%SIM_EXE%"=="" start "" /D "%SIM_DIR%" "%SIM_EXE%" --port 8081 --name "Istasyon 1 DRX" --auto-start
 timeout /t 1 >nul
 
-echo [3/4] Yonetici Sunucu (HOST) baslatiliyor (TCP 9100, Ref DRX 8080)...
+echo [3/4] Yonetici Sunucu (HOST) baslatiliyor - TCP 9100, Ref DRX 8080...
 start "" /D "%APP_DIR%" "%APP_EXE%" --host --drx 127.0.0.1:8080
 timeout /t 3 >nul
 
-echo [4/4] Test Istasyonu 1 baslatiliyor (Masa 1 -> DUT DRX 8081)...
+echo [4/4] Test Istasyonu 1 baslatiliyor - Masa 1, DUT DRX 8081...
 start "" /D "%APP_DIR%" "%APP_EXE%" --client -s 1 --drx 127.0.0.1:8081
 echo.
 echo =====================================================================
@@ -153,15 +138,12 @@ goto MENU
 :START_SIMS
 cls
 echo 4 Adet Sanal DRX9000 Alicisi baslatiliyor...
-if not "%SIM_EXE%"=="" (
-    start "" /D "%SIM_DIR%" "%SIM_EXE%" --port 8080 --name "Referans DRX (Host)" --auto-start
-    start "" /D "%SIM_DIR%" "%SIM_EXE%" --port 8081 --name "Istasyon 1 DRX" --auto-start
-    start "" /D "%SIM_DIR%" "%SIM_EXE%" --port 8082 --name "Istasyon 2 DRX" --auto-start
-    start "" /D "%SIM_DIR%" "%SIM_EXE%" --port 8083 --name "Istasyon 3 DRX" --auto-start
-    echo [OK] Port 8080, 8081, 8082 ve 8083 uzerinde DRX alicilari yayinda!
-) else (
-    echo [HATA] DRX Simulator bulunamadi.
-)
+if "%SIM_EXE%"=="" goto ERR_NO_SIM
+start "" /D "%SIM_DIR%" "%SIM_EXE%" --port 8080 --name "Referans DRX - Host" --auto-start
+start "" /D "%SIM_DIR%" "%SIM_EXE%" --port 8081 --name "Istasyon 1 DRX" --auto-start
+start "" /D "%SIM_DIR%" "%SIM_EXE%" --port 8082 --name "Istasyon 2 DRX" --auto-start
+start "" /D "%SIM_DIR%" "%SIM_EXE%" --port 8083 --name "Istasyon 3 DRX" --auto-start
+echo [OK] Port 8080, 8081, 8082 ve 8083 uzerinde DRX alicilari yayinda!
 pause
 goto MENU
 
@@ -174,12 +156,18 @@ goto MENU
 
 :START_STATION
 cls
-echo Hangi istasyonu baslatmak istiyorsunuz?
-echo [1] Istasyon 1 (Masa 1, DRX: 8081)
-echo [2] Istasyon 2 (Masa 2, DRX: 8082)
-echo [3] Istasyon 3 (Masa 3, DRX: 8083)
-set /p ST_NO="Secim [1-3]: "
+echo =====================================================================
+echo                 TEST ISTASYONU BASLATMA
+echo =====================================================================
+echo Sistem sinirsiz sayida istasyonu destekler (1, 2, 3 ... 1000+).
+echo.
+echo Ornek: 1 yazarsaniz Masa 1 baslatilir [DRX Port: 8081].
+echo Ornek: 5 yazarsaniz Masa 5 baslatilir [DRX Port: 8085].
+echo =====================================================================
+set /p ST_NO="Lutfen Istasyon Numarasini Giriniz [Varsayilan 1]: "
+if "%ST_NO%"=="" set "ST_NO=1"
 set /a DRX_P=8080+%ST_NO%
+echo Istasyon %ST_NO% baslatiliyor - DUT DRX Port: %DRX_P%...
 start "" /D "%APP_DIR%" "%APP_EXE%" --client -s %ST_NO% --drx 127.0.0.1:%DRX_P%
 pause
 goto MENU
@@ -190,6 +178,18 @@ echo Calisan tum NETA test ve simulator surecleri kapatiliyor...
 taskkill /f /im NETA_Antenna_Test.exe >nul 2>&1
 taskkill /f /im NETA_DRX_Simulator.exe >nul 2>&1
 echo [OK] Tum test surecleri temizlendi.
+pause
+goto MENU
+
+:ERR_NO_APP
+cls
+echo [HATA] NETA_Antenna_Test.exe bulunamadi! Lutfen once projeyi derleyiniz.
+pause
+goto EXIT
+
+:ERR_NO_SIM
+cls
+echo [HATA] DRX Simulator bulunamadi!
 pause
 goto MENU
 

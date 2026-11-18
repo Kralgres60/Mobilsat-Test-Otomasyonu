@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS `profile_channels` (
 CREATE TABLE IF NOT EXISTS `test_runs` (
     `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
     `work_order_id` INT DEFAULT NULL,
-    `station_id` TINYINT NOT NULL,
+    `station_id` INT NOT NULL,
     `operator_id` INT DEFAULT NULL,
     `tester_name` VARCHAR(100) NOT NULL DEFAULT '',
     `operator_username` VARCHAR(64) NOT NULL DEFAULT '',
