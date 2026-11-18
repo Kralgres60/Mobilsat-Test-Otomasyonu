@@ -17,6 +17,7 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QTabBar>
 #include <QMessageBox>
 #include <QMenu>
 #include <QAction>
@@ -41,6 +42,9 @@ void TestHistoryWidget::setupUi() {
     root->setSpacing(6);
 
     m_tabs = new QTabWidget(this);
+    m_tabs->setElideMode(Qt::ElideNone);
+    m_tabs->setUsesScrollButtons(false);
+    m_tabs->tabBar()->setExpanding(false);
 
     auto *tabHistory = new QWidget(m_tabs);
     setupHistoryTab(tabHistory);
@@ -414,6 +418,10 @@ void TestHistoryWidget::populateTable(const QVector<TestRunData> &runs) {
     }
 
     m_table->setSortingEnabled(true);
+    m_table->resizeColumnsToContents();
+    for (int c = 0; c < m_table->columnCount() - 1; ++c) {
+        m_table->setColumnWidth(c, m_table->columnWidth(c) + 16);
+    }
     m_lblSummary->setText(QString("📊 Sayfa %1/%2: %3 kayıt gösteriliyor | Toplam Filtrelenen: %4 (Bu sayfada: ✅ %5  ❌ %6  ⚠️ %7)")
                               .arg(m_currentPage).arg(m_totalPages).arg(runs.size())
                               .arg(m_totalRecords).arg(passCount).arg(failCount).arg(abortCount));
@@ -652,6 +660,10 @@ void TestHistoryWidget::loadSelectedDbTable() {
     }
 
     m_tableDb->setUpdatesEnabled(true);
+    m_tableDb->resizeColumnsToContents();
+    for (int c = 0; c < colCount; ++c) {
+        m_tableDb->setColumnWidth(c, qMin(420, m_tableDb->columnWidth(c) + 14));
+    }
     m_lblDbInfo->setText(QString("🟢 Tablo: %1  |  Listelenen: %2 satır (Limit: %3)  |  Sürücü: %4")
                              .arg(tableName).arg(rowIdx).arg(limit).arg(mgr.activeDriver()));
     m_lblDbInfo->setStyleSheet("color: #34D399; font-weight: bold;");
@@ -753,6 +765,11 @@ void TestHistoryWidget::refreshAuditLogs() {
         m_tableAudit->setItem(i, 3, new QTableWidgetItem(stStr));
         m_tableAudit->setItem(i, 4, new QTableWidgetItem(log.operatorUsername));
         m_tableAudit->setItem(i, 5, new QTableWidgetItem(log.details));
+    }
+
+    m_tableAudit->resizeColumnsToContents();
+    for (int c = 0; c < m_tableAudit->columnCount() - 1; ++c) {
+        m_tableAudit->setColumnWidth(c, m_tableAudit->columnWidth(c) + 16);
     }
 
     if (m_lblAuditSummary) {

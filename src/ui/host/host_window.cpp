@@ -466,9 +466,9 @@ void HostWindow::setupUi() {
     addNavItem("  🌟  Referans & Golden Ölçüm");
     addNavItem("  📊  Test Geçmişi & Veritabanı");
     addNavItem("  📦  İş Emirleri");
+    addNavItem("  🔐  Kullanıcı & Yetki");
     addNavItem("  ⚙️  Sistem Ayarları");
     addNavItem("  📜  Sistem Logları");
-    addNavItem("  🔐  Kullanıcı & Yetki");
 
     m_sideNav->setCurrentRow(2);
 
@@ -478,20 +478,20 @@ void HostWindow::setupUi() {
     setupGoldenPage();
     setupHistoryPage();
     setupOrdersPage();
-    setupSettingsPage();
-    setupLogsPage();
     m_userManager = new UserManagerWidget(this);
     connect(m_userManager, &UserManagerWidget::logMessage, this, &HostWindow::appendLog);
     connect(m_userManager, &UserManagerWidget::usersUpdated, &m_tcpServer, &TcpServer::broadcastUserRoleUpdates);
+    setupSettingsPage();
+    setupLogsPage();
 
     m_pageStack->addWidget(m_pageLobby);      // index 0
     m_pageStack->addWidget(m_pageNetworkPcs); // index 1
     m_pageStack->addWidget(m_pageGolden);     // index 2
     m_pageStack->addWidget(m_pageHistory);    // index 3
     m_pageStack->addWidget(m_pageOrders);     // index 4
-    m_pageStack->addWidget(m_pageSettings);   // index 5
-    m_pageStack->addWidget(m_pageLogs);       // index 6
-    m_pageStack->addWidget(m_userManager);    // index 7
+    m_pageStack->addWidget(m_userManager);    // index 5
+    m_pageStack->addWidget(m_pageSettings);   // index 6
+    m_pageStack->addWidget(m_pageLogs);       // index 7
 
     splitter->addWidget(m_sideNav);
     splitter->addWidget(m_pageStack);

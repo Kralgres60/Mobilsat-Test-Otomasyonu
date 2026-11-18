@@ -39,6 +39,8 @@ signals:
 private slots:
     void onFilterChanged();
     void onExportImageClicked();
+    void onPlotMouseMove(QMouseEvent *event);
+    void onCumulativeMouseMove(QMouseEvent *event);
 
 protected:
     /** @brief Handles horizontal Scroll zoom and Shift+Scroll vertical zoom on SPC plots. */
@@ -60,9 +62,11 @@ private:
     QPushButton *m_btnExportImg  = nullptr;
 
     // Visualization
-    QCustomPlot *m_plot           = nullptr;
-    QCPBars     *m_bars           = nullptr;
-    QCustomPlot *m_cumulativePlot = nullptr;
+    QCustomPlot    *m_plot           = nullptr;
+    QCPBars        *m_bars           = nullptr;
+    QCustomPlot    *m_cumulativePlot = nullptr;
+    QCPItemTracer  *m_plotTracer     = nullptr;
+    QCPItemTracer  *m_cumTracer      = nullptr;
 
     // KPI Card Widgets
     QFrame *m_verdictFrame       = nullptr;

@@ -868,6 +868,17 @@ void GoldenReferenceWidget::reloadFrequencies() {
     refreshActiveGoldenUi();
     m_isPopulating = false;
 
+    // Auto-fit columns horizontally to fit both header labels and cell widgets/data
+    for (int c = 0; c < m_tableMeasurements->columnCount(); ++c) {
+        if (c == 1) continue; // Column 1 stretches dynamically
+        m_tableMeasurements->resizeColumnToContents(c);
+        int w = m_tableMeasurements->columnWidth(c) + 18;
+        if (c == 0) w = qMax(w, 36);
+        else if (c == 2 || c == 3) w = qMax(w, 125);
+        else if (c == 10) w = qMax(w, 165);
+        m_tableMeasurements->setColumnWidth(c, w);
+    }
+
     // Keep plot collapsed by default until the user clicks a frequency row
     m_tableMeasurements->clearSelection();
     m_tableMeasurements->setCurrentCell(-1, -1);

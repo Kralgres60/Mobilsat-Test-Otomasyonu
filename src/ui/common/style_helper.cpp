@@ -229,13 +229,14 @@ QString StyleHelper::getAppStyle() {
         QTabBar::tab {
             background-color: #0A1F17;
             color: #4B7A66;
-            padding: 6px 14px;
+            padding: 7px 22px;
             font-size: 9pt;
             font-weight: bold;
             border-top-left-radius: 5px;
             border-top-right-radius: 5px;
-            margin-right: 2px;
-            min-height: 24px;
+            margin-right: 3px;
+            min-height: 26px;
+            min-width: 140px;
         }
         QTabBar::tab:hover {
             color: #A7C4B5;

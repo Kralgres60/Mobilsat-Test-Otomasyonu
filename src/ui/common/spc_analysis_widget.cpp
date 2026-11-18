@@ -21,6 +21,7 @@
 #include <QSplitter>
 #include <QWheelEvent>
 #include <QMouseEvent>
+#include <QToolTip>
 
 SpcAnalysisWidget::SpcAnalysisWidget(QWidget *parent)
     : QWidget(parent) {
@@ -331,6 +332,17 @@ void SpcAnalysisWidget::setupPlot() {
     m_plot->axisRect()->setRangeDrag(Qt::Horizontal);
     m_plot->axisRect()->setRangeZoom(Qt::Horizontal);
     m_plot->installEventFilter(this);
+
+    m_plotTracer = new QCPItemTracer(m_plot);
+    m_plotTracer->setGraph(m_plot->graph(0));
+    m_plotTracer->setInterpolating(true);
+    m_plotTracer->setStyle(QCPItemTracer::tsCircle);
+    m_plotTracer->setPen(QPen(QColor("#FFFFFF"), 2));
+    m_plotTracer->setBrush(QBrush(QColor("#FBBF24")));
+    m_plotTracer->setSize(10);
+    m_plotTracer->setVisible(false);
+    connect(m_plot, &QCustomPlot::mouseMove, this, &SpcAnalysisWidget::onPlotMouseMove);
+
     m_plot->replot();
 }
 
@@ -386,6 +398,17 @@ void SpcAnalysisWidget::setupCumulativePlot() {
     m_cumulativePlot->axisRect()->setRangeDrag(Qt::Horizontal);
     m_cumulativePlot->axisRect()->setRangeZoom(Qt::Horizontal);
     m_cumulativePlot->installEventFilter(this);
+
+    m_cumTracer = new QCPItemTracer(m_cumulativePlot);
+    m_cumTracer->setGraph(m_cumulativePlot->graph(1));
+    m_cumTracer->setInterpolating(false);
+    m_cumTracer->setStyle(QCPItemTracer::tsCircle);
+    m_cumTracer->setPen(QPen(QColor("#FFFFFF"), 2));
+    m_cumTracer->setBrush(QBrush(QColor("#38BDF8")));
+    m_cumTracer->setSize(10);
+    m_cumTracer->setVisible(false);
+    connect(m_cumulativePlot, &QCustomPlot::mouseMove, this, &SpcAnalysisWidget::onCumulativeMouseMove);
+
     m_cumulativePlot->replot();
 }
 
@@ -606,7 +629,117 @@ bool SpcAnalysisWidget::eventFilter(QObject *watched, QEvent *event) {
                 targetPlot->axisRect()->setRangeDrag(Qt::Horizontal);
             }
             return false;
+        } else if (event->type() == QEvent::Leave) {
+            if (targetPlot == m_plot && m_plotTracer && m_plotTracer->visible()) {
+                m_plotTracer->setVisible(false);
+                m_plot->replot();
+            } else if (targetPlot == m_cumulativePlot && m_cumTracer && m_cumTracer->visible()) {
+                m_cumTracer->setVisible(false);
+                m_cumulativePlot->replot();
+            }
+            QToolTip::hideText();
         }
     }
     return QWidget::eventFilter(watched, event);
+}
+
+void SpcAnalysisWidget::onPlotMouseMove(QMouseEvent *event) {
+    if (!m_plot || !m_plotTracer || m_plot->graph(0)->dataCount() == 0) return;
+    if (!m_plot->axisRect()->rect().contains(event->pos())) {
+        if (m_plotTracer->visible()) {
+            m_plotTracer->setVisible(false);
+            m_plot->replot();
+            QToolTip::hideText();
+        }
+        return;
+    }
+
+    double x = m_plot->xAxis->pixelToCoord(event->pos().x());
+    m_plotTracer->setGraphKey(x);
+    m_plotTracer->updatePosition();
+    m_plotTracer->setVisible(true);
+
+    double snapX = m_plotTracer->position->key();
+    double gaussY = m_plotTracer->position->value();
+
+    // Lookup nearest CDF % value
+    double cdfPct = 0.0;
+    if (m_plot->graphCount() > 4 && m_plot->graph(4)->dataCount() > 0) {
+        auto itCdf = m_plot->graph(4)->data()->findBegin(snapX);
+        if (itCdf != m_plot->graph(4)->data()->constEnd()) {
+            cdfPct = itCdf->value;
+        }
+    }
+
+    // Lookup nearest histogram bar count
+    double barCount = 0.0;
+    if (m_bars && m_bars->dataCount() > 0) {
+        auto itBar = m_bars->data()->findBegin(snapX, false);
+        if (itBar != m_bars->data()->constEnd()) {
+            barCount = itBar->value;
+        }
+    }
+
+    QString tip = QString(
+        "<div style='color:#F8FAFC; white-space:nowrap;'>"
+        "<b style='color:#38BDF8;'>📊 Gauss & Dağılım Noktası</b><br/>"
+        "• <b>Sinyal Farkı (Δ):</b> <span style='color:#FBBF24;'>%1 dB</span><br/>"
+        "• <b>Gauss Yoğunluğu:</b> <span style='color:#34D399;'>%2</span><br/>"
+        "• <b>Kümülatif (CDF):</b> <span style='color:#38BDF8;'>%%3</span><br/>"
+        "• <b>Histogram Gözlem:</b> %4 adet"
+        "</div>")
+        .arg(snapX, 0, 'f', 3)
+        .arg(gaussY, 0, 'f', 2)
+        .arg(cdfPct, 0, 'f', 1)
+        .arg(qRound(barCount));
+
+    QToolTip::showText(event->globalPos(), tip, m_plot);
+    m_plot->replot();
+}
+
+void SpcAnalysisWidget::onCumulativeMouseMove(QMouseEvent *event) {
+    if (!m_cumulativePlot || !m_cumTracer || m_cumulativePlot->graph(1)->dataCount() == 0) return;
+    if (!m_cumulativePlot->axisRect()->rect().contains(event->pos())) {
+        if (m_cumTracer->visible()) {
+            m_cumTracer->setVisible(false);
+            m_cumulativePlot->replot();
+            QToolTip::hideText();
+        }
+        return;
+    }
+
+    double x = m_cumulativePlot->xAxis->pixelToCoord(event->pos().x());
+    m_cumTracer->setGraphKey(x);
+    m_cumTracer->updatePosition();
+    m_cumTracer->setVisible(true);
+
+    double snapK = m_cumTracer->position->key();
+    double muK = m_cumTracer->position->value();
+
+    double xk = 0.0;
+    if (m_cumulativePlot->graph(0)->dataCount() > 0) {
+        auto it0 = m_cumulativePlot->graph(0)->data()->findBegin(snapK, false);
+        if (it0 != m_cumulativePlot->graph(0)->data()->constEnd()) xk = it0->value;
+    }
+
+    double cusumK = 0.0;
+    if (m_cumulativePlot->graphCount() > 2 && m_cumulativePlot->graph(2)->dataCount() > 0) {
+        auto it2 = m_cumulativePlot->graph(2)->data()->findBegin(snapK, false);
+        if (it2 != m_cumulativePlot->graph(2)->data()->constEnd()) cusumK = it2->value;
+    }
+
+    QString tip = QString(
+        "<div style='color:#F8FAFC; white-space:nowrap;'>"
+        "<b style='color:#38BDF8;'>📈 Test Sırası #%1</b><br/>"
+        "• <b>Tekil Anten (Δ):</b> <span style='color:#E2E8F0;'>%2 dB</span><br/>"
+        "• <b>Kümülatif Ortalama (μk):</b> <span style='color:#38BDF8;'>%3 dB</span><br/>"
+        "• <b>CUSUM Toplamı (Sk):</b> <span style='color:#FBBF24;'>%4 dB</span>"
+        "</div>")
+        .arg(qRound(snapK))
+        .arg(xk, 0, 'f', 3)
+        .arg(muK, 0, 'f', 3)
+        .arg(cusumK, 0, 'f', 3);
+
+    QToolTip::showText(event->globalPos(), tip, m_cumulativePlot);
+    m_cumulativePlot->replot();
 }
