@@ -111,13 +111,12 @@ private:
     void setupMenuBar();
     void setupUi();
     void setupProductionPage();
-    void setupGraphPage();
     void setupProfilesPage();
     void setupEngineerSettingsPage();
     void setupLogsPage();
     void setupPlot();
-    void setupProdFreqPlot();
-    void updateProdFreqPlot();
+    void clearPlotBands();
+    void jumpPlotToLatest();
     void loadGoldenOverlayCurve(const GoldenFrequencyRecord &rec);
     void clearGoldenOverlay();
     void loadWorkOrdersAndProfiles();
@@ -144,12 +143,11 @@ private:
 
     // Page widgets (replace former QTabWidget tabs)
     QWidget *m_pageProduction = nullptr;  ///< Page 0 – Üretim Testi
-    QWidget *m_pageGraph      = nullptr;  ///< Page 1 – Canlı Grafik
-    QWidget *m_pageProfiles   = nullptr;  ///< Page 2 – Uydu Profilleri & Frekanslar
-    TestHistoryWidget *m_historyWidget = nullptr; ///< Page 3 – Test Geçmişi & Rapor
-    TestHistoryWidget *m_auditLogWidget = nullptr; ///< Page 5 – Sistem Olay & Denetim Logları (Audit)
-    QWidget *m_pageEngineer   = nullptr;  ///< Page 4 – Mühendis Ayarları (Engineer only)
-    QWidget *m_pageLogs       = nullptr;  ///< Page 5 – Sistem Logları (Engineer only)
+    QWidget *m_pageProfiles   = nullptr;  ///< Page 1 – Uydu Profilleri & Frekanslar
+    TestHistoryWidget *m_historyWidget = nullptr; ///< Page 2 – Test Geçmişi & Rapor
+    TestHistoryWidget *m_auditLogWidget = nullptr; ///< Page 4 – Sistem Olay & Denetim Logları (Audit)
+    QWidget *m_pageEngineer   = nullptr;  ///< Page 3 – Mühendis Ayarları (Engineer only)
+    QWidget *m_pageLogs       = nullptr;  ///< Page 4 – Sistem Logları (Engineer only)
     ProfileManagerWidget *m_profileManager = nullptr;
 
     // ── Station & Ethernet Status Pills (Page 0) ───────────────────────────
@@ -200,9 +198,17 @@ private:
     QString       m_lastGeneratedPdfPath;
     QTableWidget *m_tableChannels     = nullptr;
 
-    // Live Graph (Page 1) & Production Profile Curve (Page 0)
-    QCustomPlot *m_plot = nullptr;
-    QCustomPlot *m_prodFreqPlot = nullptr;
+    // Unified Live & Frequency Band Graph (Production Page)
+    QCustomPlot *m_plot               = nullptr;
+    QPushButton *m_btnPlotFollowLatest = nullptr;
+    bool         m_plotAutoFollow     = true;
+    bool         m_plotUpdatingRange  = false;
+    QCPItemRect *m_activeBandRect     = nullptr;
+    QCPItemText *m_activeBandLabel    = nullptr;
+    double       m_activeBandStartX   = 0.0;
+    int          m_activeBandColorIdx = 0;
+    QVector<QCPItemRect*> m_plotBandRects;
+    QVector<QCPItemText*> m_plotBandLabels;
 
     // Engineer Settings (Page 2)
     QDoubleSpinBox *m_spinTolerance      = nullptr;

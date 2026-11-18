@@ -375,7 +375,6 @@ void ClientWindow::setupUi() {
         m_sideNav->addItem(item);
     };
     addNavItem("  📡  Üretim Testi");
-    addNavItem("  📈  Canlı Grafik");
     addNavItem("  🛰️  Uydu Profilleri");
     addNavItem("  📊  Test Geçmişi & Rapor");
     addNavItem("  ⚙️  Mühendis Ayarları");
@@ -387,7 +386,6 @@ void ClientWindow::setupUi() {
     m_pageStack = new QStackedWidget(splitter);
 
     setupProductionPage();
-    setupGraphPage();
     setupProfilesPage();
     m_historyWidget = new TestHistoryWidget(this);
     connect(m_historyWidget, &TestHistoryWidget::logMessage, this, &ClientWindow::appendLog);
@@ -395,11 +393,10 @@ void ClientWindow::setupUi() {
     setupLogsPage();
 
     m_pageStack->addWidget(m_pageProduction);   // index 0
-    m_pageStack->addWidget(m_pageGraph);        // index 1
-    m_pageStack->addWidget(m_pageProfiles);     // index 2
-    m_pageStack->addWidget(m_historyWidget);    // index 3
-    m_pageStack->addWidget(m_pageEngineer);     // index 4
-    m_pageStack->addWidget(m_pageLogs);         // index 5
+    m_pageStack->addWidget(m_pageProfiles);     // index 1
+    m_pageStack->addWidget(m_historyWidget);    // index 2
+    m_pageStack->addWidget(m_pageEngineer);     // index 3
+    m_pageStack->addWidget(m_pageLogs);         // index 4
 
     splitter->addWidget(m_sideNav);
     splitter->addWidget(m_pageStack);
@@ -590,7 +587,7 @@ void ClientWindow::setupProductionPage() {
         "QPushButton:hover { background-color: #34D399; color: #071210; }"
     );
     connect(btnManageProfiles, &QPushButton::clicked, this, [this]() {
-        if (m_sideNav) m_sideNav->setCurrentRow(4); // Uydu Profilleri sayfasına geç
+        if (m_sideNav) m_sideNav->setCurrentRow(3); // Uydu Profilleri sayfasına geç
     });
 
     profRow->addWidget(m_comboProfiles, 1);
@@ -711,15 +708,7 @@ void ClientWindow::setupProductionPage() {
     telGrid->addWidget(m_lblLiveTolerance, 2, 2);
 
     leftCol->addWidget(grpTelemetry);
-
-    auto *grpProdFreq = new QGroupBox("📈 Profil Frekans & Referans Eğrisi", m_pageProduction);
-    auto *prodFreqLay = new QVBoxLayout(grpProdFreq);
-    prodFreqLay->setContentsMargins(6, 10, 6, 6);
-    m_prodFreqPlot = new QCustomPlot(grpProdFreq);
-    m_prodFreqPlot->setMinimumHeight(185);
-    setupProdFreqPlot();
-    prodFreqLay->addWidget(m_prodFreqPlot);
-    leftCol->addWidget(grpProdFreq, 1);
+    leftCol->addStretch();
 
     // =========================================================================
     // RIGHT COLUMN: Overall Verdict Card + Progress + Clean 10-Row Table
@@ -788,35 +777,44 @@ void ClientWindow::setupProductionPage() {
     m_tableChannels->setColumnWidth(6, 96);
 
     chVBox->addWidget(m_tableChannels);
-    rightCol->addWidget(grpChannels, 1);
+    rightCol->addWidget(grpChannels, 3);
 
-    mainCols->addLayout(leftCol, 52);
-    mainCols->addLayout(rightCol, 48);
-}
-
-void ClientWindow::setupGraphPage() {
-    m_pageGraph = new QWidget(this);
-    QVBoxLayout *vbox = new QVBoxLayout(m_pageGraph);
-    vbox->setContentsMargins(10, 10, 10, 10);
-
-    QGroupBox *grpGraph = new QGroupBox("📈 Canlı Sinyal C/N (DUT vs Referans Golden Sample) Telemetri Grafiği", m_pageGraph);
+    // Live Telemetry & Frequency Band Graph (directly on Production Page)
+    QGroupBox *grpGraph = new QGroupBox("📈 Canlı Sinyal C/N (DUT vs Referans) & Frekans Geçiş Grafiği", m_pageProduction);
     QVBoxLayout *plotBox = new QVBoxLayout(grpGraph);
+    plotBox->setContentsMargins(8, 10, 8, 8);
+    plotBox->setSpacing(4);
 
-    QHBoxLayout *topActions = new QHBoxLayout();
-    QLabel *lblHint = new QLabel("Her kanal örnekleme adımında (250 ms) DUT ve Referans çanak C/N eğrileri canlı çizilir.", grpGraph);
-    lblHint->setStyleSheet("color: #A7C4B5;");
-    QPushButton *btnClearGraph = new QPushButton("🧹 Grafiği Temizle", grpGraph);
-    btnClearGraph->setFixedHeight(28);
+    QHBoxLayout *graphTop = new QHBoxLayout();
+    QLabel *lblPlotHint = new QLabel("Yatay sürükleyerek geçmişi inceleyin; yeniye dönmek için sağdaki butonu kullanın.", grpGraph);
+    lblPlotHint->setStyleSheet("color: #A7C4B5; font-size: 8.5pt;");
+    graphTop->addWidget(lblPlotHint);
+    graphTop->addStretch();
+
+    m_btnPlotFollowLatest = new QPushButton("⏭ En Güncele Git", grpGraph);
+    m_btnPlotFollowLatest->setCursor(Qt::PointingHandCursor);
+    m_btnPlotFollowLatest->setFixedHeight(24);
+    m_btnPlotFollowLatest->setStyleSheet("background-color: #059669; color: #FFFFFF; border: none; border-radius: 4px; padding: 2px 10px; font-weight: bold;");
+    m_btnPlotFollowLatest->setVisible(false);
+    connect(m_btnPlotFollowLatest, &QPushButton::clicked, this, &ClientWindow::jumpPlotToLatest);
+    graphTop->addWidget(m_btnPlotFollowLatest);
+
+    QPushButton *btnClearGraph = new QPushButton("🧹 Temizle", grpGraph);
+    btnClearGraph->setFixedHeight(24);
+    btnClearGraph->setCursor(Qt::PointingHandCursor);
     connect(btnClearGraph, &QPushButton::clicked, this, &ClientWindow::onClearGraphClicked);
-    topActions->addWidget(lblHint);
-    topActions->addStretch();
-    topActions->addWidget(btnClearGraph);
-    plotBox->addLayout(topActions);
+    graphTop->addWidget(btnClearGraph);
+
+    plotBox->addLayout(graphTop);
 
     m_plot = new QCustomPlot(grpGraph);
+    m_plot->setMinimumHeight(210);
     plotBox->addWidget(m_plot, 1);
 
-    vbox->addWidget(grpGraph);
+    rightCol->addWidget(grpGraph, 2);
+
+    mainCols->addLayout(leftCol, 48);
+    mainCols->addLayout(rightCol, 52);
 }
 
 void ClientWindow::setupProfilesPage() {
@@ -1095,8 +1093,61 @@ void ClientWindow::setupPlot() {
     m_plot->legend->setBorderPen(QPen(QColor("#1A3D2B")));
     m_plot->legend->setTextColor(QColor("#E6F4EE"));
 
-    m_plot->xAxis->setRange(0, 30);
+    m_plot->setInteractions(QCP::iRangeDrag | QCP::iRangeZoom);
+    m_plot->axisRect()->setRangeDrag(Qt::Horizontal);
+    m_plot->axisRect()->setRangeZoom(Qt::Horizontal);
+
+    m_plot->xAxis->setRange(0, 45);
     m_plot->yAxis->setRange(0, 22);
+
+    connect(m_plot->xAxis, QOverload<const QCPRange &>::of(&QCPAxis::rangeChanged),
+            this, [this](const QCPRange &newRange) {
+        if (m_plotUpdatingRange || !m_plot) return;
+        const int total = m_plot->graph(0)->dataCount();
+        if (total <= 0) return;
+
+        if (newRange.upper < static_cast<double>(total) - 1.5) {
+            m_plotAutoFollow = false;
+            if (m_btnPlotFollowLatest) m_btnPlotFollowLatest->setVisible(true);
+        } else if (newRange.upper >= static_cast<double>(total) - 0.5) {
+            m_plotAutoFollow = true;
+            if (m_btnPlotFollowLatest) m_btnPlotFollowLatest->setVisible(false);
+        }
+    });
+
+    m_plot->replot();
+}
+
+void ClientWindow::clearPlotBands() {
+    if (m_plot) {
+        for (QCPItemRect *r : m_plotBandRects) {
+            m_plot->removeItem(r);
+        }
+        for (QCPItemText *t : m_plotBandLabels) {
+            m_plot->removeItem(t);
+        }
+    }
+    m_plotBandRects.clear();
+    m_plotBandLabels.clear();
+    m_activeBandRect = nullptr;
+    m_activeBandLabel = nullptr;
+    m_activeBandStartX = 0.0;
+    m_activeBandColorIdx = 0;
+}
+
+void ClientWindow::jumpPlotToLatest() {
+    if (!m_plot) return;
+    m_plotAutoFollow = true;
+    if (m_btnPlotFollowLatest) m_btnPlotFollowLatest->setVisible(false);
+
+    const int count = m_plot->graph(0)->dataCount();
+    constexpr double kWindowWidth = 45.0;
+    const double upper = qMax(kWindowWidth, static_cast<double>(count) + 3.0);
+    const double lower = qMax(0.0, upper - kWindowWidth);
+
+    m_plotUpdatingRange = true;
+    m_plot->xAxis->setRange(lower, upper);
+    m_plotUpdatingRange = false;
     m_plot->replot();
 }
 
@@ -1517,98 +1568,6 @@ void ClientWindow::populateChannelTable() {
         m_tableChannels->setItem(i, 5, itLock);
         m_tableChannels->setItem(i, 6, itStat);
     }
-    updateProdFreqPlot();
-}
-
-void ClientWindow::setupProdFreqPlot() {
-    if (!m_prodFreqPlot) return;
-    m_prodFreqPlot->setBackground(QColor("#0F172A"));
-    m_prodFreqPlot->axisRect()->setBackground(QColor("#1E293B"));
-
-    auto styleAxis = [](QCPAxis *ax, const QString &label) {
-        ax->setBasePen(QPen(QColor("#475569")));
-        ax->setTickPen(QPen(QColor("#475569")));
-        ax->setSubTickPen(QPen(QColor("#334155")));
-        ax->setTickLabelColor(QColor("#94A3B8"));
-        ax->setLabelColor(QColor("#CBD5E1"));
-        ax->setLabel(label);
-        ax->grid()->setPen(QPen(QColor("#334155"), 1, Qt::DotLine));
-    };
-    styleAxis(m_prodFreqPlot->xAxis, "Kanal No");
-    styleAxis(m_prodFreqPlot->yAxis, "C/N (dB)");
-
-    // Graph 0: Golden / Reference C/N curve
-    m_prodFreqPlot->addGraph();
-    m_prodFreqPlot->graph(0)->setName("Golden / Ref C/N");
-    m_prodFreqPlot->graph(0)->setPen(QPen(QColor("#FBBF24"), 2));
-    m_prodFreqPlot->graph(0)->setScatterStyle(QCPScatterStyle(QCPScatterStyle::ssDisc, QColor("#FBBF24"), 6));
-
-    // Graph 1: Lower Tolerance Limit (Ref - Tol)
-    m_prodFreqPlot->addGraph();
-    m_prodFreqPlot->graph(1)->setName("Alt Tolerans");
-    m_prodFreqPlot->graph(1)->setPen(QPen(QColor("#EF4444"), 1, Qt::DashLine));
-
-    // Graph 2: Upper Tolerance Limit (Ref + Tol)
-    m_prodFreqPlot->addGraph();
-    m_prodFreqPlot->graph(2)->setName("Üst Tolerans");
-    m_prodFreqPlot->graph(2)->setPen(QPen(QColor("#22C55E"), 1, Qt::DashLine));
-
-    m_prodFreqPlot->legend->setVisible(true);
-    m_prodFreqPlot->legend->setBrush(QBrush(QColor(15, 23, 42, 200)));
-    m_prodFreqPlot->legend->setBorderPen(QPen(QColor("#334155")));
-    m_prodFreqPlot->legend->setTextColor(QColor("#E2E8F0"));
-    m_prodFreqPlot->xAxis->setRange(0.5, 10.5);
-    m_prodFreqPlot->yAxis->setRange(0, 22);
-}
-
-void ClientWindow::updateProdFreqPlot() {
-    if (!m_prodFreqPlot) return;
-    QVector<double> x, yRef, yLow, yHigh;
-
-    const auto &channels = m_currentProfile.channels;
-    for (int i = 0; i < channels.size(); ++i) {
-        const auto &ch = channels[i];
-        double refCn = 0.0;
-        double tol = ch.toleranceDb > 0.0 ? ch.toleranceDb : m_currentProfile.defaultToleranceDb;
-
-        if (ch.hasGoldenSample && ch.goldenCnDb > 0.05) {
-            refCn = ch.goldenCnDb;
-        } else {
-            double gCn = 0.0, gPow = 0.0, gTol = 0.0;
-            if (DbManager::instance().findGoldenSampleForChannel(
-                    ch.frequencyMhz, ch.symbolRate, ch.polarization, gCn, gPow, gTol)) {
-                refCn = gCn;
-                if (gTol > 0.0) tol = gTol;
-            }
-        }
-
-        if (refCn > 0.05) {
-            x.append(static_cast<double>(i + 1));
-            yRef.append(refCn);
-            yLow.append(qMax(0.0, refCn - tol));
-            yHigh.append(refCn + tol);
-        }
-    }
-
-    m_prodFreqPlot->graph(0)->setData(x, yRef);
-    m_prodFreqPlot->graph(1)->setData(x, yLow);
-    m_prodFreqPlot->graph(2)->setData(x, yHigh);
-
-    const int n = qMax(1, channels.size());
-    m_prodFreqPlot->xAxis->setRange(0.5, static_cast<double>(n) + 0.5);
-
-    if (!yRef.isEmpty()) {
-        double minY = yLow.first();
-        double maxY = yHigh.first();
-        for (int i = 1; i < yLow.size(); ++i) {
-            minY = qMin(minY, yLow[i]);
-            maxY = qMax(maxY, yHigh[i]);
-        }
-        m_prodFreqPlot->yAxis->setRange(qMax(0.0, minY - 2.0), maxY + 2.0);
-    } else {
-        m_prodFreqPlot->yAxis->setRange(0, 22);
-    }
-    m_prodFreqPlot->replot();
 }
 
 void ClientWindow::onEthPingSyncClicked() {
@@ -1965,6 +1924,49 @@ void ClientWindow::onChannelStarted(int channelNo, const QString &name, int freq
         }
         m_tableChannels->scrollToItem(m_tableChannels->item(row, 0));
     }
+
+    if (m_plot) {
+        const double startX = static_cast<double>(m_plot->graph(0)->dataCount());
+        if (m_activeBandRect) {
+            m_activeBandRect->bottomRight->setCoords(startX, 1.0);
+            if (m_activeBandLabel) {
+                m_activeBandLabel->position->setCoords((m_activeBandStartX + startX) * 0.5, 0.03);
+            }
+        }
+
+        static const QColor kBandColors[3] = {
+            QColor(52, 211, 153, 26),
+            QColor(56, 189, 248, 26),
+            QColor(251, 191, 36, 22)
+        };
+        const QColor fillColor = kBandColors[m_activeBandColorIdx % 3];
+        m_activeBandColorIdx++;
+
+        auto *band = new QCPItemRect(m_plot);
+        band->setPen(QPen(QColor(255, 255, 255, 45), 1, Qt::DashLine));
+        band->setBrush(QBrush(fillColor));
+        band->topLeft->setTypeX(QCPItemPosition::ptPlotCoords);
+        band->topLeft->setTypeY(QCPItemPosition::ptAxisRectRatio);
+        band->topLeft->setCoords(startX, 0.0);
+        band->bottomRight->setTypeX(QCPItemPosition::ptPlotCoords);
+        band->bottomRight->setTypeY(QCPItemPosition::ptAxisRectRatio);
+        band->bottomRight->setCoords(startX + 1.0, 1.0);
+
+        auto *lbl = new QCPItemText(m_plot);
+        lbl->setPositionAlignment(Qt::AlignTop | Qt::AlignHCenter);
+        lbl->position->setTypeX(QCPItemPosition::ptPlotCoords);
+        lbl->position->setTypeY(QCPItemPosition::ptAxisRectRatio);
+        lbl->position->setCoords(startX + 0.5, 0.03);
+        lbl->setText(QString("%1\n%2 %3").arg(name).arg(freq).arg(pol));
+        lbl->setColor(QColor(230, 244, 238, 175));
+        lbl->setFont(QFont("Segoe UI", 8, QFont::Bold));
+
+        m_activeBandRect = band;
+        m_activeBandLabel = lbl;
+        m_activeBandStartX = startX;
+        m_plotBandRects.append(band);
+        m_plotBandLabels.append(lbl);
+    }
 }
 
 void ClientWindow::onChannelSampleUpdated(int channelNo, double dutCn, double dutPow, double refCn, double /*refPow*/, double delta) {
@@ -1991,11 +1993,22 @@ void ClientWindow::onChannelSampleUpdated(int channelNo, double dutCn, double du
         m_plot->graph(1)->addData(count, refCn);
     }
 
-    int maxPts = count;
-    if (m_isGoldenModeActive && m_plot->graph(2)->dataCount() > maxPts) {
-        maxPts = m_plot->graph(2)->dataCount();
+    if (m_activeBandRect) {
+        const double endX = static_cast<double>(count + 1);
+        m_activeBandRect->bottomRight->setCoords(endX, 1.0);
+        if (m_activeBandLabel) {
+            m_activeBandLabel->position->setCoords((m_activeBandStartX + endX) * 0.5, 0.03);
+        }
     }
-    m_plot->xAxis->setRange(0, qMax(30, maxPts + 5));
+
+    if (m_plotAutoFollow) {
+        constexpr double kWindowWidth = 45.0;
+        const double upper = qMax(kWindowWidth, static_cast<double>(count + 3));
+        const double lower = qMax(0.0, upper - kWindowWidth);
+        m_plotUpdatingRange = true;
+        m_plot->xAxis->setRange(lower, upper);
+        m_plotUpdatingRange = false;
+    }
     m_plot->replot();
 }
 
@@ -2176,13 +2189,19 @@ void ClientWindow::onClearGraphClicked() {
     if (!m_plot) return;
     m_plot->graph(0)->data()->clear();
     m_plot->graph(1)->data()->clear();
+    clearPlotBands();
+    m_plotAutoFollow = true;
+    if (m_btnPlotFollowLatest) m_btnPlotFollowLatest->setVisible(false);
+
     if (m_isGoldenModeActive && m_activeGoldenRecord.id > 0) {
         loadGoldenOverlayCurve(m_activeGoldenRecord);
     } else {
         m_plot->graph(2)->data()->clear();
         m_plot->graph(3)->data()->clear();
         m_plot->graph(4)->data()->clear();
-        m_plot->xAxis->setRange(0, 30);
+        m_plotUpdatingRange = true;
+        m_plot->xAxis->setRange(0, 45);
+        m_plotUpdatingRange = false;
         m_plot->replot();
     }
 }
@@ -2249,19 +2268,18 @@ void ClientWindow::applyUserRoleUi() {
     // Sidebar items:
     // row 0: header, row 1: separator
     // Row 2: Production Test (page 0)
-    // Row 3: Live Graph (page 1)
-    // Row 4: Satellite Profiles (page 2 - Station & Engineer access)
-    // Row 5: Test History & Report (page 3 - Station & Engineer access)
-    // Row 6: Engineer Settings (page 4 - Engineer only)
-    // Row 7: System Logs (page 5 - Engineer only)
+    // Row 3: Satellite Profiles (page 1 - Station & Engineer access)
+    // Row 4: Test History & Report (page 2 - Station & Engineer access)
+    // Row 5: Engineer Settings (page 3 - Engineer only)
+    // Row 6: System Logs (page 4 - Engineer only)
     if (m_sideNav && m_pageStack) {
-        if (QListWidgetItem *engItem = m_sideNav->item(6)) {
+        if (QListWidgetItem *engItem = m_sideNav->item(5)) {
             engItem->setHidden(!isEng);
         }
-        if (QListWidgetItem *logItem = m_sideNav->item(7)) {
+        if (QListWidgetItem *logItem = m_sideNav->item(6)) {
             logItem->setHidden(!isEng);
         }
-        if (!isEng && m_pageStack->currentIndex() >= 4) {
+        if (!isEng && m_pageStack->currentIndex() >= 3) {
             m_sideNav->setCurrentRow(2);
             m_pageStack->setCurrentIndex(0);
         }
