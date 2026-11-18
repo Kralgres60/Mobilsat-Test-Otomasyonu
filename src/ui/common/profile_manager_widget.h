@@ -21,7 +21,6 @@
 #include <QSpinBox>
 #include "core/data_models.h"
 #include "hardware/data_transfer.h"
-#include "ui/common/qcustomplot.h"
 
 /**
  * @class ProfileManagerWidget
@@ -74,11 +73,17 @@ private slots:
     void onApplyRefModeClicked();
     void onStartGoldenCaptureClicked();
     void onGoldenCaptureStepTimeout();
+    void showProfileContextMenu(const QPoint &pos);
+    void onEditProfilePopup(int row);
+    void showChannelContextMenu(const QPoint &pos);
+
+protected:
+    /** @brief Handles Delete key on profile list and channel table. */
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     void setupUi();
-    void setupMiniPlot();
-    void updateMiniPlot();
+    void autoSaveCurrentProfile(bool reloadList = false);
     void populateChannelRow(int row, const ChannelConfig &ch);
     ChannelConfig readChannelFromRow(int row, double fallbackTol) const;
     void setGoldenCellsOnRow(int row, double cnDb, double powDbm, const QString &statusText, const QColor &statusColor);
@@ -92,18 +97,14 @@ private:
 
     QComboBox      *m_comboRefMode          = nullptr;
     QListWidget    *m_listProfiles          = nullptr;
-    QLineEdit      *m_txtProfName           = nullptr;
-    QLineEdit      *m_txtSatName            = nullptr;
-    QLineEdit      *m_txtOrbitalPos         = nullptr;
-    QDoubleSpinBox *m_spinProfTol           = nullptr;
     QTableWidget   *m_tableProfileChannels  = nullptr;
-    QCustomPlot    *m_miniPlot              = nullptr;
     QComboBox      *m_comboReceiverSource   = nullptr;
     QSpinBox       *m_spinSampleDuration    = nullptr;
     QPushButton    *m_btnGoldenCapture      = nullptr;
     QLabel         *m_lblGoldenCaptureStatus = nullptr;
 
     QVector<SatelliteProfileInfo> m_profiles;
+    bool            m_isPopulating           = false;
     bool            m_goldenCaptureActive    = false;
     int             m_goldenCaptureProfileId = -1;
     int             m_goldenCaptureRow       = 0;

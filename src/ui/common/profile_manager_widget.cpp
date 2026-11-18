@@ -15,6 +15,11 @@
 #include <QHeaderView>
 #include <QMessageBox>
 #include <QInputDialog>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QMenu>
+#include <QAction>
+#include <QKeyEvent>
 #include <QSpinBox>
 #include <QAbstractSpinBox>
 #include <numeric>
@@ -128,52 +133,25 @@ void ProfileManagerWidget::setupUi() {
     splitHBox->setSpacing(10);
 
     QGroupBox *grpProfLeft = new QGroupBox("🛰️ Uydu & Frekans Profilleri", this);
-    grpProfLeft->setFixedWidth(340);
+    grpProfLeft->setFixedWidth(300);
     QVBoxLayout *leftVBox = new QVBoxLayout(grpProfLeft);
     leftVBox->setSpacing(8);
 
     m_listProfiles = new QListWidget(grpProfLeft);
+    m_listProfiles->setContextMenuPolicy(Qt::CustomContextMenu);
+    m_listProfiles->installEventFilter(this);
     connect(m_listProfiles, &QListWidget::currentRowChanged, this, &ProfileManagerWidget::onProfileSelected);
+    connect(m_listProfiles, &QListWidget::customContextMenuRequested, this, &ProfileManagerWidget::showProfileContextMenu);
+    connect(m_listProfiles, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem *) {
+        onEditProfilePopup(m_listProfiles->currentRow());
+    });
     leftVBox->addWidget(m_listProfiles, 1);
 
-    QHBoxLayout *profBtnRow = new QHBoxLayout();
     QPushButton *btnNewProf = new QPushButton("➕ Yeni Profil", grpProfLeft);
     btnNewProf->setCursor(Qt::PointingHandCursor);
-    btnNewProf->setStyleSheet("background-color: #059669; color: #FFFFFF; border: none; border-radius: 4px; padding: 6px 10px; font-weight: bold;");
+    btnNewProf->setStyleSheet("background-color: #059669; color: #FFFFFF; border: none; border-radius: 4px; padding: 7px 12px; font-weight: bold;");
     connect(btnNewProf, &QPushButton::clicked, this, &ProfileManagerWidget::onNewProfileClicked);
-
-    QPushButton *btnDelProf = new QPushButton("🗑️ Sil", grpProfLeft);
-    btnDelProf->setCursor(Qt::PointingHandCursor);
-    btnDelProf->setStyleSheet("background-color: #991B1B; color: #FFFFFF; border: none; border-radius: 4px; padding: 6px 10px; font-weight: bold;");
-    connect(btnDelProf, &QPushButton::clicked, this, &ProfileManagerWidget::onDeleteProfileClicked);
-
-    profBtnRow->addWidget(btnNewProf, 2);
-    profBtnRow->addWidget(btnDelProf, 1);
-    leftVBox->addLayout(profBtnRow);
-
-    QFormLayout *profForm = new QFormLayout();
-    profForm->setSpacing(6);
-    m_txtProfName = new QLineEdit(grpProfLeft);
-    m_txtProfName->setPlaceholderText("Örn: Türksat 42E Hızlı Test");
-    m_txtSatName = new QLineEdit(grpProfLeft);
-    m_txtSatName->setPlaceholderText("Örn: Türksat 42.0°E");
-    m_txtOrbitalPos = new QLineEdit(grpProfLeft);
-    m_txtOrbitalPos->setPlaceholderText("Örn: 42.0E");
-    m_spinProfTol = new QDoubleSpinBox(grpProfLeft);
-    m_spinProfTol->setRange(0.20, 10.00);
-    m_spinProfTol->setSingleStep(0.10);
-    m_spinProfTol->setSuffix(" dB");
-    m_spinProfTol->setValue(1.50);
-
-    profForm->addRow("Profil Adı:", m_txtProfName);
-    profForm->addRow("Uydu Adı:", m_txtSatName);
-    profForm->addRow("Yörünge:", m_txtOrbitalPos);
-    if (m_isHostMode) {
-        profForm->addRow("Vars. Tolerans:", m_spinProfTol);
-    } else {
-        m_spinProfTol->setVisible(false);
-    }
-    leftVBox->addLayout(profForm);
+    leftVBox->addWidget(btnNewProf);
 
     splitHBox->addWidget(grpProfLeft);
 
@@ -189,34 +167,26 @@ void ProfileManagerWidget::setupUi() {
     });
     m_tableProfileChannels->verticalHeader()->setVisible(false);
     m_tableProfileChannels->setAlternatingRowColors(true);
+    m_tableProfileChannels->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_tableProfileChannels->setContextMenuPolicy(Qt::CustomContextMenu);
+    m_tableProfileChannels->installEventFilter(this);
+    m_tableProfileChannels->viewport()->installEventFilter(this);
     m_tableProfileChannels->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
-    m_tableProfileChannels->setColumnWidth(0, 36);
-    m_tableProfileChannels->setColumnWidth(2, 115);
-    m_tableProfileChannels->setColumnWidth(3, 110);
-    m_tableProfileChannels->setColumnWidth(4, 68);
-    m_tableProfileChannels->setColumnWidth(5, 96);
-    m_tableProfileChannels->setColumnWidth(6, 94);
-    m_tableProfileChannels->setColumnWidth(7, 100);
-    m_tableProfileChannels->setColumnWidth(8, 105);
+    connect(m_tableProfileChannels, &QTableWidget::customContextMenuRequested, this, &ProfileManagerWidget::showChannelContextMenu);
+    connect(m_tableProfileChannels, &QTableWidget::itemChanged, this, [this](QTableWidgetItem *it) {
+        if (!m_isPopulating && it && it->column() == 1) {
+            autoSaveCurrentProfile();
+        }
+    });
 
     chVBox->addWidget(m_tableProfileChannels, 1);
-
-    // Mini Reference Curve Graph (C/N across Transponders + Tolerance Bands)
-    m_miniPlot = new QCustomPlot(grpChannels);
-    setupMiniPlot();
-    chVBox->addWidget(m_miniPlot);
 
     QHBoxLayout *chActionRow = new QHBoxLayout();
     QPushButton *btnAddCh = new QPushButton("➕ Frekans Ekle", grpChannels);
     btnAddCh->setCursor(Qt::PointingHandCursor);
     connect(btnAddCh, &QPushButton::clicked, this, &ProfileManagerWidget::onAddChannelRowClicked);
 
-    QPushButton *btnRemCh = new QPushButton("➖ Frekans Sil", grpChannels);
-    btnRemCh->setCursor(Qt::PointingHandCursor);
-    connect(btnRemCh, &QPushButton::clicked, this, &ProfileManagerWidget::onRemoveChannelRowClicked);
-
     chActionRow->addWidget(btnAddCh);
-    chActionRow->addWidget(btnRemCh);
     chActionRow->addSpacing(8);
 
     chActionRow->addWidget(new QLabel("Alıcı:", grpChannels));
@@ -240,17 +210,10 @@ void ProfileManagerWidget::setupUi() {
     chActionRow->addWidget(m_btnGoldenCapture);
 
     chActionRow->addStretch();
-
-    QPushButton *btnSaveProf = new QPushButton("💾 Profili & Frekansları Kaydet", grpChannels);
-    btnSaveProf->setCursor(Qt::PointingHandCursor);
-    btnSaveProf->setStyleSheet("background-color: #10B981; color: #071210; border: none; border-radius: 4px; padding: 7px 14px; font-weight: bold;");
-    connect(btnSaveProf, &QPushButton::clicked, this, &ProfileManagerWidget::onSaveProfileClicked);
-    chActionRow->addWidget(btnSaveProf);
-
     chVBox->addLayout(chActionRow);
 
     m_lblGoldenCaptureStatus = new QLabel(
-        "İpucu: 'Golden C/N' ve 'Golden POW' sütunlarına doğrudan sabit referans değerleri yazabilir veya alıcıdan 'Golden Sample Ölçümü Al' butonuyla belirli süre örneğini alıp kaydedebilirsiniz. İki yöntem de aynı profil referans tablosunda saklanır ve yukarıdaki mini grafikte anlık görüntülenir.",
+        "İpucu: Profil ve frekans değişiklikleri otomatik kaydedilir. Profili düzenlemek için çift tıklayın; silmek için Sağ Tık veya Delete tuşunu kullanın.",
         grpChannels);
     m_lblGoldenCaptureStatus->setWordWrap(true);
     m_lblGoldenCaptureStatus->setStyleSheet("color: #A7C4B5; font-size: 8.5pt;");
@@ -258,80 +221,6 @@ void ProfileManagerWidget::setupUi() {
 
     splitHBox->addWidget(grpChannels, 1);
     rootVBox->addLayout(splitHBox, 1);
-}
-
-void ProfileManagerWidget::setupMiniPlot() {
-    if (!m_miniPlot) return;
-    m_miniPlot->setBackground(QBrush(QColor("#181825")));
-    m_miniPlot->setFixedHeight(160);
-
-    m_miniPlot->xAxis->setBasePen(QPen(QColor("#45475A")));
-    m_miniPlot->yAxis->setBasePen(QPen(QColor("#45475A")));
-    m_miniPlot->xAxis->setTickPen(QPen(QColor("#45475A")));
-    m_miniPlot->yAxis->setTickPen(QPen(QColor("#45475A")));
-    m_miniPlot->xAxis->setTickLabelColor(QColor("#CDD6F4"));
-    m_miniPlot->yAxis->setTickLabelColor(QColor("#CDD6F4"));
-    m_miniPlot->xAxis->setLabelColor(QColor("#A6E3A1"));
-    m_miniPlot->yAxis->setLabelColor(QColor("#A6E3A1"));
-    m_miniPlot->xAxis->setLabel("Transponder / Kanal No");
-    m_miniPlot->yAxis->setLabel("Golden C/N (dB)");
-    m_miniPlot->xAxis->grid()->setPen(QPen(QColor("#313244"), 1, Qt::DotLine));
-    m_miniPlot->yAxis->grid()->setPen(QPen(QColor("#313244"), 1, Qt::DotLine));
-
-    // Graph 0: Golden C/N curve
-    m_miniPlot->addGraph();
-    m_miniPlot->graph(0)->setPen(QPen(QColor("#34D399"), 2));
-    m_miniPlot->graph(0)->setBrush(QBrush(QColor(52, 211, 153, 30)));
-    m_miniPlot->graph(0)->setScatterStyle(QCPScatterStyle(QCPScatterStyle::ssCircle, QPen(QColor("#FFFFFF"), 2), QBrush(QColor("#10B981")), 7));
-    m_miniPlot->graph(0)->setName("Golden C/N");
-
-    // Graph 1: Upper Tolerance Band
-    m_miniPlot->addGraph();
-    m_miniPlot->graph(1)->setPen(QPen(QColor("#38BDF8"), 1, Qt::DashLine));
-    m_miniPlot->graph(1)->setName("+Tolerans");
-
-    // Graph 2: Lower Tolerance Band
-    m_miniPlot->addGraph();
-    m_miniPlot->graph(2)->setPen(QPen(QColor("#F87171"), 1, Qt::DashLine));
-    m_miniPlot->graph(2)->setName("-Tolerans");
-
-    m_miniPlot->xAxis->setRange(0.5, 10.5);
-    m_miniPlot->yAxis->setRange(0.0, 20.0);
-}
-
-void ProfileManagerWidget::updateMiniPlot() {
-    if (!m_miniPlot || !m_tableProfileChannels) return;
-
-    const int rowCount = m_tableProfileChannels->rowCount();
-    QVector<double> xKeys, yCn, yUpper, yLower;
-    double maxCn = 15.0;
-
-    for (int r = 0; r < rowCount; ++r) {
-        double x = r + 1;
-        double cn = 0.0;
-        double tol = 1.50;
-
-        if (auto *wGcn = qobject_cast<QDoubleSpinBox*>(m_tableProfileChannels->cellWidget(r, 6))) {
-            cn = wGcn->value();
-        }
-        if (auto *wTol = qobject_cast<QDoubleSpinBox*>(m_tableProfileChannels->cellWidget(r, 5))) {
-            tol = wTol->value();
-        }
-
-        xKeys.append(x);
-        yCn.append(cn);
-        yUpper.append(cn + tol);
-        yLower.append(qMax(0.0, cn - tol));
-        if (cn + tol > maxCn) maxCn = cn + tol;
-    }
-
-    m_miniPlot->xAxis->setRange(0.5, qMax(5.5, rowCount + 0.5));
-    m_miniPlot->yAxis->setRange(0.0, maxCn + 2.0);
-
-    m_miniPlot->graph(0)->setData(xKeys, yCn);
-    m_miniPlot->graph(1)->setData(xKeys, yUpper);
-    m_miniPlot->graph(2)->setData(xKeys, yLower);
-    m_miniPlot->replot();
 }
 
 void ProfileManagerWidget::setActiveReferenceMode(ReferenceMode mode) {
@@ -391,6 +280,7 @@ void ProfileManagerWidget::populateChannelRow(int row, const ChannelConfig &ch) 
     spinFreq->setSuffix(" MHz");
     spinFreq->setValue(qBound(950, ch.frequencyMhz, 14500));
     spinFreq->setToolTip("Frekans formatı: 950 - 14500 MHz (Örn: 11054)");
+    connect(spinFreq, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int) { autoSaveCurrentProfile(); });
     m_tableProfileChannels->setCellWidget(row, 2, spinFreq);
 
     // Symbol Rate (kS/s): Valid symbol rate range (1000 - 65000 kS/s)
@@ -401,6 +291,7 @@ void ProfileManagerWidget::populateChannelRow(int row, const ChannelConfig &ch) 
     spinSr->setSuffix(" kS/s");
     spinSr->setValue(qBound(1000, ch.symbolRate, 65000));
     spinSr->setToolTip("Sembol hızı formatı: 1000 - 65000 kS/s (Örn: 30000)");
+    connect(spinSr, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int) { autoSaveCurrentProfile(); });
     m_tableProfileChannels->setCellWidget(row, 3, spinSr);
 
     // Polarization: Only V or H
@@ -409,6 +300,7 @@ void ProfileManagerWidget::populateChannelRow(int row, const ChannelConfig &ch) 
     comboPol->addItem("H");
     comboPol->setCurrentIndex(ch.polarization.trimmed().toUpper() == "H" ? 1 : 0);
     comboPol->setToolTip("Polarizasyon: Dikey (V) veya Yatay (H)");
+    connect(comboPol, &QComboBox::currentTextChanged, this, [this](const QString &) { autoSaveCurrentProfile(); });
     m_tableProfileChannels->setCellWidget(row, 4, comboPol);
 
     // Tolerans (dB)
@@ -420,7 +312,7 @@ void ProfileManagerWidget::populateChannelRow(int row, const ChannelConfig &ch) 
     spinTol->setAlignment(Qt::AlignCenter);
     spinTol->setSuffix(" dB");
     spinTol->setValue(qBound(0.10, ch.toleranceDb, 10.00));
-    connect(spinTol, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ProfileManagerWidget::updateMiniPlot);
+    connect(spinTol, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this](double) { autoSaveCurrentProfile(); });
     m_tableProfileChannels->setCellWidget(row, 5, spinTol);
 
     // Golden C/N (dB)
@@ -431,7 +323,7 @@ void ProfileManagerWidget::populateChannelRow(int row, const ChannelConfig &ch) 
     spinGcn->setAlignment(Qt::AlignCenter);
     spinGcn->setSuffix(" dB");
     spinGcn->setValue(qBound(0.0, ch.goldenCnDb, 40.0));
-    connect(spinGcn, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ProfileManagerWidget::updateMiniPlot);
+    connect(spinGcn, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this](double) { autoSaveCurrentProfile(); });
     m_tableProfileChannels->setCellWidget(row, 6, spinGcn);
 
     // Golden Power (dBm)
@@ -442,6 +334,7 @@ void ProfileManagerWidget::populateChannelRow(int row, const ChannelConfig &ch) 
     spinGpow->setAlignment(Qt::AlignCenter);
     spinGpow->setSuffix(" dBm");
     spinGpow->setValue(qBound(-120.0, ch.goldenPowDbm, 20.0));
+    connect(spinGpow, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this](double) { autoSaveCurrentProfile(); });
     m_tableProfileChannels->setCellWidget(row, 7, spinGpow);
 
     auto *itStat = new QTableWidgetItem(ch.hasGoldenSample ? "✔ KAYITLI" : "⚪ YOK");
@@ -519,43 +412,91 @@ void ProfileManagerWidget::onProfileSelected(int row) {
     if (row < 0 || row >= m_profiles.size() || !m_tableProfileChannels) return;
     const auto &p = m_profiles[row];
 
-    m_txtProfName->setText(p.profileName);
-    m_txtSatName->setText(p.satelliteName);
-    m_txtOrbitalPos->setText(p.orbitalPosition);
-    m_spinProfTol->setValue(p.defaultToleranceDb);
-
+    m_isPopulating = true;
     m_tableProfileChannels->setRowCount(p.channels.size());
     for (int i = 0; i < p.channels.size(); ++i) {
         populateChannelRow(i, p.channels[i]);
     }
-    updateMiniPlot();
+    m_tableProfileChannels->resizeColumnsToContents();
+    for (int c = 0; c < m_tableProfileChannels->columnCount() - 1; ++c) {
+        m_tableProfileChannels->setColumnWidth(c, m_tableProfileChannels->columnWidth(c) + 14);
+    }
+    m_isPopulating = false;
+}
+
+static bool execProfileMetaDialog(QWidget *parent,
+                                  const QString &title,
+                                  bool showTolerance,
+                                  SatelliteProfileInfo &profile) {
+    QDialog dlg(parent);
+    dlg.setWindowTitle(title);
+    dlg.setMinimumWidth(420);
+
+    auto *lay = new QVBoxLayout(&dlg);
+    auto *form = new QFormLayout();
+    form->setSpacing(10);
+
+    auto *txtName = new QLineEdit(profile.profileName, &dlg);
+    txtName->setPlaceholderText("Örn: Türksat 42E - Genel");
+
+    auto *txtSat = new QLineEdit(profile.satelliteName, &dlg);
+    txtSat->setPlaceholderText("Örn: Türksat 42.0°E");
+
+    auto *txtOrb = new QLineEdit(profile.orbitalPosition, &dlg);
+    txtOrb->setPlaceholderText("Örn: 42.0E");
+
+    form->addRow("Profil Adı (*):", txtName);
+    form->addRow("Uydu Adı:", txtSat);
+    form->addRow("Yörünge:", txtOrb);
+
+    QDoubleSpinBox *spinTol = nullptr;
+    if (showTolerance) {
+        spinTol = new QDoubleSpinBox(&dlg);
+        spinTol->setRange(0.1, 20.0);
+        spinTol->setDecimals(2);
+        spinTol->setSuffix(" dB");
+        spinTol->setValue(profile.defaultToleranceDb > 0.0 ? profile.defaultToleranceDb : AppConfig::instance().defaultToleranceDb());
+        form->addRow("Varsayılan Tolerans:", spinTol);
+    }
+
+    lay->addLayout(form);
+
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    buttons->button(QDialogButtonBox::Ok)->setText("Kaydet");
+    buttons->button(QDialogButtonBox::Cancel)->setText("İptal");
+    QObject::connect(buttons, &QDialogButtonBox::accepted, &dlg, [&]() {
+        if (txtName->text().trimmed().isEmpty()) {
+            QMessageBox::warning(&dlg, "Eksik Bilgi", "Profil adı boş olamaz.");
+            txtName->setFocus();
+            return;
+        }
+        dlg.accept();
+    });
+    QObject::connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    lay->addWidget(buttons);
+
+    if (dlg.exec() != QDialog::Accepted) return false;
+
+    profile.profileName = txtName->text().trimmed();
+    profile.satelliteName = txtSat->text().trimmed().isEmpty() ? QString("Türksat 42.0°E") : txtSat->text().trimmed();
+    profile.orbitalPosition = txtOrb->text().trimmed().isEmpty() ? QString("42.0E") : txtOrb->text().trimmed();
+    if (spinTol) {
+        profile.defaultToleranceDb = spinTol->value();
+    }
+    return true;
 }
 
 void ProfileManagerWidget::onNewProfileClicked() {
-    bool ok = false;
-    const QString enteredName = QInputDialog::getText(
-        this,
-        "Yeni Uydu Profili",
-        "Profil Adı (zorunlu):",
-        QLineEdit::Normal,
-        QString(),
-        &ok).trimmed();
-
-    if (!ok) {
-        return;
-    }
-    if (enteredName.isEmpty()) {
-        QMessageBox::warning(this, "Eksik Bilgi", "Profil ismi girmeden yeni profil oluşturulamaz.");
-        return;
-    }
-
     SatelliteProfileInfo p;
     p.id = 0;
-    p.profileName = enteredName;
     p.satelliteName = "Türksat 42.0°E";
     p.orbitalPosition = "42.0E";
     p.defaultToleranceDb = AppConfig::instance().defaultToleranceDb();
     p.isActive = true;
+
+    if (!execProfileMetaDialog(this, "Yeni Uydu Profili Ekle", m_isHostMode, p)) {
+        return;
+    }
 
     ChannelConfig ch;
     ch.channelNo = 1;
@@ -576,12 +517,56 @@ void ProfileManagerWidget::onNewProfileClicked() {
     }
 }
 
+void ProfileManagerWidget::onEditProfilePopup(int row) {
+    if (row < 0 || row >= m_profiles.size()) return;
+    SatelliteProfileInfo p = m_profiles[row];
+    if (!execProfileMetaDialog(this, "Uydu Profili Düzenle", m_isHostMode, p)) {
+        return;
+    }
+    if (DbManager::instance().saveProfile(p)) {
+        reloadProfiles(p.id);
+        emit logMessage("[Profiller] Uydu profili güncellendi: " + p.profileName);
+        emit profilesChanged();
+    } else {
+        QMessageBox::warning(this, "Kayıt Hatası", "Profil güncellenemedi:\n" + DbManager::instance().lastError());
+    }
+}
+
+void ProfileManagerWidget::showProfileContextMenu(const QPoint &pos) {
+    if (!m_listProfiles) return;
+    QListWidgetItem *item = m_listProfiles->itemAt(pos);
+    if (!item) return;
+    int row = m_listProfiles->row(item);
+    m_listProfiles->setCurrentRow(row);
+
+    QMenu menu(this);
+    QAction *actEdit = menu.addAction("✏️ Profili Düzenle");
+    QAction *actDel = menu.addAction("🗑️ Profili Sil");
+    if (row >= 0 && row < m_profiles.size() && m_profiles[row].id <= 1) {
+        actDel->setEnabled(false);
+    }
+
+    QAction *chosen = menu.exec(m_listProfiles->viewport()->mapToGlobal(pos));
+    if (chosen == actEdit) {
+        onEditProfilePopup(row);
+    } else if (chosen == actDel) {
+        onDeleteProfileClicked();
+    }
+}
+
 void ProfileManagerWidget::onDeleteProfileClicked() {
     int row = m_listProfiles ? m_listProfiles->currentRow() : -1;
     if (row < 0 || row >= m_profiles.size()) return;
     int pid = m_profiles[row].id;
+    const QString name = m_profiles[row].profileName;
     if (pid <= 1) {
         QMessageBox::information(this, "Korunan Profil", "Varsayılan fabrika profili (ID 1) silinemez.");
+        return;
+    }
+    if (QMessageBox::question(this,
+                              "Profili Sil",
+                              QString("'%1' uydu profilini ve tüm kanallarını silmek istediğinize emin misiniz?").arg(name),
+                              QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes) {
         return;
     }
     if (DbManager::instance().deleteProfile(pid)) {
@@ -600,6 +585,13 @@ void ProfileManagerWidget::onAddChannelRowClicked() {
                                  QString("Bir uydu profiline en fazla %1 frekans/kanal eklenebilir.").arg(kMaxChannels));
         return;
     }
+
+    int profRow = m_listProfiles ? m_listProfiles->currentRow() : -1;
+    double fallbackTol = (profRow >= 0 && profRow < m_profiles.size())
+                             ? m_profiles[profRow].defaultToleranceDb
+                             : AppConfig::instance().defaultToleranceDb();
+
+    m_isPopulating = true;
     m_tableProfileChannels->insertRow(row);
 
     ChannelConfig ch;
@@ -608,20 +600,26 @@ void ProfileManagerWidget::onAddChannelRowClicked() {
     ch.frequencyMhz = 11054;
     ch.symbolRate = 30000;
     ch.polarization = "V";
-    ch.toleranceDb = m_spinProfTol ? m_spinProfTol->value() : 1.50;
+    ch.toleranceDb = fallbackTol;
     populateChannelRow(row, ch);
-    updateMiniPlot();
+    m_isPopulating = false;
 
     m_tableProfileChannels->scrollToBottom();
+    autoSaveCurrentProfile(false);
 }
 
 void ProfileManagerWidget::onRemoveChannelRowClicked() {
     if (!m_tableProfileChannels) return;
     int rows = m_tableProfileChannels->rowCount();
-    if (rows <= 1) return;
+    if (rows <= 1) {
+        QMessageBox::information(this, "Kanal Silinemedi", "Her uydu profilinde en az 1 kanal bulunmalıdır.");
+        return;
+    }
 
     int selRow = m_tableProfileChannels->currentRow();
     int removeIdx = (selRow >= 0 && selRow < rows) ? selRow : (rows - 1);
+
+    m_isPopulating = true;
     m_tableProfileChannels->removeRow(removeIdx);
 
     // Re-number channel sequence indices cleanly
@@ -630,46 +628,73 @@ void ProfileManagerWidget::onRemoveChannelRowClicked() {
             it->setText(QString::number(r + 1));
         }
     }
-    updateMiniPlot();
+    m_isPopulating = false;
+
+    autoSaveCurrentProfile(false);
 }
 
-void ProfileManagerWidget::onSaveProfileClicked() {
-    int row = m_listProfiles ? m_listProfiles->currentRow() : -1;
+void ProfileManagerWidget::showChannelContextMenu(const QPoint &pos) {
+    if (!m_tableProfileChannels) return;
+    int row = m_tableProfileChannels->rowAt(pos.y());
+    if (row >= 0) {
+        m_tableProfileChannels->selectRow(row);
+    }
+
+    QMenu menu(this);
+    QAction *actAdd = menu.addAction("➕ Yeni Kanal Ekle");
+    QAction *actDel = menu.addAction("🗑️ Seçili Kanalı Sil");
+    actDel->setEnabled(row >= 0 && m_tableProfileChannels->rowCount() > 1);
+
+    QAction *chosen = menu.exec(m_tableProfileChannels->viewport()->mapToGlobal(pos));
+    if (chosen == actAdd) {
+        onAddChannelRowClicked();
+    } else if (chosen == actDel) {
+        onRemoveChannelRowClicked();
+    }
+}
+
+bool ProfileManagerWidget::eventFilter(QObject *watched, QEvent *event) {
+    if (event->type() == QEvent::KeyPress) {
+        auto *ke = static_cast<QKeyEvent *>(event);
+        if (ke->key() == Qt::Key_Delete) {
+            if (watched == m_listProfiles) {
+                onDeleteProfileClicked();
+                return true;
+            }
+            if (watched == m_tableProfileChannels) {
+                onRemoveChannelRowClicked();
+                return true;
+            }
+        }
+    }
+    return QWidget::eventFilter(watched, event);
+}
+
+void ProfileManagerWidget::autoSaveCurrentProfile(bool reloadList) {
+    if (m_isPopulating || !m_listProfiles || !m_tableProfileChannels) return;
+    int row = m_listProfiles->currentRow();
     if (row < 0 || row >= m_profiles.size()) return;
 
     SatelliteProfileInfo p = m_profiles[row];
-    const QVector<ChannelConfig> prevChannels = p.channels;
-
-    p.profileName = m_txtProfName->text().trimmed();
-    p.satelliteName = m_txtSatName->text().trimmed();
-    p.orbitalPosition = m_txtOrbitalPos->text().trimmed();
-    if (m_isHostMode) {
-        p.defaultToleranceDb = m_spinProfTol->value();
-    }
     p.isActive = true;
     p.channels.clear();
-
-    if (p.profileName.isEmpty()) {
-        QMessageBox::warning(this, "Eksik Bilgi", "Profil adı boş olamaz.");
-        return;
-    }
-
     for (int r = 0; r < m_tableProfileChannels->rowCount(); ++r) {
-        ChannelConfig ch = readChannelFromRow(r, p.defaultToleranceDb);
-        p.channels.append(ch);
+        p.channels.append(readChannelFromRow(r, p.defaultToleranceDb));
     }
 
     if (DbManager::instance().saveProfile(p)) {
-        emit logMessage("[Profiller] Uydu profili ve frekanslar kaydedildi: " + p.profileName);
-        reloadProfiles(p.id);
+        m_profiles[row] = p;
+        if (reloadList) {
+            reloadProfiles(p.id);
+        }
         emit profilesChanged();
-        QMessageBox::information(this, "Kaydedildi",
-                                 QString("'%1' uydu profili ve %2 adet frekans/kanal veritabanına kaydedildi.")
-                                     .arg(p.profileName)
-                                     .arg(p.channels.size()));
     } else {
-        QMessageBox::warning(this, "Kayıt Hatası", "Profil kaydedilemedi:\n" + DbManager::instance().lastError());
+        emit logMessage("[Profiller] Otomatik kayıt hatası: " + DbManager::instance().lastError());
     }
+}
+
+void ProfileManagerWidget::onSaveProfileClicked() {
+    autoSaveCurrentProfile(true);
 }
 
 void ProfileManagerWidget::onReferenceTelemetryReceived(double powDbm, double cnDb) {
@@ -758,7 +783,6 @@ void ProfileManagerWidget::onGoldenCaptureStepTimeout() {
         double avgCn = std::accumulate(m_goldenCnSamples.begin(), m_goldenCnSamples.end(), 0.0) / m_goldenCnSamples.size();
         double avgPow = std::accumulate(m_goldenPowSamples.begin(), m_goldenPowSamples.end(), 0.0) / m_goldenPowSamples.size();
         setGoldenCellsOnRow(m_goldenCaptureRow, avgCn, avgPow, "✔ ÖLÇÜLDÜ", QColor("#34D399"));
-        updateMiniPlot();
 
         int chNo = m_goldenCaptureRow + 1;
         DbManager::instance().updateChannelGoldenSample(m_goldenCaptureProfileId, chNo, avgCn, avgPow);
@@ -778,7 +802,6 @@ void ProfileManagerWidget::onGoldenCaptureStepTimeout() {
         m_btnGoldenCapture->setText("📸 Golden Sample Ölçümü Al");
         m_btnGoldenCapture->setStyleSheet("background-color: #D97706; color: #FFFFFF; border: none; border-radius: 4px; padding: 7px 12px; font-weight: bold;");
         m_lblGoldenCaptureStatus->setText("✔ Tüm kanallar için Golden Sample ölçümü tamamlandı ve veritabanına kaydedildi!");
-        updateMiniPlot();
         reloadProfiles(m_goldenCaptureProfileId);
         emit profilesChanged();
         QMessageBox::information(this, "Golden Sample Tamamlandı",

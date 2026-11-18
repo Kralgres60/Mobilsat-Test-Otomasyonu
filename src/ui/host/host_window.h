@@ -99,10 +99,10 @@ private:
     void setupMenuBar();
     void setupUi();
     void setupLobbyPage();
-    void setupNetworkPcsPage();
     void setupGoldenPage();
     void setupHistoryPage();
     void setupOrdersPage();
+    void setupDatabasePage();
     void setupSettingsPage();
     void setupLogsPage();
     void ensureStationCard(int stationId, const QString &stationName = QString());
@@ -125,14 +125,14 @@ private:
     QListWidget    *m_sideNav     = nullptr;
     /** @brief Right-side page container matched to sidebar items. */
     QStackedWidget *m_pageStack   = nullptr;
-    QWidget        *m_pageLobby      = nullptr;  ///< Page 0 – Canlı Test Lobisi
-    QWidget        *m_pageNetworkPcs = nullptr;  ///< Page 1 – Ağdaki (Serverdeki) PC'ler ve Durumları
-    QWidget        *m_pageGolden     = nullptr;  ///< Page 2 – Referans & Golden Ölçüm Havuzu
-    QWidget        *m_pageHistory    = nullptr;  ///< Page 3 – Test Geçmişi & Raporlama
-    QWidget        *m_pageOrders     = nullptr;  ///< Page 4 – İş Emirleri
-    QWidget        *m_pageSettings   = nullptr;  ///< Page 5 – Sistem Ayarları
-    QWidget        *m_pageLogs       = nullptr;  ///< Page 6 – Sistem Logları
-    UserManagerWidget *m_userManager = nullptr;  ///< Page 7 – Kullanıcı & Yetkilendirme Yönetimi
+    QWidget        *m_pageLobby      = nullptr;  ///< Page 0 – Canlı Test Lobisi & Ağdaki PC'ler
+    QWidget        *m_pageGolden     = nullptr;  ///< Page 1 – Referans & Golden Ölçüm Havuzu
+    QWidget        *m_pageHistory    = nullptr;  ///< Page 2 – Test Geçmişi & SPC
+    QWidget        *m_pageOrders     = nullptr;  ///< Page 3 – İş Emirleri
+    QWidget        *m_pageDatabase   = nullptr;  ///< Page 4 – Veritabanı Tabloları (SQL)
+    UserManagerWidget *m_userManager = nullptr;  ///< Page 5 – Kullanıcı & Yetkilendirme Yönetimi
+    QWidget        *m_pageSettings   = nullptr;  ///< Page 6 – Sistem Ayarları
+    QWidget        *m_pageLogs       = nullptr;  ///< Page 7 – Sistem Logları & Denetim Logları
 
     // Top Header Card Widgets (NO serial port widgets on header)
     QLabel *m_lblServerStatus = nullptr;
@@ -154,8 +154,9 @@ private:
         QLabel *lblTitle   = nullptr;
         QLabel *lblState   = nullptr;
         QLabel *lblIp      = nullptr;
-        QLabel *lblSn      = nullptr;
-        QLabel *lblChannel = nullptr;
+        QLabel *lblSn        = nullptr;
+        QLabel *lblChannel   = nullptr;
+        QLabel *lblHeartbeat = nullptr;
     };
     QMap<int, StationCardWidgets> m_stationWidgets;
     QMap<int, StationLiveStatus>  m_knownStations;
@@ -164,8 +165,10 @@ private:
     QTableWidget *m_tableNetworkPcs   = nullptr;
     QLabel       *m_lblPcSummaryStats = nullptr;
 
-    // History Tab Widgets
-    TestHistoryWidget *m_historyWidget = nullptr;
+    // History, Database & Audit Tab Widgets
+    TestHistoryWidget *m_historyWidget  = nullptr;
+    TestHistoryWidget *m_dbViewerWidget = nullptr;
+    TestHistoryWidget *m_auditLogWidget = nullptr;
 
     // Orders Tab Widgets
     QTableWidget *m_tableOrders = nullptr;

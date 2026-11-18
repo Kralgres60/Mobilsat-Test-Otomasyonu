@@ -28,7 +28,14 @@ class SpcAnalysisWidget;
 class TestHistoryWidget : public QWidget {
     Q_OBJECT
 public:
+    enum class ViewMode {
+        HistoryAndSpc, ///< Test Runs + SPC & Gauss Analysis tabs
+        DatabaseOnly,  ///< Standalone SQL Database Viewer page
+        AuditOnly      ///< Standalone Audit Log tab
+    };
+
     explicit TestHistoryWidget(QWidget *parent = nullptr);
+    explicit TestHistoryWidget(ViewMode mode, QWidget *parent = nullptr);
 
 public slots:
     void refreshHistory();
@@ -121,6 +128,7 @@ private:
 
     // Tab 4: Statistical Process Control (SPC)
     SpcAnalysisWidget *m_spcWidget   = nullptr;
+    ViewMode           m_viewMode    = ViewMode::HistoryAndSpc;
 };
 
 #endif // TEST_HISTORY_WIDGET_H

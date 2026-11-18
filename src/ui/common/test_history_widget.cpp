@@ -32,7 +32,12 @@
 #include <QSqlError>
 
 TestHistoryWidget::TestHistoryWidget(QWidget *parent)
-    : QWidget(parent) {
+    : TestHistoryWidget(ViewMode::HistoryAndSpc, parent) {
+}
+
+TestHistoryWidget::TestHistoryWidget(ViewMode mode, QWidget *parent)
+    : QWidget(parent),
+      m_viewMode(mode) {
     setupUi();
 }
 
@@ -40,6 +45,22 @@ void TestHistoryWidget::setupUi() {
     auto *root = new QVBoxLayout(this);
     root->setContentsMargins(8, 8, 8, 8);
     root->setSpacing(6);
+
+    if (m_viewMode == ViewMode::DatabaseOnly) {
+        auto *dbContainer = new QWidget(this);
+        setupDbViewerTab(dbContainer);
+        root->addWidget(dbContainer, 1);
+        refreshDbTables();
+        return;
+    }
+
+    if (m_viewMode == ViewMode::AuditOnly) {
+        auto *auditContainer = new QWidget(this);
+        setupAuditLogTab(auditContainer);
+        root->addWidget(auditContainer, 1);
+        refreshAuditLogs();
+        return;
+    }
 
     m_tabs = new QTabWidget(this);
     m_tabs->setElideMode(Qt::ElideNone);
@@ -50,14 +71,6 @@ void TestHistoryWidget::setupUi() {
     setupHistoryTab(tabHistory);
     m_tabs->addTab(tabHistory, "📋 Test Koşumları & Geçmiş");
 
-    auto *tabDb = new QWidget(m_tabs);
-    setupDbViewerTab(tabDb);
-    m_tabs->addTab(tabDb, "🗄️ Veritabanı Tabloları (SQL)");
-
-    auto *tabAudit = new QWidget(m_tabs);
-    setupAuditLogTab(tabAudit);
-    m_tabs->addTab(tabAudit, "📜 Sistem Olay & Denetim Logları (Audit)");
-
     m_spcWidget = new SpcAnalysisWidget(m_tabs);
     connect(m_spcWidget, &SpcAnalysisWidget::logMessage, this, &TestHistoryWidget::logMessage);
     m_tabs->addTab(m_spcWidget, "📊 İstatistiksel Süreç Kontrolü (SPC & Gauss)");
@@ -66,9 +79,7 @@ void TestHistoryWidget::setupUi() {
 
     connect(m_tabs, &QTabWidget::currentChanged, this, [this](int idx) {
         if (idx == 0) refreshHistory();
-        else if (idx == 1) refreshDbTables();
-        else if (idx == 2) refreshAuditLogs();
-        else if (idx == 3 && m_spcWidget) m_spcWidget->refreshAnalysis();
+        else if (idx == 1 && m_spcWidget) m_spcWidget->refreshAnalysis();
     });
 }
 

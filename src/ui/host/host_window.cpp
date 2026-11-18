@@ -43,6 +43,8 @@
 #include <QDateTime>
 #include <QPixmap>
 #include <QSplitter>
+#include <QTabWidget>
+#include <QTabBar>
 #include <QFrame>
 #include <QDesktopServices>
 #include <QUrl>
@@ -461,23 +463,23 @@ void HostWindow::setupUi() {
         item->setSizeHint(QSize(215, 46));
         m_sideNav->addItem(item);
     };
-    addNavItem("  🎮  Canlı Test Lobisi");
-    addNavItem("  🖥️  Ağdaki PC'ler");
+    addNavItem("  🎮  Canlı Test Lobisi & PC'ler");
     addNavItem("  🌟  Referans & Golden Ölçüm");
-    addNavItem("  📊  Test Geçmişi & Veritabanı");
+    addNavItem("  📊  Test Geçmişi & SPC");
     addNavItem("  📦  İş Emirleri");
+    addNavItem("  🗄️  Veritabanı (SQL)");
     addNavItem("  🔐  Kullanıcı & Yetki");
     addNavItem("  ⚙️  Sistem Ayarları");
     addNavItem("  📜  Sistem Logları");
 
-    m_sideNav->setCurrentRow(2);
+    m_sideNav->setCurrentRow(3);
 
     m_pageStack = new QStackedWidget(splitter);
     setupLobbyPage();
-    setupNetworkPcsPage();
     setupGoldenPage();
     setupHistoryPage();
     setupOrdersPage();
+    setupDatabasePage();
     m_userManager = new UserManagerWidget(this);
     connect(m_userManager, &UserManagerWidget::logMessage, this, &HostWindow::appendLog);
     connect(m_userManager, &UserManagerWidget::usersUpdated, &m_tcpServer, &TcpServer::broadcastUserRoleUpdates);
@@ -485,10 +487,10 @@ void HostWindow::setupUi() {
     setupLogsPage();
 
     m_pageStack->addWidget(m_pageLobby);      // index 0
-    m_pageStack->addWidget(m_pageNetworkPcs); // index 1
-    m_pageStack->addWidget(m_pageGolden);     // index 2
-    m_pageStack->addWidget(m_pageHistory);    // index 3
-    m_pageStack->addWidget(m_pageOrders);     // index 4
+    m_pageStack->addWidget(m_pageGolden);     // index 1
+    m_pageStack->addWidget(m_pageHistory);    // index 2
+    m_pageStack->addWidget(m_pageOrders);     // index 3
+    m_pageStack->addWidget(m_pageDatabase);   // index 4
     m_pageStack->addWidget(m_userManager);    // index 5
     m_pageStack->addWidget(m_pageSettings);   // index 6
     m_pageStack->addWidget(m_pageLogs);       // index 7
@@ -529,6 +531,10 @@ void HostWindow::onNavItemChanged(int row) {
             m_userManager->reloadUsers();
         } else if (m_pageStack->widget(pageIdx) == m_pageHistory && m_historyWidget) {
             m_historyWidget->refreshHistory();
+        } else if (m_pageStack->widget(pageIdx) == m_pageDatabase && m_dbViewerWidget) {
+            m_dbViewerWidget->refreshDbTables();
+        } else if (m_pageStack->widget(pageIdx) == m_pageLogs && m_auditLogWidget) {
+            m_auditLogWidget->refreshAuditLogs();
         } else if (m_pageStack->widget(pageIdx) == m_pageOrders) {
             loadWorkOrders();
         }
@@ -548,7 +554,14 @@ void HostWindow::setupLobbyPage() {
     arbLayout->addWidget(m_lblArbiterStatus);
     vbox->addWidget(grpArbiter);
 
-    QGroupBox *grpStations = new QGroupBox("🖥️ Bağlı Test İstasyonları (Sınırsız Dinamik Lobi)", m_pageLobby);
+    // Tabbed Lobby Workspace: Tab 0 = Live Station Cards | Tab 1 = Network PCs Table
+    QTabWidget *lobbyTabs = new QTabWidget(m_pageLobby);
+    lobbyTabs->setElideMode(Qt::ElideNone);
+    lobbyTabs->setUsesScrollButtons(false);
+    lobbyTabs->tabBar()->setExpanding(false);
+
+    // Tab 0: Dynamic Station Cards
+    QGroupBox *grpStations = new QGroupBox("🖥️ Bağlı Test İstasyonları (Canlı Kartlar)", lobbyTabs);
     QVBoxLayout *stBox = new QVBoxLayout(grpStations);
 
     m_lblNoStations = new QLabel(
@@ -568,7 +581,65 @@ void HostWindow::setupLobbyPage() {
     scroll->setWidget(m_stationsContainer);
     stBox->addWidget(scroll, 1);
 
-    vbox->addWidget(grpStations, 1);
+    lobbyTabs->addTab(grpStations, "🎮 Canlı İstasyon Kartları");
+
+    // Tab 1: Network PCs Summary & Table
+    QGroupBox *grpNetworkPcs = new QGroupBox("🌐 Ağdaki (Sunucuya Katılan) PC'ler ve Canlı Durumları", lobbyTabs);
+    QVBoxLayout *netBox = new QVBoxLayout(grpNetworkPcs);
+    netBox->setSpacing(6);
+
+    QHBoxLayout *topRow = new QHBoxLayout();
+    topRow->setSpacing(10);
+
+    m_lblPcSummaryStats = new QLabel("Toplam PC: 0  |  🟢 Çevrimiçi: 0  |  🧪 Aktif Testte: 0", grpNetworkPcs);
+    m_lblPcSummaryStats->setStyleSheet(StyleHelper::getPastelGreenStyle());
+
+    QPushButton *btnRefresh = new QPushButton("🔄 Yenile", grpNetworkPcs);
+    btnRefresh->setCursor(Qt::PointingHandCursor);
+    connect(btnRefresh, &QPushButton::clicked, this, &HostWindow::refreshNetworkPcsTable);
+
+    QPushButton *btnClearOffline = new QPushButton("🧹 Çevrimdışı Olanları Temizle", grpNetworkPcs);
+    btnClearOffline->setCursor(Qt::PointingHandCursor);
+    connect(btnClearOffline, &QPushButton::clicked, this, [this]() {
+        for (auto it = m_knownStations.begin(); it != m_knownStations.end();) {
+            if (!it.value().isConnected) {
+                it = m_knownStations.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        refreshNetworkPcsTable();
+    });
+
+    topRow->addWidget(m_lblPcSummaryStats);
+    topRow->addStretch();
+    topRow->addWidget(btnRefresh);
+    topRow->addWidget(btnClearOffline);
+    netBox->addLayout(topRow);
+
+    m_tableNetworkPcs = new QTableWidget(grpNetworkPcs);
+    m_tableNetworkPcs->setColumnCount(8);
+    m_tableNetworkPcs->setHorizontalHeaderLabels({
+        "İstasyon #", "PC / İstasyon Adı", "IP Adresi", "Bağlantı", "Çalışma Durumu", "Test Edilen Barkod", "Aktif Kanal", "Son Sinyal (Heartbeat)"
+    });
+    m_tableNetworkPcs->verticalHeader()->setVisible(false);
+    m_tableNetworkPcs->setAlternatingRowColors(true);
+    m_tableNetworkPcs->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_tableNetworkPcs->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_tableNetworkPcs->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_tableNetworkPcs->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Stretch);
+    m_tableNetworkPcs->setColumnWidth(0, 88);
+    m_tableNetworkPcs->setColumnWidth(2, 130);
+    m_tableNetworkPcs->setColumnWidth(3, 120);
+    m_tableNetworkPcs->setColumnWidth(5, 145);
+    m_tableNetworkPcs->setColumnWidth(6, 95);
+    m_tableNetworkPcs->setColumnWidth(7, 145);
+    netBox->addWidget(m_tableNetworkPcs, 1);
+
+    lobbyTabs->addTab(grpNetworkPcs, "🌐 Ağdaki PC'ler Tablosu");
+    vbox->addWidget(lobbyTabs, 1);
+
+    refreshNetworkPcsTable();
 }
 
 void HostWindow::ensureStationCard(int stationId, const QString &stationName) {
@@ -610,11 +681,15 @@ void HostWindow::ensureStationCard(int stationId, const QString &stationName) {
     widgets.lblChannel = new QLabel("Aktif Kanal: --", card);
     widgets.lblChannel->setStyleSheet("color: #E6F4EE;");
 
+    widgets.lblHeartbeat = new QLabel("Son Sinyal: --", card);
+    widgets.lblHeartbeat->setStyleSheet("color: #6B7280; font-size: 8.5pt;");
+
     cardVBox->addWidget(widgets.lblTitle);
     cardVBox->addWidget(widgets.lblState);
     cardVBox->addWidget(widgets.lblIp);
     cardVBox->addWidget(widgets.lblSn);
     cardVBox->addWidget(widgets.lblChannel);
+    cardVBox->addWidget(widgets.lblHeartbeat);
     cardVBox->addStretch();
 
     int idx = m_stationWidgets.size();
@@ -633,62 +708,13 @@ void HostWindow::setupGoldenPage() {
     m_pageGolden = m_goldenRefWidget;
 }
 
-void HostWindow::setupNetworkPcsPage() {
-    m_pageNetworkPcs = new QWidget(this);
-    QVBoxLayout *vbox = new QVBoxLayout(m_pageNetworkPcs);
-    vbox->setContentsMargins(10, 10, 10, 10);
-    vbox->setSpacing(10);
-
-    QGroupBox *grpTop = new QGroupBox("🖥️ Ağdaki (Sunucuya Katılan) PC'ler ve Canlı Durumları", m_pageNetworkPcs);
-    QHBoxLayout *topRow = new QHBoxLayout(grpTop);
-    topRow->setSpacing(10);
-
-    m_lblPcSummaryStats = new QLabel("Toplam PC: 0  |  🟢 Çevrimiçi: 0  |  🧪 Aktif Testte: 0", grpTop);
-    m_lblPcSummaryStats->setStyleSheet(StyleHelper::getPastelGreenStyle());
-
-    QPushButton *btnRefresh = new QPushButton("🔄 Yenile", grpTop);
-    btnRefresh->setCursor(Qt::PointingHandCursor);
-    connect(btnRefresh, &QPushButton::clicked, this, &HostWindow::refreshNetworkPcsTable);
-
-    QPushButton *btnClearOffline = new QPushButton("🧹 Çevrimdışı Olanları Temizle", grpTop);
-    btnClearOffline->setCursor(Qt::PointingHandCursor);
-    connect(btnClearOffline, &QPushButton::clicked, this, [this]() {
-        for (auto it = m_knownStations.begin(); it != m_knownStations.end();) {
-            if (!it.value().isConnected) {
-                it = m_knownStations.erase(it);
-            } else {
-                ++it;
-            }
-        }
-        refreshNetworkPcsTable();
-    });
-
-    topRow->addWidget(m_lblPcSummaryStats);
-    topRow->addStretch();
-    topRow->addWidget(btnRefresh);
-    topRow->addWidget(btnClearOffline);
-    vbox->addWidget(grpTop);
-
-    m_tableNetworkPcs = new QTableWidget(m_pageNetworkPcs);
-    m_tableNetworkPcs->setColumnCount(8);
-    m_tableNetworkPcs->setHorizontalHeaderLabels({
-        "İstasyon #", "PC / İstasyon Adı", "IP Adresi", "Bağlantı", "Çalışma Durumu", "Test Edilen Barkod", "Aktif Kanal", "Son Sinyal (Heartbeat)"
-    });
-    m_tableNetworkPcs->verticalHeader()->setVisible(false);
-    m_tableNetworkPcs->setAlternatingRowColors(true);
-    m_tableNetworkPcs->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_tableNetworkPcs->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_tableNetworkPcs->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
-    m_tableNetworkPcs->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Stretch);
-    m_tableNetworkPcs->setColumnWidth(0, 88);
-    m_tableNetworkPcs->setColumnWidth(2, 130);
-    m_tableNetworkPcs->setColumnWidth(3, 120);
-    m_tableNetworkPcs->setColumnWidth(5, 145);
-    m_tableNetworkPcs->setColumnWidth(6, 95);
-    m_tableNetworkPcs->setColumnWidth(7, 145);
-    vbox->addWidget(m_tableNetworkPcs, 1);
-
-    refreshNetworkPcsTable();
+void HostWindow::setupDatabasePage() {
+    m_pageDatabase = new QWidget(this);
+    QVBoxLayout *vbox = new QVBoxLayout(m_pageDatabase);
+    vbox->setContentsMargins(0, 0, 0, 0);
+    m_dbViewerWidget = new TestHistoryWidget(TestHistoryWidget::ViewMode::DatabaseOnly, m_pageDatabase);
+    connect(m_dbViewerWidget, &TestHistoryWidget::logMessage, this, &HostWindow::appendLog);
+    vbox->addWidget(m_dbViewerWidget);
 }
 
 void HostWindow::refreshNetworkPcsTable() {
@@ -1179,9 +1205,20 @@ void HostWindow::setupSettingsPage() {
 void HostWindow::setupLogsPage() {
     m_pageLogs = new QWidget(this);
     QVBoxLayout *vbox = new QVBoxLayout(m_pageLogs);
-    vbox->setContentsMargins(10, 10, 10, 10);
+    vbox->setContentsMargins(8, 8, 8, 8);
+    vbox->setSpacing(6);
 
-    QGroupBox *grpLogs = new QGroupBox("📜 Sunucu, Hakem (Mutex Arbiter) ve Referans Ethernet Logları", m_pageLogs);
+    QTabWidget *logTabs = new QTabWidget(m_pageLogs);
+    logTabs->setElideMode(Qt::ElideNone);
+    logTabs->setUsesScrollButtons(false);
+    logTabs->tabBar()->setExpanding(false);
+
+    // Tab 0: Live Application & Mutex Logs
+    QWidget *tabLive = new QWidget(logTabs);
+    QVBoxLayout *liveBox = new QVBoxLayout(tabLive);
+    liveBox->setContentsMargins(6, 6, 6, 6);
+
+    QGroupBox *grpLogs = new QGroupBox("📜 Sunucu, Hakem (Mutex Arbiter) ve Referans Ethernet Logları", tabLive);
     QVBoxLayout *logBox = new QVBoxLayout(grpLogs);
 
     m_txtLog = new QTextEdit(grpLogs);
@@ -1189,7 +1226,21 @@ void HostWindow::setupLogsPage() {
     m_txtLog->setStyleSheet("background-color: #040B09; color: #34D399; font-family: Consolas, 'Courier New', monospace; font-size: 9.5pt;");
     logBox->addWidget(m_txtLog);
 
-    vbox->addWidget(grpLogs);
+    liveBox->addWidget(grpLogs);
+    logTabs->addTab(tabLive, "📜 Canlı Sistem Logları");
+
+    // Tab 1: System Event & Audit Logs (Audit)
+    m_auditLogWidget = new TestHistoryWidget(TestHistoryWidget::ViewMode::AuditOnly, logTabs);
+    connect(m_auditLogWidget, &TestHistoryWidget::logMessage, this, &HostWindow::appendLog);
+    logTabs->addTab(m_auditLogWidget, "🛡️ Sistem Olay & Denetim Logları (Audit)");
+
+    connect(logTabs, &QTabWidget::currentChanged, this, [this](int idx) {
+        if (idx == 1 && m_auditLogWidget) {
+            m_auditLogWidget->refreshAuditLogs();
+        }
+    });
+
+    vbox->addWidget(logTabs, 1);
 }
 
 void HostWindow::onRefEthPingSyncClicked() {
@@ -1348,6 +1399,9 @@ void HostWindow::onStationStatusUpdated(const StationLiveStatus &status) {
     if (m_stationWidgets.contains(stId)) {
         m_stationWidgets[stId].lblSn->setText(status.currentAntennaSn.isEmpty() ? "Anten Barkodu: --" : "Anten Barkodu: " + status.currentAntennaSn);
         m_stationWidgets[stId].lblChannel->setText(status.currentChannel > 0 ? QString("Aktif Kanal: %1").arg(status.currentChannel) : "Aktif Kanal: --");
+        if (m_stationWidgets[stId].lblHeartbeat) {
+            m_stationWidgets[stId].lblHeartbeat->setText("Son Sinyal: " + status.lastHeartbeat.toString("hh:mm:ss"));
+        }
     }
     m_knownStations[stId] = status;
     DbManager::instance().upsertClusterNode(

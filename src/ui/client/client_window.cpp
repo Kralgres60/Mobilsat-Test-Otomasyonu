@@ -711,7 +711,15 @@ void ClientWindow::setupProductionPage() {
     telGrid->addWidget(m_lblLiveTolerance, 2, 2);
 
     leftCol->addWidget(grpTelemetry);
-    leftCol->addStretch();
+
+    auto *grpProdFreq = new QGroupBox("📈 Profil Frekans & Referans Eğrisi", m_pageProduction);
+    auto *prodFreqLay = new QVBoxLayout(grpProdFreq);
+    prodFreqLay->setContentsMargins(6, 10, 6, 6);
+    m_prodFreqPlot = new QCustomPlot(grpProdFreq);
+    m_prodFreqPlot->setMinimumHeight(185);
+    setupProdFreqPlot();
+    prodFreqLay->addWidget(m_prodFreqPlot);
+    leftCol->addWidget(grpProdFreq, 1);
 
     // =========================================================================
     // RIGHT COLUMN: Overall Verdict Card + Progress + Clean 10-Row Table
@@ -1484,6 +1492,98 @@ void ClientWindow::populateChannelTable() {
         m_tableChannels->setItem(i, 5, itLock);
         m_tableChannels->setItem(i, 6, itStat);
     }
+    updateProdFreqPlot();
+}
+
+void ClientWindow::setupProdFreqPlot() {
+    if (!m_prodFreqPlot) return;
+    m_prodFreqPlot->setBackground(QColor("#0F172A"));
+    m_prodFreqPlot->axisRect()->setBackground(QColor("#1E293B"));
+
+    auto styleAxis = [](QCPAxis *ax, const QString &label) {
+        ax->setBasePen(QPen(QColor("#475569")));
+        ax->setTickPen(QPen(QColor("#475569")));
+        ax->setSubTickPen(QPen(QColor("#334155")));
+        ax->setTickLabelColor(QColor("#94A3B8"));
+        ax->setLabelColor(QColor("#CBD5E1"));
+        ax->setLabel(label);
+        ax->grid()->setPen(QPen(QColor("#334155"), 1, Qt::DotLine));
+    };
+    styleAxis(m_prodFreqPlot->xAxis, "Kanal No");
+    styleAxis(m_prodFreqPlot->yAxis, "C/N (dB)");
+
+    // Graph 0: Golden / Reference C/N curve
+    m_prodFreqPlot->addGraph();
+    m_prodFreqPlot->graph(0)->setName("Golden / Ref C/N");
+    m_prodFreqPlot->graph(0)->setPen(QPen(QColor("#FBBF24"), 2));
+    m_prodFreqPlot->graph(0)->setScatterStyle(QCPScatterStyle(QCPScatterStyle::ssDisc, QColor("#FBBF24"), 6));
+
+    // Graph 1: Lower Tolerance Limit (Ref - Tol)
+    m_prodFreqPlot->addGraph();
+    m_prodFreqPlot->graph(1)->setName("Alt Tolerans");
+    m_prodFreqPlot->graph(1)->setPen(QPen(QColor("#EF4444"), 1, Qt::DashLine));
+
+    // Graph 2: Upper Tolerance Limit (Ref + Tol)
+    m_prodFreqPlot->addGraph();
+    m_prodFreqPlot->graph(2)->setName("Üst Tolerans");
+    m_prodFreqPlot->graph(2)->setPen(QPen(QColor("#22C55E"), 1, Qt::DashLine));
+
+    m_prodFreqPlot->legend->setVisible(true);
+    m_prodFreqPlot->legend->setBrush(QBrush(QColor(15, 23, 42, 200)));
+    m_prodFreqPlot->legend->setBorderPen(QPen(QColor("#334155")));
+    m_prodFreqPlot->legend->setTextColor(QColor("#E2E8F0"));
+    m_prodFreqPlot->xAxis->setRange(0.5, 10.5);
+    m_prodFreqPlot->yAxis->setRange(0, 22);
+}
+
+void ClientWindow::updateProdFreqPlot() {
+    if (!m_prodFreqPlot) return;
+    QVector<double> x, yRef, yLow, yHigh;
+
+    const auto &channels = m_currentProfile.channels;
+    for (int i = 0; i < channels.size(); ++i) {
+        const auto &ch = channels[i];
+        double refCn = 0.0;
+        double tol = ch.toleranceDb > 0.0 ? ch.toleranceDb : m_currentProfile.defaultToleranceDb;
+
+        if (ch.hasGoldenSample && ch.goldenCnDb > 0.05) {
+            refCn = ch.goldenCnDb;
+        } else {
+            double gCn = 0.0, gPow = 0.0, gTol = 0.0;
+            if (DbManager::instance().findGoldenSampleForChannel(
+                    ch.frequencyMhz, ch.symbolRate, ch.polarization, gCn, gPow, gTol)) {
+                refCn = gCn;
+                if (gTol > 0.0) tol = gTol;
+            }
+        }
+
+        if (refCn > 0.05) {
+            x.append(static_cast<double>(i + 1));
+            yRef.append(refCn);
+            yLow.append(qMax(0.0, refCn - tol));
+            yHigh.append(refCn + tol);
+        }
+    }
+
+    m_prodFreqPlot->graph(0)->setData(x, yRef);
+    m_prodFreqPlot->graph(1)->setData(x, yLow);
+    m_prodFreqPlot->graph(2)->setData(x, yHigh);
+
+    const int n = qMax(1, channels.size());
+    m_prodFreqPlot->xAxis->setRange(0.5, static_cast<double>(n) + 0.5);
+
+    if (!yRef.isEmpty()) {
+        double minY = yLow.first();
+        double maxY = yHigh.first();
+        for (int i = 1; i < yLow.size(); ++i) {
+            minY = qMin(minY, yLow[i]);
+            maxY = qMax(maxY, yHigh[i]);
+        }
+        m_prodFreqPlot->yAxis->setRange(qMax(0.0, minY - 2.0), maxY + 2.0);
+    } else {
+        m_prodFreqPlot->yAxis->setRange(0, 22);
+    }
+    m_prodFreqPlot->replot();
 }
 
 void ClientWindow::onEthPingSyncClicked() {

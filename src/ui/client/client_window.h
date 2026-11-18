@@ -116,6 +116,8 @@ private:
     void setupEngineerSettingsPage();
     void setupLogsPage();
     void setupPlot();
+    void setupProdFreqPlot();
+    void updateProdFreqPlot();
     void loadGoldenOverlayCurve(const GoldenFrequencyRecord &rec);
     void clearGoldenOverlay();
     void loadWorkOrdersAndProfiles();
@@ -197,8 +199,9 @@ private:
     QString       m_lastGeneratedPdfPath;
     QTableWidget *m_tableChannels     = nullptr;
 
-    // Live Graph (Page 1)
+    // Live Graph (Page 1) & Production Profile Curve (Page 0)
     QCustomPlot *m_plot = nullptr;
+    QCustomPlot *m_prodFreqPlot = nullptr;
 
     // Engineer Settings (Page 2)
     QDoubleSpinBox *m_spinTolerance      = nullptr;
