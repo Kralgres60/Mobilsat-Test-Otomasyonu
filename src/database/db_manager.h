@@ -9,13 +9,9 @@
 #define DB_MANAGER_H
 
 #include <QObject>
-#include <QSqlDatabase>
-#include <QSqlQuery>
-#include <QSqlError>
 #include <QMap>
-#include <QProcess>
-#include <QThread>
 #include "data_models.h"
+#include "db_stream.h"
 
 /**
  * @struct AuditLogRecord
@@ -40,6 +36,12 @@ class DbManager : public QObject {
 public:
     /** @brief Returns global DbManager instance. */
     static DbManager& instance();
+
+    /** @brief Binds an external DbStream abstraction (e.g. custom driver or mock DB). */
+    void setStream(DbStream *stream);
+
+    /** @brief Returns the active DbStream abstraction used by DbManager. */
+    DbStream* stream() const { return m_stream; }
 
     /**
      * @brief Establishes database connection with specified credentials.
@@ -69,22 +71,22 @@ public:
     void stopPortableMariaDbIfRunning();
 
     /** @brief Returns last SQL error description. */
-    QString lastError() const { return m_lastError; }
+    QString lastError() const;
 
-    /** @brief Returns active Qt SQL driver name (e.g. QMYSQL). */
-    QString driverName() const { return m_driverName; }
+    /** @brief Returns active SQL driver name (e.g. QMYSQL, QSQLITE). */
+    QString driverName() const;
 
-    /** @brief Alias for driverName(), returns active Qt SQL driver name. */
-    QString activeDriver() const { return m_driverName; }
+    /** @brief Alias for driverName(), returns active SQL driver name. */
+    QString activeDriver() const { return driverName(); }
 
-    /** @brief Returns the Qt SQL connection name used by this DbManager. */
+    /** @brief Returns the Qt SQL connection name used by default physical drivers. */
     QString connectionName() const { return m_connectionName; }
 
     /** @brief Returns true if active driver is MariaDB/MySQL. */
-    bool isUsingMysql() const { return m_driverName == "QMYSQL"; }
+    bool isUsingMysql() const { return driverName() == "QMYSQL" || driverName() == "QODBC"; }
 
     /** @brief Returns true if active driver is SQLite. */
-    bool isUsingSqlite() const { return m_driverName == "QSQLITE"; }
+    bool isUsingSqlite() const { return driverName() == "QSQLITE"; }
 
     /** @brief Returns active database name or file path. */
     QString databaseName() const;
@@ -280,13 +282,13 @@ private:
     DbManager& operator=(const DbManager&) = delete;
 
     bool initTablesIfSqlite();
+    void ensureDefaultStream();
 
     QString m_connectionName = "NetaMainDb";
-    QString m_driverName = "QMYSQL";
     QString m_lastError;
-    QString m_appDirPath;
-    QProcess *m_portableProcess = nullptr;
-    bool m_launchedPortableMysqld = false;
+    DbStream *m_stream = nullptr;
+    DbStream *m_ownedStream = nullptr;
+    QObject  *m_ownedDriver = nullptr;
 };
 
 #endif // DB_MANAGER_H

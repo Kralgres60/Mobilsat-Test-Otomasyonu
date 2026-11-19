@@ -38,6 +38,9 @@ SOURCES += \
     src/core/xlsxutil.cpp \
     src/core/pdf_report_generator.cpp \
     src/core/spc_calculator.cpp \
+    src/database/db_stream.cpp \
+    src/database/mariadb_driver.cpp \
+    src/database/sqlite_driver.cpp \
     src/database/db_manager.cpp \
     src/database/backup_manager.cpp \
     src/hardware/data_stream.cpp \
@@ -78,6 +81,9 @@ HEADERS += \
     src/core/xlsxutil.h \
     src/core/pdf_report_generator.h \
     src/core/spc_calculator.h \
+    src/database/db_stream.h \
+    src/database/mariadb_driver.h \
+    src/database/sqlite_driver.h \
     src/database/db_manager.h \
     src/database/backup_manager.h \
     src/hardware/data_stream.h \

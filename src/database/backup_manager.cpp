@@ -7,13 +7,9 @@
 
 #include "backup_manager.h"
 #include "db_manager.h"
+#include "db_stream.h"
 #include "core/app_config.h"
 #include <QCoreApplication>
-#include <QSqlDatabase>
-#include <QSqlQuery>
-#include <QSqlRecord>
-#include <QSqlField>
-#include <QSqlError>
 #include <QProcess>
 #include <QStandardPaths>
 #include <QTextStream>
@@ -175,22 +171,21 @@ bool BackupManager::performBackup(QString *outFilePath, QString *outError) {
 }
 
 bool BackupManager::backupSqlite(const QString &destPath, QString *outError) {
-    QSqlDatabase db = QSqlDatabase::database(DbManager::instance().connectionName());
-    if (!db.isOpen()) {
+    DbStream *stream = DbManager::instance().stream();
+    if (!stream || !stream->isConnected()) {
         if (outError) *outError = "SQLite veritabanı açık değil.";
         return false;
     }
 
     // Try modern SQLite VACUUM INTO for atomic online non-blocking backup
-    QSqlQuery vacuumQuery(db);
-    QString vacuumSql = QString("VACUUM INTO '%1'").arg(destPath);
-    if (vacuumQuery.exec(vacuumSql)) {
+    const QString vacuumSql = QString("VACUUM INTO '%1'").arg(destPath);
+    if (stream->exec(vacuumSql).ok) {
         qInfo() << "[BackupManager] SQLite VACUUM INTO backup succeeded:" << destPath;
         return true;
     }
 
     // Fallback: Safe file copy
-    QString sourceFile = db.databaseName();
+    const QString sourceFile = stream->databaseName();
     if (sourceFile.isEmpty() || !QFile::exists(sourceFile)) {
         if (outError) *outError = QString("Kaynak SQLite dosyası bulunamadı: %1").arg(sourceFile);
         return false;
@@ -287,8 +282,8 @@ bool BackupManager::dumpMariaDbMysqldump(const QString &mysqldumpPath, const QSt
 }
 
 bool BackupManager::dumpMariaDbNative(const QString &destPath, QString *outError) {
-    QSqlDatabase db = QSqlDatabase::database(DbManager::instance().connectionName());
-    if (!db.isOpen()) {
+    DbStream *stream = DbManager::instance().stream();
+    if (!stream || !stream->isConnected()) {
         if (outError) *outError = "MariaDB veritabanı açık değil.";
         return false;
     }
@@ -316,42 +311,39 @@ bool BackupManager::dumpMariaDbNative(const QString &destPath, QString *outError
     out << "SET SQL_MODE = 'NO_AUTO_VALUE_ON_ZERO';\n\n";
 
     // Enumerate tables
-    QSqlQuery qTable(db);
-    if (!qTable.exec("SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'")) {
-        if (outError) *outError = QString("Tablolar listelenemedi: %1").arg(qTable.lastError().text());
+    const DbQueryResult tableRes = stream->exec("SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'");
+    if (!tableRes.ok) {
+        if (outError) *outError = QString("Tablolar listelenemedi: %1").arg(tableRes.error);
         file.close();
         return false;
     }
 
     QStringList tables;
-    while (qTable.next()) {
-        tables << qTable.value(0).toString();
+    for (const DbRow &row : tableRes.rows) {
+        tables << row.at(0).toString();
     }
 
     for (const QString &tableName : tables) {
         out << "--\n-- Structure for table `" << tableName << "`\n--\n";
         out << "DROP TABLE IF EXISTS `" << tableName << "`;\n";
 
-        QSqlQuery qCreate(db);
-        if (qCreate.exec(QString("SHOW CREATE TABLE `%1`").arg(tableName)) && qCreate.next()) {
-            out << qCreate.value(1).toString() << ";\n\n";
+        const DbQueryResult createRes = stream->exec(QString("SHOW CREATE TABLE `%1`").arg(tableName));
+        if (createRes.ok && createRes.hasRows()) {
+            out << createRes.first().at(1).toString() << ";\n\n";
         }
 
         // Dump data
         out << "--\n-- Dumping data for table `" << tableName << "`\n--\n";
-        QSqlQuery qData(db);
-        qData.setForwardOnly(true);
-        if (qData.exec(QString("SELECT * FROM `%1`").arg(tableName))) {
-            QSqlRecord record = qData.record();
-            int colCount = record.count();
-
+        const DbQueryResult dataRes = stream->exec(QString("SELECT * FROM `%1`").arg(tableName));
+        if (dataRes.ok) {
             QStringList insertRows;
             int batchCount = 0;
 
-            while (qData.next()) {
+            for (const DbRow &row : dataRes.rows) {
+                const int colCount = row.columns.size();
                 QStringList rowValues;
                 for (int i = 0; i < colCount; ++i) {
-                    QVariant val = qData.value(i);
+                    const QVariant &val = row.at(i);
                     if (val.isNull()) {
                         rowValues << "NULL";
                     } else {
