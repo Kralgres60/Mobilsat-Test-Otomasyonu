@@ -47,6 +47,9 @@ SOURCES += \
     src/hardware/ethernet_transport.cpp \
     src/hardware/serial_transport.cpp \
     src/hardware/drx_protocol_config.cpp \
+    src/network/net_stream.cpp \
+    src/network/tcp_transport.cpp \
+    src/network/udp_transport.cpp \
     src/network/udp_beacon.cpp \
     src/network/tcp_server.cpp \
     src/network/tcp_client.cpp \
@@ -90,6 +93,9 @@ HEADERS += \
     src/hardware/ethernet_transport.h \
     src/hardware/serial_transport.h \
     src/hardware/drx_protocol_config.h \
+    src/network/net_stream.h \
+    src/network/tcp_transport.h \
+    src/network/udp_transport.h \
     src/network/network_messages.h \
     src/network/udp_beacon.h \
     src/network/tcp_server.h \

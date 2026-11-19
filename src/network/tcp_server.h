@@ -1,6 +1,6 @@
 /**
  * @file tcp_server.h
- * @brief Central TCP command, lock arbitration, and telemetry broadcast server (Architecture 1).
+ * @brief Transport-agnostic central command, lock arbitration, and telemetry broadcast server (Architecture 1).
  * @author Semi Eren Gökyıldız
  * @copyright Copyright (C) 2026 NETA Elektronik A.Ş.
  */
@@ -8,21 +8,21 @@
 #ifndef TCP_SERVER_H
 #define TCP_SERVER_H
 
-#include <QObject>
-#include <QTcpServer>
-#include <QTcpSocket>
-#include <QTimer>
+#include <QByteArray>
+#include <QJsonObject>
 #include <QMap>
+#include <QObject>
+#include <QTimer>
 #include "data_models.h"
 #include "lock_arbiter.h"
-#include "hardware/ethernet_transport.h"
-#include "hardware/serial_transport.h"
+#include "net_stream.h"
+#include "hardware/data_stream.h"
 
 /**
  * @class TcpServer
- * @brief Operates the central TCP communication endpoint on the Host PC (:9100),
+ * @brief Operates the central command endpoint on the Host PC (:9100) via NetServerStream,
  *        dispatching lock grants, queuing requests, and streaming Reference DRX telemetry
- *        (primary via Ethernet Web CGI, optional RS232 fallback).
+ *        through the hardware-agnostic DataStream abstraction.
  */
 class TcpServer : public QObject {
     Q_OBJECT
@@ -30,17 +30,17 @@ public:
     /**
      * @brief Constructs TCP command server.
      * @param arbiter FIFO mutual exclusion arbiter
-     * @param refSerial Optional RS232 fallback worker for Golden Sample Reference DRX
+     * @param refStream Hardware-agnostic DataStream for Reference DRX (optional, can be set later)
      * @param parent Parent QObject
      */
-    explicit TcpServer(LockArbiter *arbiter, SerialWorker *refSerial, QObject *parent = nullptr);
+    explicit TcpServer(LockArbiter *arbiter, DataStream *refStream = nullptr, QObject *parent = nullptr);
     ~TcpServer() override;
 
-    /**
-     * @brief Injects the primary Ethernet Web CGI client for the Reference Golden Sample DRX.
-     * @param refWebClient Configured DrxWebClient targeting the Host Reference DRX IP
-     */
-    void setRefWebClient(DrxWebClient *refWebClient);
+    /** @brief Binds an external NetServerStream (e.g. custom transport or mock). */
+    void setStream(NetServerStream *stream);
+
+    /** @brief Injects the hardware-agnostic DataStream for the Reference Golden Sample DRX. */
+    void setRefDataStream(DataStream *refStream);
 
     /**
      * @brief Sets the active reference comparison mode and broadcasts it to connected stations.
@@ -58,7 +58,7 @@ public:
     void stop();
 
     /** @brief Checks if server is actively listening. */
-    bool isListening() const { return m_server.isListening(); }
+    bool isListening() const;
 
     /** @brief Returns live status dictionary of connected test stations. */
     QMap<int, StationLiveStatus> connectedStations() const;
@@ -73,9 +73,9 @@ signals:
     void logMessage(const QString &msg);
 
 private slots:
-    void onNewConnection();
-    void onClientReadyRead();
-    void onClientDisconnected();
+    void onPeerConnected(quint64 peerId, const QString &ipAddress);
+    void onPeerDataReceived(quint64 peerId, const QByteArray &data);
+    void onPeerDisconnected(quint64 peerId);
 
     // Lock Arbiter event handlers
     void onLockGranted(int stationId, int timeoutSec);
@@ -91,14 +91,19 @@ private slots:
     void onSilenceWatchdogTick();
 
 private:
-    void processClientMessage(QTcpSocket *socket, const QJsonObject &msg);
+    void ensureDefaultStream();
+    void attachStreamSignals(NetServerStream *stream);
+    void processClientMessage(quint64 peerId, const QJsonObject &msg);
     void sendToStation(int stationId, const QJsonObject &msg);
-    QTcpSocket* findSocketByStationId(int stationId);
+    void broadcastJson(const QJsonObject &msg);
+    quint64 findPeerByStationId(int stationId) const;
 
-    QTcpServer m_server;
-    LockArbiter *m_arbiter;
-    SerialWorker *m_refSerial;
-    DrxWebClient *m_refWebClient = nullptr;
+    NetServerStream *m_stream = nullptr;
+    NetServerStream *m_ownedStream = nullptr;
+    QObject         *m_ownedTransport = nullptr;
+
+    LockArbiter *m_arbiter = nullptr;
+    DataStream  *m_refStream = nullptr;
     QTimer m_refPollTimer;
     QTimer m_silenceWatchdogTimer; ///< Detects and disconnects silent/unplugged stations
     ReferenceMode m_referenceMode = ReferenceMode::LiveReference;
@@ -110,7 +115,7 @@ private:
         QByteArray rxBuffer;
     };
 
-    QMap<QTcpSocket*, ClientSession> m_clients;
+    QMap<quint64, ClientSession> m_clients;
 
     // Cached live reference telemetry
     double m_lastRefCn = 0.0;

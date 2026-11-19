@@ -1,6 +1,6 @@
 /**
  * @file udp_beacon.h
- * @brief Zero-configuration LAN UDP discovery broadcaster and listener (Architecture 1).
+ * @brief Transport-agnostic zero-configuration LAN discovery broadcaster and listener (Architecture 1).
  * @author Semi Eren Gökyıldız
  * @copyright Copyright (C) 2026 NETA Elektronik A.Ş.
  */
@@ -9,18 +9,21 @@
 #define UDP_BEACON_H
 
 #include <QObject>
-#include <QUdpSocket>
 #include <QTimer>
-#include <QHostAddress>
+#include "net_stream.h"
 
 /**
  * @class UdpBeaconBroadcaster
- * @brief Broadcasts periodic UDP beacon frames over local subnet for zero-configuration station discovery.
+ * @brief Broadcasts periodic discovery beacon frames via NetDatagramStream.
  */
 class UdpBeaconBroadcaster : public QObject {
     Q_OBJECT
 public:
     explicit UdpBeaconBroadcaster(quint16 beaconPort, quint16 tcpPort, QObject *parent = nullptr);
+
+    /** @brief Binds an external NetDatagramStream. */
+    void setStream(NetDatagramStream *stream);
+
     void start(int intervalMs = 2000);
     void stop();
     void setServerName(const QString &name) { m_serverName = name; }
@@ -30,7 +33,11 @@ private slots:
     void sendBeacon();
 
 private:
-    QUdpSocket m_socket;
+    void ensureDefaultStream();
+
+    NetDatagramStream *m_stream = nullptr;
+    NetDatagramStream *m_ownedStream = nullptr;
+    QObject           *m_ownedTransport = nullptr;
     QTimer m_timer;
     quint16 m_beaconPort;
     quint16 m_tcpPort;
@@ -40,12 +47,16 @@ private:
 
 /**
  * @class UdpBeaconListener
- * @brief Listens for Host discovery beacons on the local subnet to automatically locate the Host IP.
+ * @brief Listens for Host discovery beacons via NetDatagramStream to locate the Host IP.
  */
 class UdpBeaconListener : public QObject {
     Q_OBJECT
 public:
     explicit UdpBeaconListener(quint16 beaconPort, QObject *parent = nullptr);
+
+    /** @brief Binds an external NetDatagramStream. */
+    void setStream(NetDatagramStream *stream);
+
     bool start();
     void stop();
 
@@ -56,10 +67,14 @@ signals:
     void hostLost(const QString &hostIp, quint16 tcpPort);
 
 private slots:
-    void onReadyRead();
+    void onDatagramReceived(const QByteArray &data, const QString &senderIp);
 
 private:
-    QUdpSocket m_socket;
+    void ensureDefaultStream();
+
+    NetDatagramStream *m_stream = nullptr;
+    NetDatagramStream *m_ownedStream = nullptr;
+    QObject           *m_ownedTransport = nullptr;
     quint16 m_beaconPort;
 };
 

@@ -51,7 +51,7 @@
 
 HostWindow::HostWindow(QWidget *parent)
     : QMainWindow(parent),
-      m_tcpServer(&m_arbiter, &m_refSerial, this),
+      m_tcpServer(&m_arbiter, nullptr, this),
       m_beaconBroadcaster(AppConfig::instance().udpBeaconPort(), AppConfig::instance().tcpPort(), this) {
 
     setAttribute(Qt::WA_DeleteOnClose);
@@ -71,10 +71,49 @@ HostWindow::HostWindow(QWidget *parent)
     setMinimumSize(1180, 740);
     setWindowState(Qt::WindowMaximized);
 
-    // Primary Reference CAT6 Ethernet Web CGI Client
+    // Primary Reference CAT6 Ethernet Web CGI Client + RS232 fallback bridged via DataStream
     m_refWebClient.setHost(AppConfig::instance().refDrxHost(), AppConfig::instance().refDrxPort());
     m_refWebClient.setCredentials(AppConfig::instance().drxUsername(), AppConfig::instance().drxPassword());
-    m_tcpServer.setRefWebClient(&m_refWebClient);
+
+    DrxTransportOps refOps;
+    refOps.name = QStringLiteral("HostReferenceDRX");
+    refOps.isConnectedFn = [this]() {
+        return m_refWebClient.isReachable() || m_refSerial.isConnected();
+    };
+    refOps.isReadyFn = [this]() {
+        return m_refWebClient.isReachable() || m_refSerial.isConnected();
+    };
+    refOps.tuneFn = [this](int freq, int sr, const QString &pol) {
+        if (m_refWebClient.isReachable()) {
+            m_refWebClient.sendTune(freq, sr, pol);
+        }
+        if (m_refSerial.isConnected()) {
+            m_refSerial.sendTune(freq, sr, pol);
+            m_refSerial.requestStatus();
+        }
+    };
+    refOps.statusFn = [this]() {
+        if (m_refWebClient.isReachable()) {
+            m_refWebClient.requestStatus();
+        }
+        if (m_refSerial.isConnected()) {
+            m_refSerial.requestStatus();
+        }
+    };
+    m_refStream = new DataStream(refOps, this);
+    connect(&m_refWebClient, &Ethernet::statusReceived, m_refStream, &DataStream::statusReceived);
+    connect(&m_refWebClient, &Ethernet::telemetryReceived, m_refStream, &DataStream::telemetryReceived);
+    connect(&m_refSerial, &RS232::telemetryReceived, this, [this](double powDbm, double cnDb, double ber) {
+        if (m_refStream) {
+            emit m_refStream->telemetryReceived(powDbm, cnDb, ber, 0.0);
+        }
+    });
+    connect(&m_refSerial, &RS232::statusReceived, this, [this](bool sig, bool vid, bool aud) {
+        if (m_refStream) {
+            emit m_refStream->statusReceived(sig, vid, aud, QString());
+        }
+    });
+    m_tcpServer.setRefDataStream(m_refStream);
 
     setupMenuBar();
     setupUi();

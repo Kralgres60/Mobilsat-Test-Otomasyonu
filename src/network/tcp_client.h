@@ -1,6 +1,6 @@
 /**
  * @file tcp_client.h
- * @brief TCP Client communicating with Central Host for mutual exclusion and reference telemetry (Architecture 1).
+ * @brief Transport-agnostic station protocol client communicating with Central Host (Architecture 1).
  * @author Semi Eren Gökyıldız
  * @copyright Copyright (C) 2026 NETA Elektronik A.Ş.
  */
@@ -8,16 +8,18 @@
 #ifndef TCP_CLIENT_H
 #define TCP_CLIENT_H
 
-#include <QObject>
-#include <QTcpSocket>
-#include <QTimer>
+#include <QByteArray>
 #include <QJsonObject>
+#include <QObject>
+#include <QTimer>
 #include "core/data_models.h"
+#include "net_stream.h"
 
 /**
  * @class TcpClient
- * @brief Operates on each factory test station, connecting to the Host TCP server (:9100),
- *        maintaining keep-alive heartbeats, requesting reference locks, and receiving reference RF telemetry.
+ * @brief Operates on each factory test station, connecting to the Host command endpoint
+ *        via NetClientStream, maintaining keep-alive heartbeats, requesting reference locks,
+ *        and receiving reference RF telemetry.
  */
 class TcpClient : public QObject {
     Q_OBJECT
@@ -25,7 +27,13 @@ public:
     explicit TcpClient(QObject *parent = nullptr);
     ~TcpClient() override;
 
-    /** @brief Connects to Host TCP command server. */
+    /** @brief Binds an external NetClientStream (e.g. custom transport or mock). */
+    void setStream(NetClientStream *stream);
+
+    /** @brief Returns the active NetClientStream used by this client. */
+    NetClientStream* stream() const { return m_stream; }
+
+    /** @brief Connects to Host command server. */
     void connectToHost(const QString &hostIp, quint16 port = 9100);
 
     /** @brief Disconnects from host. */
@@ -36,6 +44,7 @@ public:
 
     /** @brief Registers station ID and name upon connecting. */
     void registerStation(int stationId, const QString &stationName);
+
     /** @brief Returns the active station ID assigned/confirmed by the Host server. */
     int assignedStationId() const { return m_stationId; }
 
@@ -77,16 +86,20 @@ signals:
 
 private slots:
     void onConnected();
-    void onReadyRead();
+    void onDataReceived(const QByteArray &data);
     void onDisconnected();
-    void onErrorOccurred(QAbstractSocket::SocketError socketError);
+    void onErrorOccurred(const QString &error);
     void onHeartbeatTimer();
 
 private:
+    void ensureDefaultStream();
+    void attachStreamSignals(NetClientStream *stream);
     void sendJson(const QJsonObject &obj);
     void processMessage(const QJsonObject &msg);
 
-    QTcpSocket m_socket;
+    NetClientStream *m_stream = nullptr;
+    NetClientStream *m_ownedStream = nullptr;
+    QObject         *m_ownedTransport = nullptr;
     QTimer m_heartbeatTimer;
     QByteArray m_rxBuffer;
 

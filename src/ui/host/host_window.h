@@ -22,6 +22,7 @@
 #include <QTimer>
 #include <QMap>
 #include <QGridLayout>
+#include "hardware/data_stream.h"
 #include "hardware/ethernet_transport.h"
 #include "hardware/serial_transport.h"
 #include "network/tcp_server.h"
@@ -114,6 +115,7 @@ private:
     LockArbiter m_arbiter;
     RS232 m_refSerial;
     Ethernet m_refWebClient;
+    DataStream *m_refStream = nullptr;
     TcpServer m_tcpServer;
     UdpBeaconBroadcaster m_beaconBroadcaster;
     QTimer m_refEthPingTimer;

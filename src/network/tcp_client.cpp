@@ -1,21 +1,20 @@
 /**
  * @file tcp_client.cpp
- * @brief Implementation of the station TCP client.
+ * @brief Implementation of the transport-agnostic station protocol client.
  * @author Semi Eren Gökyıldız
  * @copyright Copyright (C) 2026 NETA Elektronik A.Ş.
  */
 
 #include "tcp_client.h"
 #include "network_messages.h"
+#include "tcp_transport.h"
 #include "core/app_config.h"
 #include <QDebug>
 
 TcpClient::TcpClient(QObject *parent) : QObject(parent) {
-    connect(&m_socket, &QTcpSocket::connected, this, &TcpClient::onConnected);
-    connect(&m_socket, &QTcpSocket::readyRead, this, &TcpClient::onReadyRead);
-    connect(&m_socket, &QTcpSocket::disconnected, this, &TcpClient::onDisconnected);
-    connect(&m_socket, QOverload<QAbstractSocket::SocketError>::of(&QTcpSocket::errorOccurred),
-            this, &TcpClient::onErrorOccurred);
+    m_ownedStream = new NetClientStream(this);
+    m_stream = m_ownedStream;
+    attachStreamSignals(m_stream);
 
     connect(&m_heartbeatTimer, &QTimer::timeout, this, &TcpClient::onHeartbeatTimer);
 }
@@ -24,24 +23,52 @@ TcpClient::~TcpClient() {
     disconnectFromHost();
 }
 
+void TcpClient::setStream(NetClientStream *stream) {
+    if (m_stream == stream) return;
+    if (m_stream) {
+        disconnect(m_stream, nullptr, this, nullptr);
+    }
+    m_stream = stream ? stream : m_ownedStream;
+    attachStreamSignals(m_stream);
+}
+
+void TcpClient::attachStreamSignals(NetClientStream *stream) {
+    if (!stream) return;
+    connect(stream, &NetClientStream::connected, this, &TcpClient::onConnected);
+    connect(stream, &NetClientStream::dataReceived, this, &TcpClient::onDataReceived);
+    connect(stream, &NetClientStream::disconnected, this, &TcpClient::onDisconnected);
+    connect(stream, &NetClientStream::errorOccurred, this, &TcpClient::onErrorOccurred);
+}
+
+void TcpClient::ensureDefaultStream() {
+    if (!m_stream) {
+        m_stream = m_ownedStream;
+        attachStreamSignals(m_stream);
+    }
+    if (m_stream != m_ownedStream || m_stream->isBound()) {
+        return;
+    }
+    auto *transport = new TcpSocketTransport(this);
+    m_ownedTransport = transport;
+    transport->attachStream(m_ownedStream);
+}
+
 void TcpClient::connectToHost(const QString &hostIp, quint16 port) {
+    ensureDefaultStream();
     m_hostIp = hostIp;
     m_port = port;
-    if (m_socket.isOpen()) {
-        m_socket.abort();
-    }
-    m_socket.connectToHost(hostIp, port);
+    m_stream->connectToHost(hostIp, port);
 }
 
 void TcpClient::disconnectFromHost() {
     m_heartbeatTimer.stop();
-    if (m_socket.isOpen()) {
-        m_socket.disconnectFromHost();
+    if (m_stream && m_stream->isBound()) {
+        m_stream->disconnectFromHost();
     }
 }
 
 bool TcpClient::isConnected() const {
-    return m_socket.state() == QAbstractSocket::ConnectedState;
+    return m_stream ? m_stream->isConnected() : false;
 }
 
 void TcpClient::registerStation(int stationId, const QString &stationName) {
@@ -100,8 +127,8 @@ void TcpClient::onConnected() {
     registerStation(m_stationId, m_stationName);
 }
 
-void TcpClient::onReadyRead() {
-    m_rxBuffer.append(m_socket.readAll());
+void TcpClient::onDataReceived(const QByteArray &data) {
+    m_rxBuffer.append(data);
     while (m_rxBuffer.contains('\n')) {
         int idx = m_rxBuffer.indexOf('\n');
         QByteArray line = m_rxBuffer.left(idx).trimmed();
@@ -193,8 +220,7 @@ void TcpClient::processMessage(const QJsonObject &msg) {
     else if (type == "SERVER_SHUTDOWN") {
         emit logMessage("Yönetici Sunucu (Host) kapatıldı!");
         emit serverShutdown();
-        m_heartbeatTimer.stop();
-        m_socket.disconnectFromHost();
+        disconnectFromHost();
     }
 }
 
@@ -204,9 +230,8 @@ void TcpClient::onDisconnected() {
     emit logMessage("Disconnected from Central Host.");
 }
 
-void TcpClient::onErrorOccurred(QAbstractSocket::SocketError socketError) {
-    Q_UNUSED(socketError);
-    emit logMessage(QString("TCP Socket error: %1").arg(m_socket.errorString()));
+void TcpClient::onErrorOccurred(const QString &error) {
+    emit logMessage(QString("TCP Socket error: %1").arg(error));
 }
 
 void TcpClient::onHeartbeatTimer() {
@@ -215,6 +240,6 @@ void TcpClient::onHeartbeatTimer() {
 
 void TcpClient::sendJson(const QJsonObject &obj) {
     if (isConnected()) {
-        m_socket.write(NetMsg::serialize(obj));
+        m_stream->write(NetMsg::serialize(obj));
     }
 }

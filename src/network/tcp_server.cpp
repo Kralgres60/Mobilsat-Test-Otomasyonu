@@ -1,19 +1,23 @@
 /**
  * @file tcp_server.cpp
- * @brief Implementation of the central TCP Command & Mutual Exclusion Server.
+ * @brief Implementation of the transport-agnostic central Command & Mutual Exclusion Server.
  * @author Semi Eren Gökyıldız
  * @copyright Copyright (C) 2026 NETA Elektronik A.Ş.
  */
 
 #include "tcp_server.h"
 #include "network_messages.h"
+#include "tcp_transport.h"
 #include "database/db_manager.h"
 #include <QDateTime>
 #include <QDebug>
 
-TcpServer::TcpServer(LockArbiter *arbiter, SerialWorker *refSerial, QObject *parent)
-    : QObject(parent), m_arbiter(arbiter), m_refSerial(refSerial) {
-    connect(&m_server, &QTcpServer::newConnection, this, &TcpServer::onNewConnection);
+TcpServer::TcpServer(LockArbiter *arbiter, DataStream *refStream, QObject *parent)
+    : QObject(parent), m_arbiter(arbiter) {
+    m_ownedStream = new NetServerStream(this);
+    m_stream = m_ownedStream;
+    attachStreamSignals(m_stream);
+
     connect(&m_refPollTimer, &QTimer::timeout, this, &TcpServer::onRefPollTick);
     connect(&m_silenceWatchdogTimer, &QTimer::timeout, this, &TcpServer::onSilenceWatchdogTick);
     m_silenceWatchdogTimer.start(3000);
@@ -25,25 +29,54 @@ TcpServer::TcpServer(LockArbiter *arbiter, SerialWorker *refSerial, QObject *par
         connect(m_arbiter, &LockArbiter::lockExpired, this, &TcpServer::onLockExpired);
     }
 
-    if (m_refSerial) {
-        connect(m_refSerial, &SerialWorker::telemetryReceived, this, &TcpServer::onRefTelemetry);
-        connect(m_refSerial, &SerialWorker::statusReceived, this, &TcpServer::onRefStatus);
-    }
+    setRefDataStream(refStream);
 }
 
 TcpServer::~TcpServer() {
     stop();
 }
 
-void TcpServer::setRefWebClient(DrxWebClient *refWebClient) {
-    if (m_refWebClient == refWebClient) return;
-    m_refWebClient = refWebClient;
-    if (m_refWebClient) {
-        connect(m_refWebClient, &DrxWebClient::statusReceived, this,
+void TcpServer::setStream(NetServerStream *stream) {
+    if (m_stream == stream) return;
+    if (m_stream) {
+        disconnect(m_stream, nullptr, this, nullptr);
+    }
+    m_stream = stream ? stream : m_ownedStream;
+    attachStreamSignals(m_stream);
+}
+
+void TcpServer::attachStreamSignals(NetServerStream *stream) {
+    if (!stream) return;
+    connect(stream, &NetServerStream::peerConnected, this, &TcpServer::onPeerConnected);
+    connect(stream, &NetServerStream::dataReceived, this, &TcpServer::onPeerDataReceived);
+    connect(stream, &NetServerStream::peerDisconnected, this, &TcpServer::onPeerDisconnected);
+}
+
+void TcpServer::ensureDefaultStream() {
+    if (!m_stream) {
+        m_stream = m_ownedStream;
+        attachStreamSignals(m_stream);
+    }
+    if (m_stream != m_ownedStream || m_stream->isBound()) {
+        return;
+    }
+    auto *transport = new TcpServerTransport(this);
+    m_ownedTransport = transport;
+    transport->attachStream(m_ownedStream);
+}
+
+void TcpServer::setRefDataStream(DataStream *refStream) {
+    if (m_refStream == refStream) return;
+    if (m_refStream) {
+        disconnect(m_refStream, nullptr, this, nullptr);
+    }
+    m_refStream = refStream;
+    if (m_refStream) {
+        connect(m_refStream, &DataStream::statusReceived, this,
                 [this](bool sig, bool vid, bool aud, const QString &) {
             onRefStatus(sig, vid, aud);
         });
-        connect(m_refWebClient, &DrxWebClient::telemetryReceived, this,
+        connect(m_refStream, &DataStream::telemetryReceived, this,
                 [this](double powDbm, double cnDb, double ber, double) {
             onRefTelemetry(powDbm, cnDb, ber);
         });
@@ -52,8 +85,8 @@ void TcpServer::setRefWebClient(DrxWebClient *refWebClient) {
 
 void TcpServer::setReferenceMode(ReferenceMode mode) {
     m_referenceMode = mode;
-    QString modeStr = (mode == ReferenceMode::GoldenSample) ? "GOLDEN" : "LIVE";
-    int activeGoldenId = DbManager::instance().getActiveGoldenRecordId();
+    const QString modeStr = (mode == ReferenceMode::GoldenSample) ? QStringLiteral("GOLDEN") : QStringLiteral("LIVE");
+    const int activeGoldenId = DbManager::instance().getActiveGoldenRecordId();
     emit logMessage(QString("[Yönetici Modu] Referans kaynağı güncellendi: %1 (Aktif Golden ID: %2)")
                         .arg(mode == ReferenceMode::GoldenSample ? "Kayıtlı Golden Sample" : "Canlı Referans Anten")
                         .arg(activeGoldenId));
@@ -62,12 +95,7 @@ void TcpServer::setReferenceMode(ReferenceMode mode) {
     msg["type"] = NetMsg::TYPE_REF_MODE_UPDATE;
     msg["ref_mode"] = modeStr;
     msg["active_golden_id"] = activeGoldenId;
-    const QByteArray payload = NetMsg::serialize(msg);
-    for (auto it = m_clients.begin(); it != m_clients.end(); ++it) {
-        if (it.key() && it.key()->isOpen()) {
-            it.key()->write(payload);
-        }
-    }
+    broadcastJson(msg);
 }
 
 void TcpServer::broadcastUserRoleUpdates() {
@@ -80,43 +108,34 @@ void TcpServer::broadcastUserRoleUpdates() {
         msg["user_role"] = u.role;
         msg["user_full_name"] = u.fullName;
         msg["user_active"] = u.isActive;
-        const QByteArray payload = NetMsg::serialize(msg);
-        for (auto it = m_clients.begin(); it != m_clients.end(); ++it) {
-            if (it.key() && it.key()->isOpen()) {
-                it.key()->write(payload);
-            }
-        }
+        broadcastJson(msg);
     }
 }
 
 bool TcpServer::start(quint16 port) {
-    if (m_server.listen(QHostAddress::Any, port)) {
+    ensureDefaultStream();
+    if (m_stream->start(port)) {
         emit logMessage(QString("TCP Command Server listening on port %1.").arg(port));
         return true;
     }
-    emit logMessage(QString("Failed to start TCP Server: %1").arg(m_server.errorString()));
+    emit logMessage(QString("Failed to start TCP Server: %1").arg(m_stream->errorString()));
     return false;
 }
 
 void TcpServer::stop() {
     m_refPollTimer.stop();
     m_silenceWatchdogTimer.stop();
-    QJsonObject byeObj;
-    byeObj["type"] = "SERVER_SHUTDOWN";
-    const QByteArray byePayload = NetMsg::serialize(byeObj);
-    for (auto it = m_clients.begin(); it != m_clients.end(); ++it) {
-        QTcpSocket *sock = it.key();
-        if (sock) {
-            sock->write(byePayload);
-            sock->flush();
-            sock->disconnectFromHost();
-            if (sock->state() != QAbstractSocket::UnconnectedState) {
-                sock->close();
-            }
-        }
+    if (m_stream && m_stream->isBound()) {
+        QJsonObject byeObj;
+        byeObj["type"] = "SERVER_SHUTDOWN";
+        broadcastJson(byeObj);
+        m_stream->stop();
     }
     m_clients.clear();
-    m_server.close();
+}
+
+bool TcpServer::isListening() const {
+    return m_stream ? m_stream->isListening() : false;
 }
 
 QMap<int, StationLiveStatus> TcpServer::connectedStations() const {
@@ -129,31 +148,22 @@ QMap<int, StationLiveStatus> TcpServer::connectedStations() const {
     return result;
 }
 
-void TcpServer::onNewConnection() {
-    while (m_server.hasPendingConnections()) {
-        QTcpSocket *socket = m_server.nextPendingConnection();
-        ClientSession session;
-        session.ipAddress = socket->peerAddress().toString();
-        if (session.ipAddress.startsWith("::ffff:")) session.ipAddress = session.ipAddress.mid(7);
-        session.status.ipAddress = session.ipAddress;
-        session.status.isConnected = true;
-        session.status.lastHeartbeat = QDateTime::currentDateTime();
+void TcpServer::onPeerConnected(quint64 peerId, const QString &ipAddress) {
+    ClientSession session;
+    session.ipAddress = ipAddress;
+    session.status.ipAddress = ipAddress;
+    session.status.isConnected = true;
+    session.status.lastHeartbeat = QDateTime::currentDateTime();
 
-        m_clients.insert(socket, session);
-
-        connect(socket, &QTcpSocket::readyRead, this, &TcpServer::onClientReadyRead);
-        connect(socket, &QTcpSocket::disconnected, this, &TcpServer::onClientDisconnected);
-
-        emit logMessage(QString("Accepted connection from %1").arg(session.ipAddress));
-    }
+    m_clients.insert(peerId, session);
+    emit logMessage(QString("Accepted connection from %1").arg(session.ipAddress));
 }
 
-void TcpServer::onClientReadyRead() {
-    QTcpSocket *socket = qobject_cast<QTcpSocket*>(sender());
-    if (!socket || !m_clients.contains(socket)) return;
+void TcpServer::onPeerDataReceived(quint64 peerId, const QByteArray &data) {
+    if (!m_clients.contains(peerId)) return;
 
-    auto &session = m_clients[socket];
-    session.rxBuffer.append(socket->readAll());
+    auto &session = m_clients[peerId];
+    session.rxBuffer.append(data);
 
     while (session.rxBuffer.contains('\n')) {
         int idx = session.rxBuffer.indexOf('\n');
@@ -163,16 +173,16 @@ void TcpServer::onClientReadyRead() {
         if (!line.isEmpty()) {
             QJsonObject obj = NetMsg::deserialize(line);
             if (!obj.isEmpty()) {
-                processClientMessage(socket, obj);
+                processClientMessage(peerId, obj);
             }
         }
     }
 }
 
-void TcpServer::processClientMessage(QTcpSocket *socket, const QJsonObject &msg) {
-    if (!m_clients.contains(socket)) return;
-    auto &session = m_clients[socket];
-    QString type = msg["type"].toString();
+void TcpServer::processClientMessage(quint64 peerId, const QJsonObject &msg) {
+    if (!m_clients.contains(peerId)) return;
+    auto &session = m_clients[peerId];
+    const QString type = msg["type"].toString();
 
     if (type == NetMsg::TYPE_REGISTER) {
         int requestedId = msg["station_id"].toInt();
@@ -180,7 +190,7 @@ void TcpServer::processClientMessage(QTcpSocket *socket, const QJsonObject &msg)
         auto isIdInUseByOther = [&](int candidate) {
             if (candidate <= 0) return true;
             for (auto it = m_clients.constBegin(); it != m_clients.constEnd(); ++it) {
-                if (it.key() != socket && it.value().stationId == candidate) {
+                if (it.key() != peerId && it.value().stationId == candidate) {
                     return true;
                 }
             }
@@ -223,7 +233,7 @@ void TcpServer::processClientMessage(QTcpSocket *socket, const QJsonObject &msg)
             }
         }
 
-        socket->write(NetMsg::serialize(ack));
+        m_stream->writeToPeer(peerId, NetMsg::serialize(ack));
 
         emit stationConnected(session.stationId, session.ipAddress);
         emit stationStatusUpdated(session.status);
@@ -250,12 +260,9 @@ void TcpServer::processClientMessage(QTcpSocket *socket, const QJsonObject &msg)
 
         // Tune Reference DRX only in LiveReference mode and when requested by active lock holder
         if (m_referenceMode == ReferenceMode::LiveReference && m_arbiter && m_arbiter->activeStationId() == stationId) {
-            if (m_refWebClient) {
-                m_refWebClient->sendTune(freq, sr, pol);
-            }
-            if (m_refSerial && m_refSerial->isConnected()) {
-                m_refSerial->sendTune(freq, sr, pol);
-                m_refSerial->requestStatus();
+            if (m_refStream && m_refStream->isConnected()) {
+                m_refStream->sendTune(freq, sr, pol);
+                m_refStream->requestStatus();
             }
             if (!m_refPollTimer.isActive()) {
                 m_refPollTimer.start(300);
@@ -269,39 +276,37 @@ void TcpServer::processClientMessage(QTcpSocket *socket, const QJsonObject &msg)
         }
         QJsonObject ack;
         ack["type"] = NetMsg::TYPE_LOCK_RELEASED;
-        socket->write(NetMsg::serialize(ack));
+        m_stream->writeToPeer(peerId, NetMsg::serialize(ack));
     }
 }
 
 void TcpServer::onSilenceWatchdogTick() {
+    if (!m_stream) return;
     const QDateTime now = QDateTime::currentDateTime();
-    QList<QTcpSocket*> staleSockets;
+    QList<quint64> stalePeers;
     for (auto it = m_clients.constBegin(); it != m_clients.constEnd(); ++it) {
-        QTcpSocket *sock = it.key();
         const ClientSession &session = it.value();
-        if (sock && session.status.lastHeartbeat.isValid() && session.status.lastHeartbeat.secsTo(now) > 10) {
-            staleSockets.append(sock);
+        if (session.status.lastHeartbeat.isValid() && session.status.lastHeartbeat.secsTo(now) > 10) {
+            stalePeers.append(it.key());
         }
     }
-    for (QTcpSocket *sock : staleSockets) {
+    for (quint64 peerId : stalePeers) {
         emit logMessage(QString("Station %1 timed out (no heartbeat > 10s); disconnecting.")
-                            .arg(m_clients.value(sock).stationId));
-        sock->abort();
+                            .arg(m_clients.value(peerId).stationId));
+        m_stream->disconnectPeer(peerId, true);
     }
 }
 
-void TcpServer::onClientDisconnected() {
-    QTcpSocket *socket = qobject_cast<QTcpSocket*>(sender());
-    if (!socket || !m_clients.contains(socket)) return;
+void TcpServer::onPeerDisconnected(quint64 peerId) {
+    if (!m_clients.contains(peerId)) return;
 
-    auto session = m_clients.take(socket);
+    auto session = m_clients.take(peerId);
     if (session.stationId > 0) {
         if (m_arbiter) {
             m_arbiter->releaseLock(session.stationId);
         }
         emit stationDisconnected(session.stationId);
     }
-    socket->deleteLater();
     emit logMessage(QString("Station disconnected: Station %1 (%2)").arg(session.stationId).arg(session.ipAddress));
 }
 
@@ -350,11 +355,8 @@ void TcpServer::onRefPollTick() {
         m_refPollTimer.stop();
         return;
     }
-    if (m_refWebClient && m_refWebClient->isReachable()) {
-        m_refWebClient->requestStatus();
-    }
-    if (m_refSerial && m_refSerial->isConnected()) {
-        m_refSerial->requestStatus();
+    if (m_refStream && m_refStream->isConnected()) {
+        m_refStream->requestStatus();
     }
 }
 
@@ -383,17 +385,26 @@ void TcpServer::onRefStatus(bool sLocked, bool vLocked, bool aLocked) {
 }
 
 void TcpServer::sendToStation(int stationId, const QJsonObject &msg) {
-    QTcpSocket *sock = findSocketByStationId(stationId);
-    if (sock && sock->isOpen()) {
-        sock->write(NetMsg::serialize(msg));
+    if (!m_stream) return;
+    const quint64 peerId = findPeerByStationId(stationId);
+    if (peerId != 0) {
+        m_stream->writeToPeer(peerId, NetMsg::serialize(msg));
     }
 }
 
-QTcpSocket* TcpServer::findSocketByStationId(int stationId) {
-    for (auto it = m_clients.begin(); it != m_clients.end(); ++it) {
+void TcpServer::broadcastJson(const QJsonObject &msg) {
+    if (!m_stream) return;
+    const QByteArray payload = NetMsg::serialize(msg);
+    for (auto it = m_clients.constBegin(); it != m_clients.constEnd(); ++it) {
+        m_stream->writeToPeer(it.key(), payload);
+    }
+}
+
+quint64 TcpServer::findPeerByStationId(int stationId) const {
+    for (auto it = m_clients.constBegin(); it != m_clients.constEnd(); ++it) {
         if (it.value().stationId == stationId) {
             return it.key();
         }
     }
-    return nullptr;
+    return 0;
 }
