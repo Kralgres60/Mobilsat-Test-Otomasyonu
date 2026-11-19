@@ -17,7 +17,7 @@
 #include <QLabel>
 #include <QTimer>
 #include <QVector>
-#include "hardware/data_transfer.h"
+#include "hardware/ethernet_transport.h"
 #include "ui/common/drx_clock_badge.h"
 
 /**

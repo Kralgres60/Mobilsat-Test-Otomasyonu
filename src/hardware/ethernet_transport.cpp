@@ -1,11 +1,11 @@
 ﻿/**
- * @file drx_ethernet_transport.cpp
- * @brief Implementation of Ethernet (Web CGI + ICMP Ping) transport inheriting DataTransfer.
+ * @file ethernet_transport.cpp
+ * @brief Implementation of physical Ethernet (Web CGI + ICMP Ping) transport driver.
  * @author Semi Eren Gökyıldız
  * @copyright Copyright (C) 2026 NETA Elektronik A.Ş.
  */
 
-#include "drx_ethernet_transport.h"
+#include "ethernet_transport.h"
 #include <QProcess>
 #include <QElapsedTimer>
 #include <QRegularExpression>
@@ -92,13 +92,13 @@ static QJsonArray extractElements(const QJsonObject &root) {
 // 1. ETHERNET DRIVER (WEB CGI + ICMP PING)
 // =============================================================================
 Ethernet::Ethernet(QObject *parent)
-    : DataTransfer(parent) {
+    : QObject(parent) {
     connect(&m_netManager, &QNetworkAccessManager::finished,
             this, &Ethernet::onReplyFinished);
 }
 
 Ethernet::Ethernet(const QString &hostIp, int port, QObject *parent)
-    : DataTransfer(parent), m_hostIp(hostIp.trimmed()), m_port(port) {
+    : QObject(parent), m_hostIp(hostIp.trimmed()), m_port(port) {
     connect(&m_netManager, &QNetworkAccessManager::finished,
             this, &Ethernet::onReplyFinished);
 }

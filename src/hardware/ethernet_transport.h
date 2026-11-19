@@ -1,15 +1,16 @@
 /**
- * @file drx_ethernet_transport.h
- * @brief CAT6 Ethernet Web CGI (/cgi-bin/drx.cgi) and ICMP Ping driver inheriting DataTransfer.
+ * @file ethernet_transport.h
+ * @brief Physical CAT6 Ethernet Web CGI (/cgi-bin/drx.cgi) and ICMP Ping transport driver.
  * @author Semi Eren Gökyıldız
  * @copyright Copyright (C) 2026 NETA Elektronik A.Ş.
  */
 
-#ifndef DRX_ETHERNET_TRANSPORT_H
-#define DRX_ETHERNET_TRANSPORT_H
+#ifndef ETHERNET_TRANSPORT_H
+#define ETHERNET_TRANSPORT_H
 
-#include "drx_transport.h"
 #include "drx_protocol_config.h"
+#include <QObject>
+#include <QDateTime>
 #include <QUrl>
 #include <QTimer>
 #include <QVector>
@@ -21,28 +22,38 @@
 #include <QJsonDocument>
 
 /**
- * @class Ethernet
- * @brief Full-featured driver using CAT6 Ethernet Web CGI (/cgi-bin/drx.cgi) and ICMP Ping.
+ * @struct TimestampPair
+ * @brief Paired host receipt timestamp and DRX9000 internal clock reading.
  */
-class Ethernet : public DataTransfer {
+struct TimestampPair {
+    QDateTime hostTime;         ///< System/PC instant timestamp
+    QDateTime deviceTime;       ///< Parsed DRX9000 device timestamp
+    QString rawDeviceTime;      ///< Raw time string from DRX (st_current_time)
+};
+
+/**
+ * @class Ethernet
+ * @brief Physical CAT6 Ethernet Web CGI (/cgi-bin/drx.cgi) and ICMP Ping driver.
+ */
+class Ethernet : public QObject {
     Q_OBJECT
 public:
     explicit Ethernet(QObject *parent = nullptr);
     explicit Ethernet(const QString &hostIp, int port = 80, QObject *parent = nullptr);
     ~Ethernet() override;
 
-    QString transferType() const override { return "Ethernet"; }
+    QString transferType() const { return "Ethernet"; }
 
-    bool connectDevice() override;
-    void disconnectDevice() override;
-    bool isConnected() const override;
-    bool isDeviceReady() const override;
+    bool connectDevice();
+    void disconnectDevice();
+    bool isConnected() const;
+    bool isDeviceReady() const;
 
-    void sendData(const QByteArray &data) override;
-    void sendTune(int freqMhz, int symbolRate, const QString &polarity) override;
-    void requestStatus() override;
-    void requestDeviceInfo() override;
-    void sendRaw(const QString &command) override;
+    void sendData(const QByteArray &data);
+    void sendTune(int freqMhz, int symbolRate, const QString &polarity);
+    void requestStatus();
+    void requestDeviceInfo();
+    void sendRaw(const QString &command);
 
     void setHost(const QString &hostIp, int port = 80);
     QString host() const { return m_hostIp; }
@@ -89,6 +100,14 @@ public slots:
     void sendRawQuery(const QString &queryString) { sendRaw(queryString); }
 
 signals:
+    void deviceConnected(const QString &endpoint);
+    void deviceDisconnected();
+    void statusReceived(bool signalLocked, bool videoLocked, bool audioLocked, const QString &channelName = QString());
+    void telemetryReceived(double powerDbm, double cnDb, double ber, double ebN0Db = 0.0);
+    void deviceInfoReceived(const QString &key, const QString &value);
+    void timestampReceived(const QDateTime &deviceTime, const QDateTime &hostTime, const QString &rawTimeStr);
+    void logMessage(const QString &message, bool isError);
+
     void pingFinished(bool reachable, int latencyMs, const QString &hostIp);
     void loginSucceeded(int sessionKey);
     void loginFailed(const QString &reason);
@@ -139,4 +158,4 @@ private:
 using EthernetTransfer = Ethernet;
 using DrxWebClient = Ethernet;
 
-#endif // DRX_ETHERNET_TRANSPORT_H
+#endif // ETHERNET_TRANSPORT_H

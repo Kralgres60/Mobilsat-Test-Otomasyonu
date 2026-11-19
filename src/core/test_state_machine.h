@@ -13,7 +13,7 @@
 #include <QElapsedTimer>
 #include "data_models.h"
 #include "build_config.h"
-#include "hardware/data_transfer.h"
+#include "hardware/data_stream.h"
 #include "network/tcp_client.h"
 
 /**
@@ -41,25 +41,17 @@ class TestStateMachine : public QObject {
 public:
     /**
      * @brief Constructs test state machine.
-     * @param dutSerial Serial worker for DUT antenna (RS232 fallback)
      * @param netClient TCP client for host communication (Architecture 1)
      * @param parent Parent QObject
      */
-    explicit TestStateMachine(SerialWorker *dutSerial, TcpClient *netClient, QObject *parent = nullptr);
+    explicit TestStateMachine(TcpClient *netClient, QObject *parent = nullptr);
 
     /**
-     * @brief Injects DataTransfer interfaces for DUT and Reference DRX9000 hardware.
-     * @param dutTransfer Primary transfer interface for DUT antenna (Ethernet or RS232)
-     * @param refTransfer Transfer interface for Reference antenna (if in live reference mode)
+     * @brief Injects function-pointer-based DataStream controllers for DUT and Reference DRX9000 hardware.
+     * @param dutStream Primary DataStream controller for DUT antenna
+     * @param refStream DataStream controller for Reference antenna (if in live reference mode)
      */
-    void setDataTransfers(DataTransfer *dutTransfer, DataTransfer *refTransfer = nullptr);
-
-    /**
-     * @brief Injects Web CGI clients for DUT and Reference DRX9000 hardware (backwards compatibility).
-     * @param dutWeb Web client connected to DUT antenna
-     * @param refWeb Web client connected to Reference Golden Sample
-     */
-    void setWebClients(DrxWebClient *dutWeb, DrxWebClient *refWeb);
+    void setDataStreams(DataStream *dutStream, DataStream *refStream = nullptr);
 
     /**
      * @brief Sets the active reference comparison mode dictated by the Administrator.
@@ -162,12 +154,9 @@ private:
     void finishCurrentChannel();
     void completeTest();
 
-    SerialWorker *m_dutSerial;
-    TcpClient *m_netClient;
-    DrxWebClient *m_dutWebClient = nullptr;
-    DrxWebClient *m_refWebClient = nullptr;
-    DataTransfer *m_dutTransfer = nullptr;
-    DataTransfer *m_refTransfer = nullptr;
+    TcpClient  *m_netClient = nullptr;
+    DataStream *m_dutStream = nullptr;
+    DataStream *m_refStream = nullptr;
 
     TestState m_state = TestState::Idle;
     SatelliteProfileInfo m_profile;

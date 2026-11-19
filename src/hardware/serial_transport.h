@@ -1,42 +1,54 @@
 /**
- * @file drx_serial_transport.h
- * @brief RS232 UART serial communication driver inheriting DataTransfer.
+ * @file serial_transport.h
+ * @brief Physical RS232 UART serial communication transport driver.
  * @author Semi Eren Gökyıldız
  * @copyright Copyright (C) 2026 NETA Elektronik A.Ş.
  */
 
-#ifndef DRX_SERIAL_TRANSPORT_H
-#define DRX_SERIAL_TRANSPORT_H
+#ifndef SERIAL_TRANSPORT_H
+#define SERIAL_TRANSPORT_H
 
-#include "drx_transport.h"
 #include "drx_protocol_config.h"
+#include <QObject>
+#include <QDateTime>
 #include <QStringList>
 #include <QSerialPort>
 #include <QSerialPortInfo>
 
 /**
- * @class RS232
- * @brief Driver for RS232 serial communication and line-based protocol parsing.
+ * @enum DeviceReadyState
+ * @brief Device boot and command readiness states on RS232 console.
  */
-class RS232 : public DataTransfer {
+enum class DeviceReadyState {
+    Disconnected,           ///< Serial COM port is closed
+    PortOpenWaitingDevice,  ///< Port is open, waiting for device heartbeat
+    Booting,                ///< Device is booting / bootloader active
+    Ready                   ///< Device is ready (CLI prompt detected)
+};
+
+/**
+ * @class RS232
+ * @brief Physical RS232 UART serial communication driver.
+ */
+class RS232 : public QObject {
     Q_OBJECT
 public:
     explicit RS232(QObject *parent = nullptr);
     explicit RS232(const QString &portName, int baudRate = 115200, QObject *parent = nullptr);
     ~RS232() override;
 
-    QString transferType() const override { return "RS232"; }
+    QString transferType() const { return "RS232"; }
 
-    bool connectDevice() override;
-    void disconnectDevice() override;
-    bool isConnected() const override;
-    bool isDeviceReady() const override { return m_readyState == DeviceReadyState::Ready; }
+    bool connectDevice();
+    void disconnectDevice();
+    bool isConnected() const;
+    bool isDeviceReady() const { return m_readyState == DeviceReadyState::Ready; }
 
-    void sendData(const QByteArray &data) override;
-    void sendTune(int freqMhz, int symbolRate, const QString &polarity) override;
-    void requestStatus() override;
-    void requestDeviceInfo() override;
-    void sendRaw(const QString &command) override;
+    void sendData(const QByteArray &data);
+    void sendTune(int freqMhz, int symbolRate, const QString &polarity);
+    void requestStatus();
+    void requestDeviceInfo();
+    void sendRaw(const QString &command);
 
     bool openPort(const QString &portName, int baudRate = 115200);
     void closePort();
@@ -60,6 +72,14 @@ public slots:
     void stopTunerLog();
 
 signals:
+    void deviceConnected(const QString &endpoint);
+    void deviceDisconnected();
+    void statusReceived(bool signalLocked, bool videoLocked, bool audioLocked, const QString &channelName = QString());
+    void telemetryReceived(double powerDbm, double cnDb, double ber, double ebN0Db = 0.0);
+    void deviceInfoReceived(const QString &key, const QString &value);
+    void timestampReceived(const QDateTime &deviceTime, const QDateTime &hostTime, const QString &rawTimeStr);
+    void logMessage(const QString &message, bool isError);
+
     void portOpened(const QString &portName);
     void portClosed();
     void portError(const QString &errorMessage);
@@ -91,4 +111,4 @@ private:
 using Rs232Transfer = RS232;
 using SerialWorker = RS232;
 
-#endif // DRX_SERIAL_TRANSPORT_H
+#endif // SERIAL_TRANSPORT_H

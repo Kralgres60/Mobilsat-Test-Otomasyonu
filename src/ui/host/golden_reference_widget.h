@@ -20,7 +20,8 @@
 #include <QTimer>
 #include <QVector>
 #include "core/data_models.h"
-#include "hardware/data_transfer.h"
+#include "hardware/ethernet_transport.h"
+#include "hardware/serial_transport.h"
 #include "ui/common/qcustomplot.h"
 
 /**

@@ -1,26 +1,22 @@
 /**
- * @file drx_data_control.h
- * @brief Unified function-pointer-driven communication controller (DrxDataControl) decoupling protocol flow from TCP/UART/Mock I/O.
+ * @file data_stream.h
+ * @brief Pure function-pointer-driven communication stream (DataStream) decoupling callers from Ethernet/RS232/Mock I/O.
  * @author Semi Eren Gökyıldız
  * @copyright Copyright (C) 2026 NETA Elektronik A.Ş.
  */
 
-#ifndef DRX_DATA_CONTROL_H
-#define DRX_DATA_CONTROL_H
+#ifndef DATA_STREAM_H
+#define DATA_STREAM_H
 
 #include <QObject>
 #include <QString>
 #include <QByteArray>
 #include <QDateTime>
-#include <QMetaObject>
 #include <functional>
-
-class Ethernet;
-class RS232;
 
 /**
  * @struct DrxTransportOps
- * @brief Function-pointer / callback dispatch table injected into DrxDataControl (e.g., TCP_send, UART_Send).
+ * @brief Function-pointer / callback dispatch table injected into DataStream (e.g., TCP_send, UART_Send).
  */
 struct DrxTransportOps {
     QString name = "Unbound";                                       ///< Human-readable transport label
@@ -35,24 +31,34 @@ struct DrxTransportOps {
 };
 
 /**
- * @class DrxDataControl
- * @brief Single concrete communication controller that delegates physical TX/RX to injected function pointers.
+ * @class DataStream
+ * @brief Unified communication stream that delegates physical TX/RX to injected function pointers
+ *        with zero dependency on any concrete transport class.
  */
-class DrxDataControl : public QObject {
+class DataStream : public QObject {
     Q_OBJECT
 public:
-    explicit DrxDataControl(QObject *parent = nullptr);
-    explicit DrxDataControl(const DrxTransportOps &ops, QObject *parent = nullptr);
-    ~DrxDataControl() override = default;
+    using SendFn        = std::function<void(const QByteArray &)>;
+    using ConnectFn     = std::function<bool()>;
+    using DisconnectFn  = std::function<void()>;
+    using IsConnectedFn = std::function<bool()>;
+    using TuneFn        = std::function<void(int, int, const QString &)>;
+    using StatusFn      = std::function<void()>;
+
+    explicit DataStream(QObject *parent = nullptr);
+    explicit DataStream(const DrxTransportOps &ops, QObject *parent = nullptr);
+    explicit DataStream(SendFn sendFn,
+                        ConnectFn connectFn = nullptr,
+                        DisconnectFn disconnectFn = nullptr,
+                        IsConnectedFn isConnectedFn = nullptr,
+                        TuneFn tuneFn = nullptr,
+                        StatusFn statusFn = nullptr,
+                        const QString &name = "DataStream",
+                        QObject *parent = nullptr);
+    ~DataStream() override = default;
 
     /** @brief Injects a custom function-pointer transport table at runtime. */
     void setTransportOps(const DrxTransportOps &ops);
-
-    /** @brief Binds an Ethernet (Web CGI) instance via function pointers. */
-    void bindEthernet(Ethernet *eth);
-
-    /** @brief Binds an RS232 (Serial UART) instance via function pointers. */
-    void bindSerial(RS232 *serial);
 
     /** @brief Binds an in-process deterministic mock transport via function pointers. */
     void bindMock(double powerDbm = -42.0, double cnDb = 14.5, double ber = 1e-7, bool locked = true);
@@ -72,19 +78,10 @@ public:
     void sendRaw(const QString &command);
 
 public slots:
-    /** @brief Feeds parsed lock status from the active physical driver into unified signals. */
     void pushStatus(bool signalLocked, bool videoLocked, bool audioLocked, const QString &channelName = QString());
-
-    /** @brief Feeds parsed RF telemetry from the active physical driver into unified signals. */
     void pushTelemetry(double powerDbm, double cnDb, double ber, double ebN0Db = 0.0);
-
-    /** @brief Feeds device info key-value pairs into unified signals. */
     void pushDeviceInfo(const QString &key, const QString &value);
-
-    /** @brief Feeds paired timestamps into unified signals. */
     void pushTimestamp(const QDateTime &deviceTime, const QDateTime &hostTime, const QString &rawTimeStr);
-
-    /** @brief Feeds diagnostic log messages into unified signals. */
     void pushLog(const QString &message, bool isError);
 
 signals:
@@ -97,10 +94,7 @@ signals:
     void logMessage(const QString &message, bool isError);
 
 private:
-    void clearBoundConnections();
-
     DrxTransportOps m_ops;
-    QVector<QMetaObject::Connection> m_boundConnections;
 };
 
-#endif // DRX_DATA_CONTROL_H
+#endif // DATA_STREAM_H

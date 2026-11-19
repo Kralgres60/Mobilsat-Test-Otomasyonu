@@ -1,23 +1,23 @@
 ﻿/**
- * @file drx_serial_transport.cpp
- * @brief Implementation of RS232 UART serial transport inheriting DataTransfer.
+ * @file serial_transport.cpp
+ * @brief Implementation of physical RS232 UART serial transport driver.
  * @author Semi Eren Gökyıldız
  * @copyright Copyright (C) 2026 NETA Elektronik A.Ş.
  */
 
-#include "drx_serial_transport.h"
+#include "serial_transport.h"
 #include <QRegularExpression>
 #include <QRegularExpressionMatch>
 #include <QDebug>
 
 RS232::RS232(QObject *parent)
-    : DataTransfer(parent) {
+    : QObject(parent) {
     connect(&m_serial, &QSerialPort::readyRead, this, &RS232::onReadyRead);
     connect(&m_serial, &QSerialPort::errorOccurred, this, &RS232::onErrorOccurred);
 }
 
 RS232::RS232(const QString &portName, int baudRate, QObject *parent)
-    : DataTransfer(parent), m_portName(portName), m_baudRate(baudRate) {
+    : QObject(parent), m_portName(portName), m_baudRate(baudRate) {
     connect(&m_serial, &QSerialPort::readyRead, this, &RS232::onReadyRead);
     connect(&m_serial, &QSerialPort::errorOccurred, this, &RS232::onErrorOccurred);
 }

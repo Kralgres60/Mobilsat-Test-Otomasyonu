@@ -22,7 +22,8 @@
 #include <QTimer>
 #include <QMap>
 #include <QGridLayout>
-#include "hardware/data_transfer.h"
+#include "hardware/ethernet_transport.h"
+#include "hardware/serial_transport.h"
 #include "network/tcp_server.h"
 #include "network/udp_beacon.h"
 #include "core/lock_arbiter.h"

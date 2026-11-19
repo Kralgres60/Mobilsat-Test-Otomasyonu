@@ -28,7 +28,9 @@
 #include "ui/common/profile_manager_widget.h"
 #include "ui/common/test_history_widget.h"
 #include "ui/common/drx_clock_badge.h"
-#include "hardware/data_transfer.h"
+#include "hardware/data_stream.h"
+#include "hardware/ethernet_transport.h"
+#include "hardware/serial_transport.h"
 
 /**
  * @class ClientWindow
@@ -131,6 +133,8 @@ private:
     RS232    m_dutSerial;
     Ethernet m_dutWebClient;
     Ethernet m_refWebClient;
+    DataStream *m_dutStream = nullptr;
+    DataStream *m_refStream = nullptr;
     TcpClient m_netClient;
     UdpBeaconListener m_beaconListener;
     TestStateMachine *m_stateMachine = nullptr;

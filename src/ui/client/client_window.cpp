@@ -61,7 +61,7 @@ ClientWindow::ClientWindow(QWidget *parent)
     setMinimumSize(1180, 740);
     setWindowState(Qt::WindowMaximized);
 
-    m_stateMachine = new TestStateMachine(&m_dutSerial, &m_netClient, this);
+    m_stateMachine = new TestStateMachine(&m_netClient, this);
 
     // Primary CAT6 Ethernet Web CGI Client for DUT receiver
     m_dutWebClient.setHost(AppConfig::instance().stationDrxHost(), AppConfig::instance().stationDrxPort());
@@ -118,7 +118,66 @@ ClientWindow::ClientWindow(QWidget *parent)
         appendLog((isErr ? "[REF ETH HATA] " : "[REF ETH] ") + msg);
     });
 
-    m_stateMachine->setDataTransfers(&m_dutWebClient, &m_refWebClient);
+    // Function-pointer-driven DataStream HAL wiring (decouples TestStateMachine from concrete drivers)
+    DrxTransportOps dutOps;
+    dutOps.name = "DUT-HAL";
+    dutOps.connectFn = [this]() {
+        return m_dutWebClient.isReachable() ? m_dutWebClient.connectDevice() : m_dutSerial.connectDevice();
+    };
+    dutOps.disconnectFn = [this]() {
+        m_dutWebClient.disconnectDevice();
+        m_dutSerial.disconnectDevice();
+    };
+    dutOps.isConnectedFn = [this]() {
+        return m_dutWebClient.isConnected() || m_dutSerial.isConnected();
+    };
+    dutOps.isReadyFn = [this]() {
+        return m_dutWebClient.isDeviceReady() || (m_dutSerial.isConnected() && m_dutSerial.isDeviceReady());
+    };
+    dutOps.sendFn = [this](const QByteArray &data) {
+        if (m_dutWebClient.isReachable()) m_dutWebClient.sendData(data);
+        else if (m_dutSerial.isConnected()) m_dutSerial.sendData(data);
+    };
+    dutOps.tuneFn = [this](int f, int sr, const QString &pol) {
+        if (m_dutWebClient.isReachable() || !m_dutSerial.isConnected()) {
+            m_dutWebClient.sendTune(f, sr, pol);
+        } else {
+            m_dutSerial.sendTune(f, sr, pol);
+        }
+    };
+    dutOps.statusFn = [this]() {
+        if (m_dutWebClient.isReachable() || !m_dutSerial.isConnected()) {
+            m_dutWebClient.requestStatus();
+        } else {
+            m_dutSerial.requestStatus();
+        }
+    };
+    dutOps.deviceInfoFn = [this]() { m_dutWebClient.requestDeviceInfo(); };
+
+    m_dutStream = new DataStream(dutOps, this);
+    connect(&m_dutWebClient, &Ethernet::statusReceived, m_dutStream, &DataStream::pushStatus);
+    connect(&m_dutWebClient, &Ethernet::telemetryReceived, m_dutStream, &DataStream::pushTelemetry);
+    connect(&m_dutWebClient, &Ethernet::timestampReceived, m_dutStream, &DataStream::pushTimestamp);
+    connect(&m_dutSerial, &RS232::statusReceived, m_dutStream, &DataStream::pushStatus);
+    connect(&m_dutSerial, &RS232::telemetryReceived, m_dutStream, &DataStream::pushTelemetry);
+
+    DrxTransportOps refOps;
+    refOps.name = "REF-HAL";
+    refOps.connectFn = [this]() { return m_refWebClient.connectDevice(); };
+    refOps.disconnectFn = [this]() { m_refWebClient.disconnectDevice(); };
+    refOps.isConnectedFn = [this]() { return m_refWebClient.isConnected(); };
+    refOps.isReadyFn = [this]() { return m_refWebClient.isDeviceReady(); };
+    refOps.sendFn = [this](const QByteArray &data) { m_refWebClient.sendData(data); };
+    refOps.tuneFn = [this](int f, int sr, const QString &pol) { m_refWebClient.sendTune(f, sr, pol); };
+    refOps.statusFn = [this]() { m_refWebClient.requestStatus(); };
+    refOps.deviceInfoFn = [this]() { m_refWebClient.requestDeviceInfo(); };
+
+    m_refStream = new DataStream(refOps, this);
+    connect(&m_refWebClient, &Ethernet::statusReceived, m_refStream, &DataStream::pushStatus);
+    connect(&m_refWebClient, &Ethernet::telemetryReceived, m_refStream, &DataStream::pushTelemetry);
+    connect(&m_refWebClient, &Ethernet::timestampReceived, m_refStream, &DataStream::pushTimestamp);
+
+    m_stateMachine->setDataStreams(m_dutStream, m_refStream);
 
     // Proactive database connection (MariaDB or SQLite fallback mode)
     if (!DbManager::instance().isConnected()) {

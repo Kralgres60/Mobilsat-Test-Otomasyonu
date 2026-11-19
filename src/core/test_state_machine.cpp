@@ -13,8 +13,8 @@
 #include <QtMath>
 #include <numeric>
 
-TestStateMachine::TestStateMachine(SerialWorker *dutSerial, TcpClient *netClient, QObject *parent)
-    : QObject(parent), m_dutSerial(dutSerial), m_netClient(netClient) {
+TestStateMachine::TestStateMachine(TcpClient *netClient, QObject *parent)
+    : QObject(parent), m_netClient(netClient) {
     
     m_carrierWaitTimer.setSingleShot(true);
     connect(&m_carrierWaitTimer, &QTimer::timeout, this, &TestStateMachine::onCarrierTimeout);
@@ -32,49 +32,38 @@ TestStateMachine::TestStateMachine(SerialWorker *dutSerial, TcpClient *netClient
         connect(m_netClient, &TcpClient::lockExpired, this, &TestStateMachine::onLockExpired);
         connect(m_netClient, &TcpClient::refDataReceived, this, &TestStateMachine::onRefData);
     }
-
-    if (m_dutSerial) {
-        connect(m_dutSerial, &SerialWorker::statusReceived, this, &TestStateMachine::onDutStatus);
-        connect(m_dutSerial, &SerialWorker::telemetryReceived, this, &TestStateMachine::onDutTelemetry);
-    }
 }
 
-void TestStateMachine::setDataTransfers(DataTransfer *dutTransfer, DataTransfer *refTransfer) {
-    m_dutTransfer = dutTransfer;
-    m_refTransfer = refTransfer;
+void TestStateMachine::setDataStreams(DataStream *dutStream, DataStream *refStream) {
+    m_dutStream = dutStream;
+    m_refStream = refStream;
 
-    if (m_dutTransfer) {
-        connect(m_dutTransfer, &DataTransfer::statusReceived, this,
+    if (m_dutStream) {
+        connect(m_dutStream, &DataStream::statusReceived, this,
                 [this](bool sig, bool vid, bool aud) {
                     onDutStatus(sig, vid, aud);
                 });
-        connect(m_dutTransfer, &DataTransfer::telemetryReceived, this,
+        connect(m_dutStream, &DataStream::telemetryReceived, this,
                 [this](double pwr, double cn, double ber) {
                     onDutTelemetry(pwr, cn, ber);
                 });
-        connect(m_dutTransfer, &DataTransfer::timestampReceived, this,
+        connect(m_dutStream, &DataStream::timestampReceived, this,
                 [this](const QDateTime &devTime, const QDateTime &hTime, const QString &rawStr) {
                     onDutTimestampReceived(devTime, hTime, rawStr);
                 });
     }
 
-    if (m_refTransfer) {
-        connect(m_refTransfer, &DataTransfer::statusReceived, this,
+    if (m_refStream) {
+        connect(m_refStream, &DataStream::statusReceived, this,
                 [this](bool sig, bool vid, bool /*aud*/) {
                     m_refCarrierLocked = sig;
                     m_refVideoLocked = vid;
                 });
-        connect(m_refTransfer, &DataTransfer::telemetryReceived, this,
+        connect(m_refStream, &DataStream::telemetryReceived, this,
                 [this](double pwr, double cn, double /*ber*/) {
                     onRefData(cn, pwr, m_refCarrierLocked, m_refVideoLocked);
                 });
     }
-}
-
-void TestStateMachine::setWebClients(DrxWebClient *dutWeb, DrxWebClient *refWeb) {
-    m_dutWebClient = dutWeb;
-    m_refWebClient = refWeb;
-    setDataTransfers(dutWeb, refWeb);
 }
 
 QString TestStateMachine::currentStateString() const {
@@ -237,10 +226,6 @@ void TestStateMachine::abortTest(const QString &reason) {
     m_sampleTickTimer.stop();
     m_dbLockRetryTimer.stop();
 
-    if (m_dutSerial) {
-        m_dutSerial->stopTunerLog();
-    }
-
     if (m_referenceMode != ReferenceMode::GoldenSample) {
 #if defined(NETA_ALGORITMA_2_THREE_PC)
         DbManager::instance().releaseDbLock(AppConfig::instance().stationId());
@@ -303,16 +288,9 @@ void TestStateMachine::runCurrentChannel() {
     m_refPowSamples.clear();
     m_channelTimeHistory.clear();
 
-    // 1. Send tune command to DUT DRX9000 (DataTransfer abstraction first, fallback to direct pointers)
-    if (m_dutTransfer) {
-        m_dutTransfer->sendTune(ch.frequencyMhz, ch.symbolRate, ch.polarization);
-    } else {
-        if (m_dutWebClient) {
-            m_dutWebClient->sendTune(ch.frequencyMhz, ch.symbolRate, ch.polarization);
-        }
-        if (m_dutSerial && m_dutSerial->isConnected()) {
-            m_dutSerial->sendTune(ch.frequencyMhz, ch.symbolRate, ch.polarization);
-        }
+    // 1. Send tune command to DUT DRX9000 via DataStream HAL
+    if (m_dutStream) {
+        m_dutStream->sendTune(ch.frequencyMhz, ch.symbolRate, ch.polarization);
     }
 
     // 2. Reference comparison handling:
@@ -376,12 +354,10 @@ void TestStateMachine::runCurrentChannel() {
                                 .arg(ch.frequencyMhz).arg(ch.polarization).arg(ch.channelName));
         }
 #if defined(NETA_ALGORITMA_2_THREE_PC)
-        // Algorithm 2: Update MariaDB lock heartbeat and tune shared Reference DRX9000 via Web CGI
+        // Algorithm 2: Update MariaDB lock heartbeat and tune shared Reference DRX9000 via DataStream HAL
         DbManager::instance().updateDbLockHeartbeat(AppConfig::instance().stationId(), ch.channelNo);
-        if (m_refTransfer) {
-            m_refTransfer->sendTune(ch.frequencyMhz, ch.symbolRate, ch.polarization);
-        } else if (m_refWebClient) {
-            m_refWebClient->sendTune(ch.frequencyMhz, ch.symbolRate, ch.polarization);
+        if (m_refStream) {
+            m_refStream->sendTune(ch.frequencyMhz, ch.symbolRate, ch.polarization);
         }
 #else
         // Algorithm 1: Request Host to tune Golden Sample Reference DRX (TCP :9100)
@@ -405,10 +381,6 @@ void TestStateMachine::onDutStatus(bool signalLocked, bool videoProducing, bool 
         // Carrier lock acquired; transition to sampling
         m_carrierWaitTimer.stop();
         changeState(TestState::SamplingTelemetry);
-
-        if (m_dutSerial && m_dutSerial->isConnected()) {
-            m_dutSerial->startTunerLog();
-        }
 
         int sampleSec = AppConfig::instance().sampleDurationSec();
         if (m_currentChannelIsGolden && m_selectedGoldenRecord.id > 0 && m_selectedGoldenRecord.durationSec > 0 &&
@@ -481,32 +453,18 @@ void TestStateMachine::onRefData(double refCn, double refPow, bool carrierLocked
 }
 
 void TestStateMachine::onSampleTimerTick() {
-    if (m_dutTransfer) {
-        m_dutTransfer->requestStatus();
-    } else {
-        if (m_dutWebClient) {
-            m_dutWebClient->requestStatus();
-        }
-        if (m_dutSerial && m_dutSerial->isConnected()) {
-            m_dutSerial->requestStatus();
-        }
+    if (m_dutStream) {
+        m_dutStream->requestStatus();
     }
 #if defined(NETA_ALGORITMA_2_THREE_PC)
-    if (!m_currentChannelIsGolden) {
-        if (m_refTransfer) {
-            m_refTransfer->requestStatus();
-        } else if (m_refWebClient) {
-            m_refWebClient->requestStatus();
-        }
+    if (!m_currentChannelIsGolden && m_refStream) {
+        m_refStream->requestStatus();
     }
 #endif
 }
 
 void TestStateMachine::onSampleFinished() {
     m_sampleTickTimer.stop();
-    if (m_dutSerial) {
-        m_dutSerial->stopTunerLog();
-    }
     finishCurrentChannel();
 }
 

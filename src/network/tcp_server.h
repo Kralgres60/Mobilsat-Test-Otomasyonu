@@ -15,7 +15,8 @@
 #include <QMap>
 #include "data_models.h"
 #include "lock_arbiter.h"
-#include "hardware/data_transfer.h"
+#include "hardware/ethernet_transport.h"
+#include "hardware/serial_transport.h"
 
 /**
  * @class TcpServer
