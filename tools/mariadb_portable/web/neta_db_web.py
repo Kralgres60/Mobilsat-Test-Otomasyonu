@@ -1136,7 +1136,6 @@ HTML_PAGE = r"""<!DOCTYPE html>
         <div class="nav-section">Modüller</div>
         <ul class="nav-menu" id="sidebarNav">
             <li class="nav-item active" data-page="dashboard" onclick="switchPage('dashboard')">📊 Genel Panel</li>
-            <li class="nav-item" data-page="monitor" onclick="switchPage('monitor')">🔴 Canlı Hat Takibi</li>
             <li class="nav-item" data-page="servers" onclick="switchPage('servers')">🖥️ Sunucular & Donanım</li>
             <li class="nav-item" data-page="users" onclick="switchPage('users')">👥 Kullanıcı Yönetimi</li>
             <li class="nav-item" data-page="tests" onclick="switchPage('tests')">📋 Test Geçmişi</li>
@@ -1167,55 +1166,6 @@ HTML_PAGE = r"""<!DOCTYPE html>
         </header>
 
         <div class="content-area">
-            <!-- 0. LIVE LINE MONITOR PAGE -->
-            <div id="page-monitor" class="page-view">
-                <div style="display:flex; justify-content:space-between; align-items:center; background-color:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:12px 18px;">
-                    <div style="display:flex; align-items:center; gap:12px;">
-                        <span class="live-pulse-dot"></span>
-                        <div>
-                            <span style="font-weight:bold; font-size:14px; color:var(--primary-light);">CANLI HAT AKIŞI (SSE REAL-TIME STREAM)</span>
-                            <div style="font-size:11.5px; color:var(--text-muted);">Yalnızca ağda aktif olan istasyonların donanım durumları ve test telemetrisi saniye saniye akmaktadır.</div>
-                        </div>
-                    </div>
-                    <div style="display:flex; align-items:center; gap:12px;">
-                        <span id="sseStatusBadge" class="badge-pass" style="font-size:11px; padding:4px 10px; border-radius:12px;">🟢 SSE Canlı Yayın</span>
-                        <span id="sseTimeText" style="font-size:12px; color:var(--text-muted); font-family:monospace;">--:--:--</span>
-                    </div>
-                </div>
-
-                <!-- Station Cards Grid -->
-                <div class="station-grid" id="monitorStationCards">
-                    <!-- Dynamic rendering via JS -->
-                </div>
-
-                <!-- Recent Live Test Events -->
-                <div class="card">
-                    <div class="card-header">
-                        <span>⚡ Canlı Üretim ve Test Akış Çizelgesi</span>
-                        <span style="font-size:11.5px; color:var(--text-muted);">Tamamlanan anten testleri anında yansır</span>
-                    </div>
-                    <div class="table-responsive">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>ID</th>
-                                    <th>Anten Seri No</th>
-                                    <th>İstasyon</th>
-                                    <th>Operatör</th>
-                                    <th>Sonuç</th>
-                                    <th>Ort. Delta (dB)</th>
-                                    <th>Süre (sn)</th>
-                                    <th>Test Zamanı</th>
-                                </tr>
-                            </thead>
-                            <tbody id="monitorRecentEventsBody">
-                                <tr><td colspan="8" style="color:var(--text-muted);">Canlı akış verisi bekleniyor...</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-
             <!-- 1. DASHBOARD PAGE -->
             <div id="page-dashboard" class="page-view active">
                 <div class="lock-banner" id="dashLockBanner">
@@ -1863,7 +1813,6 @@ HTML_PAGE = r"""<!DOCTYPE html>
                 document.getElementById('userRoleBadge').className = 'role-badge badge-admin';
             }
             switchPage('dashboard');
-            initLiveStream();
         }
 
         async function handleLogin(e) {

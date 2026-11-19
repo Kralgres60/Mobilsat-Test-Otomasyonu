@@ -435,6 +435,14 @@ void TestStateMachine::onCarrierTimeout() {
 
 void TestStateMachine::onDutTelemetry(double powerDbm, double cnDb, double /*ber*/) {
     if (m_state == TestState::SamplingTelemetry) {
+        // Ignore tuning transients until both DUT and Reference (or Golden) have locked valid signals
+        if (!m_dutCarrierLocked || cnDb <= 0.05) {
+            return;
+        }
+        if (!m_currentChannelIsGolden && (!m_refCarrierLocked || m_lastRefCn <= 0.05)) {
+            return;
+        }
+
         m_dutPowSamples.append(powerDbm);
         m_dutCnSamples.append(cnDb);
 
@@ -456,6 +464,10 @@ void TestStateMachine::onDutTimestampReceived(const QDateTime &deviceTime, const
 void TestStateMachine::onRefData(double refCn, double refPow, bool carrierLocked, bool videoLocked) {
     if (m_currentChannelIsGolden) {
         return; // Keep stored Golden Sample baseline unchanged
+    }
+    // Reject unlocked / channel-switching 0.0 dB tuning samples so charts and averages stay accurate
+    if (!carrierLocked || refCn <= 0.05) {
+        return;
     }
     m_lastRefCn = refCn;
     m_lastRefPow = refPow;

@@ -152,12 +152,9 @@ int main(int argc, char *argv[]) {
 
     if (parser.isSet(hostOption)) {
         config.setRole(AppRole::Host);
-        bool connected = DbManager::instance().connectToDatabase(config.dbHost(), config.dbPort(),
-                                                                config.dbName(), config.dbUser(),
-                                                                config.dbPassword());
-        if (!connected && !DependencyInstaller::isMySqlListening(config.dbHost(), config.dbPort())) {
-            DependencyInstaller::autoSetupHostEnvironment();
-        }
+        DbManager::instance().connectToDatabase(config.dbHost(), config.dbPort(),
+                                                config.dbName(), config.dbUser(),
+                                                config.dbPassword());
         HostWindow *hostWin = new HostWindow();
         hostWin->showMaximized();
     } else if (parser.isSet(clientOption)) {

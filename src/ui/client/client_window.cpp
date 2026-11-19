@@ -37,6 +37,8 @@
 #include <QtMath>
 #include <QSplitter>
 #include <QFrame>
+#include <QToolTip>
+#include <QMouseEvent>
 
 ClientWindow::ClientWindow(QWidget *parent)
     : QMainWindow(parent), m_beaconListener(AppConfig::instance().udpBeaconPort()) {
@@ -208,9 +210,21 @@ ClientWindow::ClientWindow(QWidget *parent)
     connect(m_stateMachine, &TestStateMachine::waitingForLockUpdate, this, &ClientWindow::onWaitingForLockUpdate);
     connect(m_stateMachine, &TestStateMachine::logMessage, this, &ClientWindow::appendLog);
 
-    // Background Ethernet Ping Heartbeat (8 seconds, silent; full sync on reconnect or manual press)
+    // Background Ethernet Ping Heartbeat (8 seconds, silent; also retries central MariaDB if waiting)
     connect(&m_ethPingTimer, &QTimer::timeout, this, [this]() {
         m_dutWebClient.pingHost(1000);
+        if (!DbManager::instance().isConnected()) {
+            const AppConfig &cfg = AppConfig::instance();
+            if (DbManager::instance().connectToDatabase(cfg.dbHost(), cfg.dbPort(),
+                                                       cfg.dbName(), cfg.dbUser(),
+                                                       cfg.dbPassword())) {
+                loadWorkOrdersAndProfiles();
+                if (m_profileManager) m_profileManager->reloadProfiles();
+                updateDbStatusBadge();
+                appendLog(QString("[Veritabanı] Merkezi MariaDB'ye bağlanıldı (%1:%2).").arg(cfg.dbHost()).arg(cfg.dbPort()));
+            }
+        }
+        if (!DbManager::instance().isConnected()) return;
         int stId = AppConfig::instance().stationId();
         QString actSn = (m_stateMachine && m_stateMachine->currentState() != TestState::Idle)
                             ? m_txtAntennaSn->text().trimmed()
@@ -759,10 +773,12 @@ void ClientWindow::setupProductionPage() {
 
     m_lblOverallResult = new QLabel("BEKLEMEDE", m_resultBannerFrame);
     m_lblOverallResult->setAlignment(Qt::AlignCenter);
+    m_lblOverallResult->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     m_lblOverallResult->setStyleSheet("font-size: 20pt; font-weight: bold; color: #A7C4B5;");
 
     m_lblOverallDetails = new QLabel("Hazır: Anten barkodunu okutunuz", m_resultBannerFrame);
     m_lblOverallDetails->setAlignment(Qt::AlignCenter);
+    m_lblOverallDetails->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     m_lblOverallDetails->setStyleSheet("font-size: 9.5pt; color: #E6F4EE;");
 
     bannerVBox->addWidget(m_lblOverallResult);
@@ -828,6 +844,12 @@ void ClientWindow::setupProductionPage() {
     m_lblLiveRefCn = new QLabel("🎯 REF C/N: -- dB", grpTelemetry);
     m_lblLivePower = new QLabel("📶 POW: -- dBm", grpTelemetry);
     m_lblLiveTolerance = new QLabel(QString("⚖️ Tolerans: ±%1 dB").arg(AppConfig::instance().defaultToleranceDb(), 0, 'f', 2), grpTelemetry);
+
+    for (QLabel *pill : {m_lblLiveChannel, m_lblLiveFreqPol, m_lblStatusSignal,
+                         m_lblLiveDutCn, m_lblLiveDelta, m_lblStatusVideo,
+                         m_lblLiveRefCn, m_lblLivePower, m_lblLiveTolerance}) {
+        pill->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    }
 
     resetLiveTelemetryPills();
 
@@ -1136,6 +1158,17 @@ void ClientWindow::setupPlot() {
     m_plot->axisRect()->setRangeDrag(Qt::Horizontal);
     m_plot->axisRect()->setRangeZoom(Qt::Horizontal);
 
+    m_plotTracer = new QCPItemTracer(m_plot);
+    m_plotTracer->setGraph(m_plot->graph(0));
+    m_plotTracer->setInterpolating(false);
+    m_plotTracer->setStyle(QCPItemTracer::tsCircle);
+    m_plotTracer->setPen(QPen(QColor("#FFFFFF"), 2));
+    m_plotTracer->setBrush(QBrush(QColor("#38BDF8")));
+    m_plotTracer->setSize(10);
+    m_plotTracer->setVisible(false);
+
+    connect(m_plot, &QCustomPlot::mouseMove, this, &ClientWindow::onPlotMouseMove);
+
     m_plot->xAxis->setRange(0, 45);
     m_plot->yAxis->setRange(0, 22);
 
@@ -1188,6 +1221,58 @@ void ClientWindow::jumpPlotToLatest() {
     m_plot->xAxis->setRange(lower, upper);
     m_plotUpdatingRange = false;
     m_plot->replot();
+}
+
+void ClientWindow::onPlotMouseMove(QMouseEvent *event) {
+    if (!m_plot || !m_plotTracer || m_plot->graph(0)->dataCount() == 0) return;
+
+    if (!m_plot->axisRect()->rect().contains(event->pos())) {
+        if (m_plotTracer->visible()) {
+            m_plotTracer->setVisible(false);
+            m_plot->replot(QCustomPlot::rpQueuedReplot);
+        }
+        QToolTip::hideText();
+        return;
+    }
+
+    const double x = m_plot->xAxis->pixelToCoord(event->pos().x());
+    m_plotTracer->setGraphKey(x);
+    m_plotTracer->updatePosition();
+    m_plotTracer->setVisible(true);
+
+    const int sampleIdx = qRound(m_plotTracer->position->key());
+    const double dutVal = m_plotTracer->position->value();
+
+    auto sampleAt = [](QCPGraph *g, int key) -> double {
+        if (!g || !g->visible() || g->dataCount() == 0) return qQNaN();
+        auto it = g->data()->findBegin(key, false);
+        if (it != g->data()->constEnd() && qRound(it->key) == key) {
+            return it->value;
+        }
+        return qQNaN();
+    };
+
+    double refVal = sampleAt(m_plot->graph(1), sampleIdx);
+    QString refLabel = "REF C/N";
+    if (qIsNaN(refVal)) {
+        refVal = sampleAt(m_plot->graph(2), sampleIdx);
+        refLabel = "Golden C/N";
+    }
+
+    QString tip = QString("Örneklem #%1\nDUT C/N: %2 dB")
+                      .arg(sampleIdx)
+                      .arg(dutVal, 0, 'f', 2);
+    if (!qIsNaN(refVal)) {
+        const double delta = dutVal - refVal;
+        tip += QString("\n%1: %2 dB\nFark (Δ): %3%4 dB")
+                   .arg(refLabel)
+                   .arg(refVal, 0, 'f', 2)
+                   .arg(delta >= 0 ? "+" : "")
+                   .arg(delta, 0, 'f', 2);
+    }
+
+    QToolTip::showText(event->globalPos(), tip, m_plot);
+    m_plot->replot(QCustomPlot::rpQueuedReplot);
 }
 
 void ClientWindow::loadGoldenOverlayCurve(const GoldenFrequencyRecord &rec) {
@@ -1716,12 +1801,16 @@ void ClientWindow::onReconnectHostClicked() {
 void ClientWindow::updateDbStatusBadge() {
     const AppConfig &cfg = AppConfig::instance();
     const bool ok = DbManager::instance().isConnected();
+    const bool isSqliteFallback = ok && (DbManager::instance().activeDriver() == "QSQLITE");
     if (m_lblDbBadge) {
-        if (ok) {
+        if (ok && !isSqliteFallback) {
             m_lblDbBadge->setText(QString("🟢 DB: %1:%2").arg(cfg.dbHost()).arg(cfg.dbPort()));
             m_lblDbBadge->setStyleSheet(StyleHelper::getPastelGreenStyle());
+        } else if (isSqliteFallback) {
+            m_lblDbBadge->setText("🟡 DB: Yerel SQLite (Yedek)");
+            m_lblDbBadge->setStyleSheet(StyleHelper::getPastelAmberStyle());
         } else {
-            m_lblDbBadge->setText("🔴 DB: Bağlı Değil");
+            m_lblDbBadge->setText(QString("⏳ DB: Bekleniyor (%1:%2)").arg(cfg.dbHost()).arg(cfg.dbPort()));
             m_lblDbBadge->setStyleSheet(StyleHelper::getPastelRedStyle());
         }
     }
@@ -1779,7 +1868,7 @@ void ClientWindow::onHostDiscovered(const QString &hostIp, const QString &server
         AppConfig::instance().save();
         if (m_txtHostIp) m_txtHostIp->setText(hostIp);
         if (m_txtDbHost) m_txtDbHost->setText(hostIp);
-        if (!DbManager::instance().isConnected()) {
+        if (!DbManager::instance().isConnected() || DbManager::instance().activeDriver() == "QSQLITE") {
             if (DbManager::instance().connectToDatabase(
                     hostIp, AppConfig::instance().dbPort(),
                     AppConfig::instance().dbName(), AppConfig::instance().dbUser(),
@@ -1803,9 +1892,16 @@ void ClientWindow::onTcpConnected() {
 
     setStatusMessage(QString("Yönetici Sunucuya Bağlı (%1)").arg(AppConfig::instance().hostIp()));
 
-    if (!DbManager::instance().isConnected() || m_workOrders.isEmpty()) {
-        AppConfig::instance().setDbHost(AppConfig::instance().hostIp());
+    if (!DbManager::instance().isConnected() ||
+        DbManager::instance().activeDriver() == "QSQLITE" ||
+        m_workOrders.isEmpty()) {
+        const AppConfig &cfg = AppConfig::instance();
+        AppConfig::instance().setDbHost(cfg.hostIp());
+        DbManager::instance().connectToDatabase(cfg.hostIp(), cfg.dbPort(),
+                                               cfg.dbName(), cfg.dbUser(), cfg.dbPassword());
         loadWorkOrdersAndProfiles();
+        if (m_profileManager) m_profileManager->reloadProfiles();
+        updateDbStatusBadge();
     }
 
     m_netClient.registerStation(AppConfig::instance().stationId(), AppConfig::instance().stationName());
@@ -1836,6 +1932,16 @@ void ClientWindow::onStartTestClicked() {
     if (sn.isEmpty()) {
         QMessageBox::warning(this, "Uyarı", "Lütfen anten barkodunu okutunuz!");
         m_txtAntennaSn->setFocus();
+        return;
+    }
+
+    if (!DbManager::instance().isConnected()) {
+        QMessageBox::warning(this, "Veritabanı Bekleniyor",
+                             QString("Merkezi MariaDB veritabanına (%1:%2) henüz bağlanılamadı!\n\n"
+                                     "• İstasyon yerel veritabanı oluşturmaz, merkezi veritabanının açılmasını bekler.\n"
+                                     "• Lütfen Yönetici PC / MariaDB sunucusunun çalıştığından emin olun.")
+                                 .arg(AppConfig::instance().dbHost())
+                                 .arg(AppConfig::instance().dbPort()));
         return;
     }
 
@@ -2254,6 +2360,7 @@ void ClientWindow::onClearGraphClicked() {
     if (!m_plot) return;
     m_plot->graph(0)->data()->clear();
     m_plot->graph(1)->data()->clear();
+    if (m_plotTracer) m_plotTracer->setVisible(false);
     clearPlotBands();
     m_plotAutoFollow = true;
     if (m_btnPlotFollowLatest) m_btnPlotFollowLatest->setVisible(false);

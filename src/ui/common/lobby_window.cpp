@@ -370,12 +370,9 @@ void LobbyWindow::launchHostMode() {
     cfg.setDbHost("127.0.0.1");
     cfg.save();
 
-    bool connected = DbManager::instance().connectToDatabase(cfg.dbHost(), cfg.dbPort(),
-                                                            cfg.dbName(), cfg.dbUser(),
-                                                            cfg.dbPassword());
-    if (!connected && !DependencyInstaller::isMySqlListening(cfg.dbHost(), cfg.dbPort())) {
-        DependencyInstaller::autoSetupHostEnvironment(this);
-    }
+    DbManager::instance().connectToDatabase(cfg.dbHost(), cfg.dbPort(),
+                                            cfg.dbName(), cfg.dbUser(),
+                                            cfg.dbPassword());
 
     HostWindow *hostWin = new HostWindow();
     hostWin->showMaximized();

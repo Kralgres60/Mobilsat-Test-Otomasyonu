@@ -43,8 +43,9 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Name: "simdesktopicon"; Description: "DRX9000 TCP Simülatörü için masaüstü kısayolu oluştur"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-; OUTPUT klasöründeki tüm dosyaları ve alt klasörleri kurulum dizinine kopyala
-Source: "..\..\OUTPUT\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; OUTPUT\App ve OUTPUT\Database klasörlerini kurulum dizininde ({app}) birleştir
+Source: "..\..\OUTPUT\App\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\..\OUTPUT\Database\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

@@ -56,11 +56,31 @@ if ($stoppedAny) {
 # 1. Eski Klasörlerin Temizliği (dist, build, release_build, OUTPUT)
 Write-Host "`n[1/6] Eski build, dist ve OUTPUT klasorleri siliniyor..." -ForegroundColor Yellow
 
+$AppOutDir = "$OutputDir\App"
+$DbOutDir  = "$OutputDir\Database\mariadb_portable"
+$PreservedDbDataDir = "$ProjectDir\.neta_preserved_db_data"
+
 # Kullanıcının mevcut neta_config.ini yapılandırmasını korumaya al
 $preservedConfig = $null
-if (Test-Path "$OutputDir\neta_config.ini") {
-    $preservedConfig = Get-Content "$OutputDir\neta_config.ini" -Raw -Encoding UTF8
-    Write-Host "      Mevcut neta_config.ini koruma altina alindi." -ForegroundColor DarkCyan
+foreach ($cfgCand in @("$AppOutDir\neta_config.ini", "$OutputDir\neta_config.ini")) {
+    if (Test-Path $cfgCand) {
+        $preservedConfig = Get-Content $cfgCand -Raw -Encoding UTF8
+        Write-Host "      Mevcut neta_config.ini koruma altina alindi." -ForegroundColor DarkCyan
+        break
+    }
+}
+
+# Kullanıcının mevcut MariaDB data/ klasörünü korumaya al (sürüm güncellemelerinde veriler silinmesin)
+if (Test-Path $PreservedDbDataDir) {
+    Remove-Item -Path $PreservedDbDataDir -Recurse -Force -ErrorAction SilentlyContinue
+}
+foreach ($dataCand in @("$DbOutDir\data", "$OutputDir\mariadb_portable\data", "$OutputDir\tools\mariadb_portable\data")) {
+    if ((Test-Path $dataCand) -and ((Get-ChildItem $dataCand -Force -ErrorAction SilentlyContinue | Measure-Object).Count -gt 0)) {
+        New-Item -ItemType Directory -Force -Path $PreservedDbDataDir | Out-Null
+        Copy-Item -Path "$dataCand\*" -Destination $PreservedDbDataDir -Recurse -Force
+        Write-Host "      Mevcut MariaDB veritabani (data/) koruma altina alindi." -ForegroundColor DarkCyan
+        break
+    }
 }
 
 $dirsToClean = @(
@@ -79,10 +99,11 @@ foreach ($d in $dirsToClean) {
     }
 }
 
-# 2. OUTPUT Dizinini Hazırla
-Write-Host "[2/6] OUTPUT dizini hazirlaniyor..." -ForegroundColor Yellow
-New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
-New-Item -ItemType Directory -Force -Path "$OutputDir\sqldrivers" | Out-Null
+# 2. OUTPUT Dizinini Hazırla (App + Database ayrı klasörler)
+Write-Host "[2/6] OUTPUT dizini hazirlaniyor (App + Database)..." -ForegroundColor Yellow
+New-Item -ItemType Directory -Force -Path $AppOutDir | Out-Null
+New-Item -ItemType Directory -Force -Path "$AppOutDir\sqldrivers" | Out-Null
+New-Item -ItemType Directory -Force -Path $DbOutDir | Out-Null
 
 # 3. Sıfırdan Release Derlemesi Yap
 Write-Host "[3/6] Proje sifirdan Release modunda derleniyor..." -ForegroundColor Yellow
@@ -108,9 +129,9 @@ if (-not (Test-Path $ExeSource)) {
     exit 1
 }
 
-# 4. Derlenen EXE'yi OUTPUT'a Kopyala ve Geçici Derleme Klasörünü Temizle
-Write-Host "[4/6] EXE OUTPUT dizinine aliniyor ve gecici dosyalar temizleniyor..." -ForegroundColor Yellow
-Copy-Item -Path $ExeSource -Destination "$OutputDir\$TargetExe.exe" -Force
+# 4. Derlenen EXE'yi OUTPUT\App'e Kopyala ve Geçici Derleme Klasörünü Temizle
+Write-Host "[4/6] EXE OUTPUT\App dizinine aliniyor ve gecici dosyalar temizleniyor..." -ForegroundColor Yellow
+Copy-Item -Path $ExeSource -Destination "$AppOutDir\$TargetExe.exe" -Force
 Set-Location $ProjectDir
 Remove-Item -Path $TempBuild -Recurse -Force -ErrorAction SilentlyContinue
 
@@ -121,41 +142,41 @@ if (Test-Path "$ProjectDir\build") {
 
 # 5. windeployqt ile Bağımlılıkları Çek
 Write-Host "[5/6] Qt ve MinGW bagimliliklari paketleniyor (windeployqt)..." -ForegroundColor Yellow
-& "$QtBin\windeployqt.exe" --no-translations --no-opengl-sw --no-system-d3d-compiler "$OutputDir\$TargetExe.exe" | Out-Null
+& "$QtBin\windeployqt.exe" --no-translations --no-opengl-sw --no-system-d3d-compiler "$AppOutDir\$TargetExe.exe" | Out-Null
 
 # Qt5 bearer eklentisi Windows'ta acilis gecikmesine neden olur; kullanilmadigi icin kaldirilir
-if (Test-Path "$OutputDir\bearer") {
-    Remove-Item -Path "$OutputDir\bearer" -Recurse -Force -ErrorAction SilentlyContinue
+if (Test-Path "$AppOutDir\bearer") {
+    Remove-Item -Path "$AppOutDir\bearer" -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 # Platform eklentisi (qwindows.dll) kontrolü ve güvenlik kopyalaması
-if (-not (Test-Path "$OutputDir\platforms\qwindows.dll")) {
-    New-Item -ItemType Directory -Force -Path "$OutputDir\platforms" | Out-Null
-    Copy-Item "$QtBin\..\plugins\platforms\qwindows.dll" "$OutputDir\platforms\" -Force
+if (-not (Test-Path "$AppOutDir\platforms\qwindows.dll")) {
+    New-Item -ItemType Directory -Force -Path "$AppOutDir\platforms" | Out-Null
+    Copy-Item "$QtBin\..\plugins\platforms\qwindows.dll" "$AppOutDir\platforms\" -Force
 }
 
 # MinGW Runtime DLL'leri
-Copy-Item "$MinGWBin\libgcc_s_dw2-1.dll" "$OutputDir\" -Force
-Copy-Item "$MinGWBin\libstdc++-6.dll" "$OutputDir\" -Force
-Copy-Item "$MinGWBin\libwinpthread-1.dll" "$OutputDir\" -Force
+Copy-Item "$MinGWBin\libgcc_s_dw2-1.dll" "$AppOutDir\" -Force
+Copy-Item "$MinGWBin\libstdc++-6.dll" "$AppOutDir\" -Force
+Copy-Item "$MinGWBin\libwinpthread-1.dll" "$AppOutDir\" -Force
 
 # MySQL DLL'leri (+ 32-bit VC++ Runtime: libmysql.dll bağımlılığı)
-Copy-Item "$ProjectDir\tools\sqldrivers\libmysql.dll" "$OutputDir\" -Force
-Copy-Item "$ProjectDir\tools\sqldrivers\qsqlmysql.dll" "$OutputDir\sqldrivers\" -Force
+Copy-Item "$ProjectDir\tools\sqldrivers\libmysql.dll" "$AppOutDir\" -Force
+Copy-Item "$ProjectDir\tools\sqldrivers\qsqlmysql.dll" "$AppOutDir\sqldrivers\" -Force
 foreach ($vcDll in @("vcruntime140.dll", "msvcp140.dll")) {
     $sysWowPath = Join-Path "$env:WINDIR\SysWOW64" $vcDll
     if (Test-Path $sysWowPath) {
-        Copy-Item $sysWowPath "$OutputDir\" -Force
+        Copy-Item $sysWowPath "$AppOutDir\" -Force
     }
 }
 
 # 6. Yönetici, Kurulum Betikleri, Portable MariaDB ve DRX Simülatörü OUTPUT'a Ekle
 Write-Host "[6/6] Yonetici ag paylasim, Tasinabilir MariaDB ve DRX Simulator ekleniyor..." -ForegroundColor Yellow
-Copy-Item "$ProjectDir\tools\deploy\host_scripts\1_Yonetici_Klasor_Paylasimini_Ac.bat" "$OutputDir\" -Force
+Copy-Item "$ProjectDir\tools\deploy\host_scripts\1_Yonetici_Klasor_Paylasimini_Ac.bat" "$AppOutDir\" -Force
 
 # Protokol ve Format Şablonları Klasörünü Kopyala
 if (Test-Path "$ProjectDir\config") {
-    Copy-Item "$ProjectDir\config" "$OutputDir\config" -Recurse -Force
+    Copy-Item "$ProjectDir\config" "$AppOutDir\config" -Recurse -Force
 }
 
 # DRX9000 TCP Simülatörü: Build edilmemişse (veya kaynak kodu güncellendiyse) otomatik derle ve tools/ altına ekle
@@ -188,40 +209,52 @@ if (Test-Path $SimBuildScript) {
     }
 
     if (Test-Path $SimOutDir) {
-        $DestSimDir = "$OutputDir\tools\drx_simulator"
+        $DestSimDir = "$AppOutDir\tools\drx_simulator"
         New-Item -ItemType Directory -Force -Path $DestSimDir | Out-Null
         Copy-Item "$SimOutDir\*" $DestSimDir -Recurse -Force
     }
 }
 
-# Taşınabilir MariaDB Motorunu OUTPUT'a kopyala
+# Taşınabilir MariaDB Motorunu OUTPUT\Database\mariadb_portable altına ayrı kopyala
 if (Test-Path "$ProjectDir\tools\mariadb_portable") {
-    New-Item -ItemType Directory -Force -Path "$OutputDir\tools\mariadb_portable" | Out-Null
-    Copy-Item "$ProjectDir\tools\mariadb_portable\*" "$OutputDir\tools\mariadb_portable\" -Recurse -Force
+    New-Item -ItemType Directory -Force -Path $DbOutDir | Out-Null
+    Copy-Item "$ProjectDir\tools\mariadb_portable\*" "$DbOutDir\" -Recurse -Force
 
-    # data/ içini tamamen temizle (my.ini bir ust klasorde zaten var):
-    # mysql_install_db.exe bos olmayan data/ klasorunde hata verdigi icin bos birakilir
-    $dbDataOut = "$OutputDir\tools\mariadb_portable\data"
-    if (Test-Path $dbDataOut) {
+    $dbDataOut = "$DbOutDir\data"
+    if (Test-Path $PreservedDbDataDir) {
+        New-Item -ItemType Directory -Force -Path $dbDataOut | Out-Null
+        Get-ChildItem $dbDataOut -Force | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+        Copy-Item -Path "$PreservedDbDataDir\*" -Destination $dbDataOut -Recurse -Force
+        Remove-Item -Path $PreservedDbDataDir -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host "      Korunan MariaDB veritabani (data/) basariyla geri yuklendi!" -ForegroundColor Green
+    } elseif (Test-Path $dbDataOut) {
         Write-Host "      MariaDB data/ icerigi temizleniyor (temiz ilk kurulum icin)..." -ForegroundColor DarkGray
         Get-ChildItem $dbDataOut -Force | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
-# Hızlı Veritabanı Başlatıcı ve Durdurucu Kısayolları Ekle
+# Hızlı Veritabanı Başlatıcı ve Durdurucu Kısayolları Ekle (hem OUTPUT\App hem birleştirilmiş SETUP {app} için çalışır)
 $DbStartLauncher = @"
 @echo off
 title NETA DRX9000 - Portable MariaDB Baslatici
-call "%~dp0tools\mariadb_portable\start_db.bat"
+if exist "%~dp0mariadb_portable\start_db.bat" (
+    call "%~dp0mariadb_portable\start_db.bat"
+) else (
+    call "%~dp0..\Database\mariadb_portable\start_db.bat"
+)
 "@
-Set-Content -Path "$OutputDir\0_Veritabanini_Baslat.bat" -Value $DbStartLauncher -Encoding Ascii
+Set-Content -Path "$AppOutDir\0_Veritabanini_Baslat.bat" -Value $DbStartLauncher -Encoding Ascii
 
 $DbStopLauncher = @"
 @echo off
 title NETA DRX9000 - Portable MariaDB Durdurucu
-call "%~dp0tools\mariadb_portable\stop_db.bat"
+if exist "%~dp0mariadb_portable\stop_db.bat" (
+    call "%~dp0mariadb_portable\stop_db.bat"
+) else (
+    call "%~dp0..\Database\mariadb_portable\stop_db.bat"
+)
 "@
-Set-Content -Path "$OutputDir\0_Veritabanini_Durdur.bat" -Value $DbStopLauncher -Encoding Ascii
+Set-Content -Path "$AppOutDir\0_Veritabanini_Durdur.bat" -Value $DbStopLauncher -Encoding Ascii
 
 # Yönetici Masaüstü Başlatıcısı Ekle
 $HostLauncher = @"
@@ -229,7 +262,7 @@ $HostLauncher = @"
 title NETA DRX9000 - Yonetici Sunucu
 start "" "%~dp0$TargetExe.exe" --host
 "@
-Set-Content -Path "$OutputDir\0_Yonetici_Sunucuyu_Baslat.bat" -Value $HostLauncher -Encoding Ascii
+Set-Content -Path "$AppOutDir\0_Yonetici_Sunucuyu_Baslat.bat" -Value $HostLauncher -Encoding Ascii
 
 # Son Kontrol: dist veya build kalmış mı?
 if (Test-Path "$ProjectDir\dist") { Remove-Item -Path "$ProjectDir\dist" -Recurse -Force -ErrorAction SilentlyContinue }
@@ -237,7 +270,7 @@ if (Test-Path "$ProjectDir\build") { Remove-Item -Path "$ProjectDir\build" -Recu
 
 # Korunan neta_config.ini geri yükleniyor
 if ($preservedConfig) {
-    Set-Content -Path "$OutputDir\neta_config.ini" -Value $preservedConfig -Encoding UTF8
+    Set-Content -Path "$AppOutDir\neta_config.ini" -Value $preservedConfig -Encoding UTF8
     Write-Host "      Kullanici neta_config.ini yapilandirmasi basariyla geri yuklendi." -ForegroundColor Green
 }
 

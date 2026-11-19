@@ -73,18 +73,6 @@ bool DbManager::connectToDatabase(const QString &host, int port, const QString &
     if (!db.open()) {
         m_lastError = db.lastError().text();
 
-        // If local connection failed, attempt to start bundled Portable MariaDB
-        if (m_driverName == "QMYSQL" && (host == "127.0.0.1" || host.compare("localhost", Qt::CaseInsensitive) == 0)) {
-            qInfo() << "[DbManager] Local connection failed; attempting to start bundled Portable MariaDB...";
-            if (startPortableMariaDbIfPresent()) {
-                if (db.open()) {
-                    m_lastError.clear();
-                } else {
-                    m_lastError = db.lastError().text();
-                }
-            }
-        }
-
         // If credentials failed with QMYSQL, attempt default factory fallback credentials
         if (m_driverName == "QMYSQL") {
             if (m_lastError.contains("Access denied", Qt::CaseInsensitive) || 
@@ -126,27 +114,13 @@ bool DbManager::connectToDatabase(const QString &host, int port, const QString &
         }
 
         if (!db.isOpen()) {
-            qWarning() << "[Database Service] MySQL/MariaDB failed to open (" << m_lastError
-                       << "). Switching to local SQLite database for safe operation...";
+            qWarning() << "[Database Service] Central MariaDB not reachable (" << m_lastError
+                       << "). Waiting for external MariaDB server (auto-create/SQLite disabled).";
             db.close();
             QSqlDatabase::removeDatabase(m_connectionName);
-            db = QSqlDatabase::addDatabase("QSQLITE", m_connectionName);
-            QString fallbackDbPath = m_appDirPath + "/neta_local_fallback.db";
-            db.setDatabaseName(fallbackDbPath);
-            m_driverName = "QSQLITE";
-            if (db.open()) {
-                qInfo() << "[Database Service] Local SQLite fallback database opened successfully:" << fallbackDbPath;
-                initTablesIfSqlite();
-                m_lastError.clear();
-                ensureDefaultDataIfMissing();
-                emit connectionStatusChanged(true, "Connected (SQLite Fallback)");
-                return true;
-            } else {
-                m_lastError = db.lastError().text();
-                qWarning() << "[Database Service] SQLite fallback also failed:" << m_lastError;
-                emit connectionStatusChanged(false, m_lastError);
-                return false;
-            }
+            m_driverName.clear();
+            emit connectionStatusChanged(false, "Merkezi MariaDB bekleniyor: " + m_lastError);
+            return false;
         }
     }
 
@@ -1839,8 +1813,9 @@ bool DbManager::startPortableMariaDbIfPresent() {
     }
     QString appDir = m_appDirPath.isEmpty() ? QDir::currentPath() : m_appDirPath;
     QStringList candidates = {
-        appDir + "/tools/mariadb_portable",
         appDir + "/mariadb_portable",
+        appDir + "/../Database/mariadb_portable",
+        appDir + "/tools/mariadb_portable",
         QDir::currentPath() + "/tools/mariadb_portable",
         "D:/A_SCIENCES/PROJECTS/NETA/DRX-Antenna-Test/tools/mariadb_portable"
     };
@@ -1929,8 +1904,9 @@ void DbManager::stopPortableMariaDbIfRunning() {
         qInfo() << "[DbManager] Stopping local portable MariaDB process...";
         QString appDir = m_appDirPath.isEmpty() ? QDir::currentPath() : m_appDirPath;
         QStringList candidates = {
-            appDir + "/tools/mariadb_portable/bin/mysqladmin.exe",
             appDir + "/mariadb_portable/bin/mysqladmin.exe",
+            appDir + "/../Database/mariadb_portable/bin/mysqladmin.exe",
+            appDir + "/tools/mariadb_portable/bin/mysqladmin.exe",
             QDir::currentPath() + "/tools/mariadb_portable/bin/mysqladmin.exe",
             "D:/A_SCIENCES/PROJECTS/NETA/DRX-Antenna-Test/tools/mariadb_portable/bin/mysqladmin.exe"
         };

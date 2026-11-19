@@ -4,7 +4,7 @@ title NETA DRX9000 - Coklu Istasyon ve Donanim Simulasyon Test Paneli
 
 if not defined NETA_WATCHDOG_STARTED (
     set "NETA_WATCHDOG_STARTED=1"
-    start "" /min powershell -NoProfile -WindowStyle Hidden -Command "$me = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $PID); $batPid = $me.ParentProcessId; try { Wait-Process -Id $batPid -ErrorAction SilentlyContinue } catch {}; Stop-Process -Name NETA_Antenna_Test,NETA_DRX_Simulator -Force -ErrorAction SilentlyContinue"
+    start "" /min powershell -NoProfile -WindowStyle Hidden -Command "$me = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $PID); $batPid = $me.ParentProcessId; try { Wait-Process -Id $batPid -ErrorAction SilentlyContinue } catch {}; Stop-Process -Name NETA_Antenna_Test,NETA_DRX_Simulator -Force -ErrorAction SilentlyContinue; Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | Where-Object { $_.CommandLine -like '*neta_db_web.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; $adm = Get-ChildItem '%~dp0..' -Filter 'mysqladmin.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1; if ($adm) { & $adm.FullName -h 127.0.0.1 -P 3306 -u root -pneta123 shutdown 2>$null }; Stop-Process -Name mysqld -Force -ErrorAction SilentlyContinue"
 )
 
 set "SCRIPT_DIR=%~dp0"
@@ -15,8 +15,11 @@ set "APP_DIR="
 set "SIM_EXE="
 set "SIM_DIR="
 
-:: 1. NETA_Antenna_Test.exe konumunu belirle (Once OUTPUT, sonra build/debug)
-if exist "%ROOT_DIR%\OUTPUT\NETA_Antenna_Test.exe" (
+:: 1. NETA_Antenna_Test.exe konumunu belirle (Once OUTPUT\App, sonra OUTPUT, sonra build/debug)
+if exist "%ROOT_DIR%\OUTPUT\App\NETA_Antenna_Test.exe" (
+    set "APP_EXE=%ROOT_DIR%\OUTPUT\App\NETA_Antenna_Test.exe"
+    set "APP_DIR=%ROOT_DIR%\OUTPUT\App"
+) else if exist "%ROOT_DIR%\OUTPUT\NETA_Antenna_Test.exe" (
     set "APP_EXE=%ROOT_DIR%\OUTPUT\NETA_Antenna_Test.exe"
     set "APP_DIR=%ROOT_DIR%\OUTPUT"
 ) else if exist "%ROOT_DIR%\build\Desktop_Qt_5_15_0_MinGW_32_bit_Debug\debug\NETA_Antenna_Test.exe" (
@@ -25,7 +28,10 @@ if exist "%ROOT_DIR%\OUTPUT\NETA_Antenna_Test.exe" (
 )
 
 :: 2. NETA_DRX_Simulator.exe konumunu belirle
-if exist "%ROOT_DIR%\OUTPUT\tools\drx_simulator\NETA_DRX_Simulator.exe" (
+if exist "%ROOT_DIR%\OUTPUT\App\tools\drx_simulator\NETA_DRX_Simulator.exe" (
+    set "SIM_EXE=%ROOT_DIR%\OUTPUT\App\tools\drx_simulator\NETA_DRX_Simulator.exe"
+    set "SIM_DIR=%ROOT_DIR%\OUTPUT\App\tools\drx_simulator"
+) else if exist "%ROOT_DIR%\OUTPUT\tools\drx_simulator\NETA_DRX_Simulator.exe" (
     set "SIM_EXE=%ROOT_DIR%\OUTPUT\tools\drx_simulator\NETA_DRX_Simulator.exe"
     set "SIM_DIR=%ROOT_DIR%\OUTPUT\tools\drx_simulator"
 ) else if exist "%ROOT_DIR%\tools\drx_simulator\OUTPUT\NETA_DRX_Simulator.exe" (
@@ -79,6 +85,7 @@ goto MENU
 
 :START_FULL
 cls
+call :ENSURE_MARIADB
 echo =====================================================================
 echo [1/8] DRX Referans Simulatoru baslatiliyor - Host icin Port 8080...
 if not "%SIM_EXE%"=="" start "" /D "%SIM_DIR%" "%SIM_EXE%" --port 8080 --name "Referans DRX - Host" --auto-start
@@ -123,6 +130,7 @@ goto MENU
 
 :START_DUAL
 cls
+call :ENSURE_MARIADB
 echo =====================================================================
 echo [1/4] DRX Referans Simulatoru baslatiliyor - Host icin Port 8080...
 if not "%SIM_EXE%"=="" start "" /D "%SIM_DIR%" "%SIM_EXE%" --port 8080 --name "Referans DRX - Host" --auto-start
@@ -165,13 +173,17 @@ goto MENU
 
 :START_HOST
 cls
+call :ENSURE_MARIADB
 echo Yonetici Sunucu (HOST) baslatiliyor...
 start "" /D "%APP_DIR%" "%APP_EXE%" --host --drx 127.0.0.1:8080
+timeout /t 2 >nul
+call :LAUNCH_WEB_DB
 pause
 goto MENU
 
 :START_STATION
 cls
+call :ENSURE_MARIADB
 echo =====================================================================
 echo                 TEST ISTASYONU BASLATMA
 echo =====================================================================
@@ -185,11 +197,13 @@ if "%ST_NO%"=="" set "ST_NO=1"
 set /a DRX_P=8080+%ST_NO%
 echo Istasyon %ST_NO% baslatiliyor - DUT DRX Port: %DRX_P%...
 start "" /D "%APP_DIR%" "%APP_EXE%" --client -s %ST_NO% --drx 127.0.0.1:%DRX_P%
+call :LAUNCH_WEB_DB
 pause
 goto MENU
 
 :START_STATION_STANDALONE
 cls
+call :ENSURE_MARIADB
 echo =====================================================================
 echo      SADECE ISTASYON PROGRAMI (YONETICI / HOST OLMADAN)
 echo =====================================================================
@@ -205,18 +219,30 @@ if %errorlevel% neq 0 (
 )
 echo [2/2] Sadece Test Istasyonu 1 baslatiliyor [Yonetici olmadan]...
 start "" /D "%APP_DIR%" "%APP_EXE%" --client -s 1 --drx 127.0.0.1:8081
+call :LAUNCH_WEB_DB
 echo [OK] Istasyon 1 bagimsiz olarak baslatildi.
 pause
 goto MENU
 
 :STOP_ALL
 cls
-echo Calisan tum NETA test ve simulator surecleri kapatiliyor...
-taskkill /f /im NETA_Antenna_Test.exe >nul 2>&1
-taskkill /f /im NETA_DRX_Simulator.exe >nul 2>&1
-echo [OK] Tum test surecleri temizlendi.
+echo Calisan tum NETA test, simulator, MariaDB ve Web DB surecleri kapatiliyor...
+call :STOP_ALL_SILENT
+echo [OK] Tum test ve veritabani surecleri temizlendi.
 pause
 goto MENU
+
+:STOP_ALL_SILENT
+taskkill /f /im NETA_Antenna_Test.exe >nul 2>&1
+taskkill /f /im NETA_DRX_Simulator.exe >nul 2>&1
+powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | Where-Object { $_.CommandLine -like '*neta_db_web.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>&1
+if exist "%ROOT_DIR%\OUTPUT\Database\mariadb_portable\stop_db.bat" (
+    call "%ROOT_DIR%\OUTPUT\Database\mariadb_portable\stop_db.bat" >nul 2>&1
+) else if exist "%ROOT_DIR%\tools\mariadb_portable\stop_db.bat" (
+    call "%ROOT_DIR%\tools\mariadb_portable\stop_db.bat" >nul 2>&1
+)
+taskkill /f /im mysqld.exe >nul 2>&1
+exit /b 0
 
 :START_WEB_DB_MENU
 cls
@@ -224,9 +250,29 @@ call :LAUNCH_WEB_DB
 pause
 goto MENU
 
+:ENSURE_MARIADB
+netstat -ano | findstr ":3306" | findstr "LISTENING" >nul
+if %errorlevel% equ 0 (
+    echo [DB] MariaDB [Port 3306] zaten aktif.
+    exit /b 0
+)
+set "DB_START="
+if exist "%ROOT_DIR%\OUTPUT\Database\mariadb_portable\start_db.bat" set "DB_START=%ROOT_DIR%\OUTPUT\Database\mariadb_portable\start_db.bat"
+if "%DB_START%"=="" if exist "%ROOT_DIR%\tools\mariadb_portable\start_db.bat" set "DB_START=%ROOT_DIR%\tools\mariadb_portable\start_db.bat"
+if "%DB_START%"=="" (
+    echo [UYARI] Tasinabilir MariaDB start_db.bat bulunamadi! Harici DB bekleniyor...
+    exit /b 0
+)
+echo [DB] Tasinabilir MariaDB baslatiliyor [Port 3306]...
+start "NETA MariaDB Server" /min cmd /c call "%DB_START%"
+timeout /t 2 /nobreak >nul
+exit /b 0
+
 :LAUNCH_WEB_DB
 set "WEB_SCRIPT="
-if exist "%APP_DIR%\tools\mariadb_portable\web\neta_db_web.py" set "WEB_SCRIPT=%APP_DIR%\tools\mariadb_portable\web\neta_db_web.py"
+if exist "%ROOT_DIR%\OUTPUT\Database\mariadb_portable\web\neta_db_web.py" set "WEB_SCRIPT=%ROOT_DIR%\OUTPUT\Database\mariadb_portable\web\neta_db_web.py"
+if "%WEB_SCRIPT%"=="" if exist "%APP_DIR%\mariadb_portable\web\neta_db_web.py" set "WEB_SCRIPT=%APP_DIR%\mariadb_portable\web\neta_db_web.py"
+if "%WEB_SCRIPT%"=="" if exist "%APP_DIR%\tools\mariadb_portable\web\neta_db_web.py" set "WEB_SCRIPT=%APP_DIR%\tools\mariadb_portable\web\neta_db_web.py"
 if "%WEB_SCRIPT%"=="" if exist "%~dp0mariadb_portable\web\neta_db_web.py" set "WEB_SCRIPT=%~dp0mariadb_portable\web\neta_db_web.py"
 if "%WEB_SCRIPT%"=="" goto WEB_DB_MISSING
 
@@ -271,6 +317,5 @@ pause
 goto MENU
 
 :EXIT
-taskkill /f /im NETA_Antenna_Test.exe >nul 2>&1
-taskkill /f /im NETA_DRX_Simulator.exe >nul 2>&1
+call :STOP_ALL_SILENT
 exit /b 0

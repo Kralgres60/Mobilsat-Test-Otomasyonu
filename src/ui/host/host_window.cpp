@@ -139,9 +139,19 @@ HostWindow::HostWindow(QWidget *parent)
         m_lblRefTelemetry->setStyleSheet(StyleHelper::getPastelBlueStyle());
     });
 
-    // Background 8s Ping Heartbeat for Reference DRX9000 & Cluster Node Heartbeat
+    // Background 8s Ping Heartbeat for Reference DRX9000, DB Retry & Cluster Node Heartbeat
     connect(&m_refEthPingTimer, &QTimer::timeout, this, [this]() {
         m_refWebClient.pingHost(1000);
+        if (!DbManager::instance().isConnected()) {
+            const AppConfig &cfg = AppConfig::instance();
+            if (DbManager::instance().connectToDatabase(cfg.dbHost(), cfg.dbPort(),
+                                                       cfg.dbName(), cfg.dbUser(),
+                                                       cfg.dbPassword())) {
+                loadWorkOrders();
+                appendLog(QString("[Veritabanı] Merkezi MariaDB'ye bağlanıldı (%1:%2).").arg(cfg.dbHost()).arg(cfg.dbPort()));
+            }
+        }
+        if (!DbManager::instance().isConnected()) return;
         DbManager::instance().upsertClusterNode(
             "HOST_SERVER",
             AppConfig::instance().serverName(),

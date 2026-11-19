@@ -117,6 +117,7 @@ private:
     void setupPlot();
     void clearPlotBands();
     void jumpPlotToLatest();
+    void onPlotMouseMove(QMouseEvent *event);
     void loadGoldenOverlayCurve(const GoldenFrequencyRecord &rec);
     void clearGoldenOverlay();
     void loadWorkOrdersAndProfiles();
@@ -199,8 +200,9 @@ private:
     QTableWidget *m_tableChannels     = nullptr;
 
     // Unified Live & Frequency Band Graph (Production Page)
-    QCustomPlot *m_plot               = nullptr;
-    QPushButton *m_btnPlotFollowLatest = nullptr;
+    QCustomPlot   *m_plot                = nullptr;
+    QCPItemTracer *m_plotTracer          = nullptr;
+    QPushButton   *m_btnPlotFollowLatest = nullptr;
     bool         m_plotAutoFollow     = true;
     bool         m_plotUpdatingRange  = false;
     QCPItemRect *m_activeBandRect     = nullptr;
