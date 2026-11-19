@@ -823,51 +823,7 @@ void TestHistoryWidget::onTableContextMenuRequested(const QPoint &pos) {
     if (targets.isEmpty()) return;
 
     QMenu menu(this);
-    QAction *actDelete = menu.addAction(
-        targets.size() > 1
-            ? QString("🗑️ Seçili %1 Test Kaydını Sil").arg(targets.size())
-            : QString("🗑️ Test Kaydını Sil (ID #%1)").arg(targets.first().first));
-    QAction *chosen = menu.exec(m_table->viewport()->mapToGlobal(pos));
-
-    if (chosen == actDelete) {
-        QString confirmMsg;
-        if (targets.size() == 1) {
-            QString dateStr = m_table->item(row, 1) ? m_table->item(row, 1)->text() : QString();
-            confirmMsg = QString("Seçili test kaydını kalıcı olarak silmek istediğinize emin misiniz?\n\n"
-                                 "• Kayıt ID: #%1\n"
-                                 "• Anten Seri No: %2\n"
-                                 "• Tarih: %3\n\n"
-                                 "Bu işlem geri alınamaz ve kanala ait ölçümler de silinir.")
-                             .arg(targets.first().first)
-                             .arg(targets.first().second.isEmpty() ? "--" : targets.first().second)
-                             .arg(dateStr);
-        } else {
-            confirmMsg = QString("Seçili %1 adet test kaydını kalıcı olarak silmek istediğinize emin misiniz?\n\n"
-                                 "Bu işlem geri alınamaz ve tüm seçili kayıtlara ait kanal ölçümleri de silinir.")
-                             .arg(targets.size());
-        }
-
-        auto reply = QMessageBox::question(this, "Test Kaydı Silme Onayı", confirmMsg,
-                                           QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-        if (reply == QMessageBox::Yes) {
-            int deleted = 0;
-            for (const auto &t : targets) {
-                if (DbManager::instance().deleteTestRun(t.first)) {
-                    DbManager::instance().logAudit(
-                        "TEST_RUN_DELETED",
-                        QString("Deleted test run #%1 (SN: %2)").arg(t.first).arg(t.second),
-                        AppConfig::instance().currentUsername(),
-                        AppConfig::instance().stationId());
-                    emit logMessage(QString("[Test Geçmişi] Test kaydı #%1 (SN: %2) silindi.").arg(t.first).arg(t.second));
-                    deleted++;
-                }
-            }
-            if (deleted > 0) {
-                refreshHistory();
-            } else {
-                QMessageBox::warning(this, "Silme Hatası",
-                                     "Kayıtlar veritabanından silinemedi:\n" + DbManager::instance().lastError());
-            }
-        }
-    }
+    QAction *actInfo = menu.addAction("🔒 Test Kayıtları Yalnızca Web Admin Üzerinden Silinebilir");
+    actInfo->setEnabled(false);
+    menu.exec(m_table->viewport()->mapToGlobal(pos));
 }

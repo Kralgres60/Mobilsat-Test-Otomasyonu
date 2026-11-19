@@ -181,6 +181,9 @@ void LoginDialog::onLoginClicked() {
     UserRole role = UserRole::Technician;
     QString fullName;
     if (!DbManager::instance().authenticateUser(user, pass, role, fullName)) {
+        DbManager::instance().logAudit("USER_LOGIN_FAILED",
+                                       QString("Başarısız giriş denemesi: %1").arg(user),
+                                       user, 0);
         m_lblErrorStatus->setText("Hatalı kullanıcı adı veya şifre!");
         m_txtPassword->selectAll();
         m_txtPassword->setFocus();
@@ -196,6 +199,13 @@ void LoginDialog::onLoginClicked() {
     cfg.setCurrentUsername(m_authenticatedUsername);
     cfg.setCurrentUserFullName(m_authenticatedFullName);
     cfg.save();
+
+    DbManager::instance().logAudit(
+        "USER_LOGIN",
+        QString("Kullanıcı giriş yaptı: %1 (Rol: %2)")
+            .arg(fullName.isEmpty() ? user : fullName,
+                 role == UserRole::Engineer ? "Mühendis/Yönetici" : "Tekniker"),
+        user, 0);
 
     accept();
 }

@@ -6,6 +6,7 @@
  */
 
 #include "user_manager_widget.h"
+#include "core/app_config.h"
 #include "database/db_manager.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -372,6 +373,10 @@ void UserManagerWidget::onChangePasswordClicked() {
 
     u.password = newPass;
     if (DbManager::instance().saveUser(u)) {
+        DbManager::instance().logAudit(
+            "USER_PASSWORD_CHANGED",
+            QString("Kullanıcı şifresi değiştirildi: %1").arg(u.username),
+            AppConfig::instance().currentUsername(), 0);
         emit logMessage(QString("[Yetkilendirme] '%1' kullanıcısının şifresi güncellendi.").arg(u.username));
         QMessageBox::information(this, "Başarılı", "Kullanıcı şifresi güncellendi.");
         reloadUsers();
@@ -427,6 +432,10 @@ void UserManagerWidget::onDeleteUserClicked() {
     int deleted = 0;
     for (const UserRecord &u : toDelete) {
         if (DbManager::instance().deleteUser(u.id)) {
+            DbManager::instance().logAudit(
+                "USER_DELETED",
+                QString("Kullanıcı silindi: %1").arg(u.username),
+                AppConfig::instance().currentUsername(), 0);
             emit logMessage(QString("[Yetkilendirme] Kullanıcı silindi: %1").arg(u.username));
             deleted++;
         }

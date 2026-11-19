@@ -310,6 +310,38 @@ void ClientWindow::setupMenuBar() {
     actAbout->setShortcut(QKeySequence("Alt+A"));
     connect(actAbout, &QAction::triggered, this, &ClientWindow::onAboutClicked);
 
+    QMenu *menuYardim = menuBar()->addMenu("Yardım");
+    QAction *actShortcuts = menuYardim->addAction("⌨️ Kısayollar");
+    actShortcuts->setShortcut(QKeySequence("F1"));
+    connect(actShortcuts, &QAction::triggered, this, [this]() {
+        QMessageBox::information(
+            this,
+            "İstasyon Programı — Kısayollar",
+            "<h3>⌨️ Klavye & Menü Kısayolları</h3>"
+            "<ul>"
+            "<li><b>Ctrl + L</b> : Kullanıcı Değiştir</li>"
+            "<li><b>Ctrl + P</b> : Ethernet Ping Testi &amp; DRX Veri Yenile</li>"
+            "<li><b>Ctrl + Q</b> : Programı Kapat</li>"
+            "<li><b>F12</b> : DRX REST API Debug Konsolu</li>"
+            "<li><b>Ctrl + F12</b> : Veritabanı &amp; Kilit Test Aracı</li>"
+            "<li><b>Alt + A</b> : Hakkında</li>"
+            "<li><b>F1</b> : Bu Kısayollar Penceresi</li>"
+            "</ul>"
+            "<h3>📋 Tablo &amp; Liste Kısayolları</h3>"
+            "<ul>"
+            "<li><b>Shift + Tık</b> : Aralık (çoklu) satır seçimi</li>"
+            "<li><b>Ctrl + Tık</b> : Tek tek çoklu satır seçimi</li>"
+            "<li><b>Sağ Tık</b> : Seçili profil/kanal/kayıt için işlem &amp; toplu silme menüsü</li>"
+            "<li><b>Delete</b> : Seçili profil, kanal veya test kaydını silme</li>"
+            "<li><b>Çift Tık</b> : Uydu profilini pop-up pencere ile düzenleme</li>"
+            "</ul>"
+            "<h3>📈 Canlı Grafik Kısayolları</h3>"
+            "<ul>"
+            "<li><b>Yatay Sürükle / Fare Tekerleği</b> : Geçmiş ölçümlere kaydırma ve yakınlaştırma</li>"
+            "<li><b>⏭ En Güncele Git</b> : Kaydırma sonrası canlı takibe tek tıkla geri dönme</li>"
+            "</ul>");
+    });
+
     // Top-right corner: Live Animated DRX Clock Badge + Quick Simulator launcher button
     QWidget *cornerWidget = new QWidget(this);
     QHBoxLayout *cornerLay = new QHBoxLayout(cornerWidget);
@@ -676,42 +708,42 @@ void ClientWindow::setupProductionPage() {
 
     leftCol->addWidget(grpLaunch);
 
-    // 3. 3x3 Live RF Telemetry Pastel Pills (mirrors DRX DashboardTab)
-    QGroupBox *grpTelemetry = new QGroupBox("📡 Canlı RF Sinyal Telemetrisi ve Durum Rozetleri", m_pageProduction);
-    QGridLayout *telGrid = new QGridLayout(grpTelemetry);
-    telGrid->setSpacing(6);
+    // 3. Live Telemetry & Frequency Band Graph (bottom-left)
+    QGroupBox *grpGraph = new QGroupBox("📈 Canlı Sinyal C/N (DUT vs Referans) & Frekans Geçiş Grafiği", m_pageProduction);
+    QVBoxLayout *plotBox = new QVBoxLayout(grpGraph);
+    plotBox->setContentsMargins(8, 10, 8, 8);
+    plotBox->setSpacing(4);
 
-    m_lblLiveChannel = new QLabel("📺 Kanal: Bekleniyor...", grpTelemetry);
-    m_lblLiveFreqPol = new QLabel("📡 Frekans: -- MHz (--)", grpTelemetry);
-    m_lblStatusSignal = new QLabel("📡 Sinyal: YOK", grpTelemetry);
+    QHBoxLayout *graphTop = new QHBoxLayout();
+    QLabel *lblPlotHint = new QLabel("Yatay sürükleyerek geçmişi inceleyin; yeniye dönmek için sağdaki butonu kullanın.", grpGraph);
+    lblPlotHint->setStyleSheet("color: #A7C4B5; font-size: 8.5pt;");
+    graphTop->addWidget(lblPlotHint);
+    graphTop->addStretch();
 
-    m_lblLiveDutCn = new QLabel("📊 DUT C/N: -- dB", grpTelemetry);
-    m_lblLiveDelta = new QLabel("📐 Fark (Δ): -- dB", grpTelemetry);
-    m_lblStatusVideo = new QLabel("🎬 Video: YOK", grpTelemetry);
+    m_btnPlotFollowLatest = new QPushButton("⏭ En Güncele Git", grpGraph);
+    m_btnPlotFollowLatest->setCursor(Qt::PointingHandCursor);
+    m_btnPlotFollowLatest->setFixedHeight(24);
+    m_btnPlotFollowLatest->setStyleSheet("background-color: #059669; color: #FFFFFF; border: none; border-radius: 4px; padding: 2px 10px; font-weight: bold;");
+    m_btnPlotFollowLatest->setVisible(false);
+    connect(m_btnPlotFollowLatest, &QPushButton::clicked, this, &ClientWindow::jumpPlotToLatest);
+    graphTop->addWidget(m_btnPlotFollowLatest);
 
-    m_lblLiveRefCn = new QLabel("🎯 REF C/N: -- dB", grpTelemetry);
-    m_lblLivePower = new QLabel("📶 POW: -- dBm", grpTelemetry);
-    m_lblLiveTolerance = new QLabel(QString("⚖️ Tolerans: ±%1 dB").arg(AppConfig::instance().defaultToleranceDb(), 0, 'f', 2), grpTelemetry);
+    QPushButton *btnClearGraph = new QPushButton("🧹 Temizle", grpGraph);
+    btnClearGraph->setFixedHeight(24);
+    btnClearGraph->setCursor(Qt::PointingHandCursor);
+    connect(btnClearGraph, &QPushButton::clicked, this, &ClientWindow::onClearGraphClicked);
+    graphTop->addWidget(btnClearGraph);
 
-    resetLiveTelemetryPills();
+    plotBox->addLayout(graphTop);
 
-    telGrid->addWidget(m_lblLiveChannel, 0, 0);
-    telGrid->addWidget(m_lblLiveFreqPol, 0, 1);
-    telGrid->addWidget(m_lblStatusSignal, 0, 2);
+    m_plot = new QCustomPlot(grpGraph);
+    m_plot->setMinimumHeight(210);
+    plotBox->addWidget(m_plot, 1);
 
-    telGrid->addWidget(m_lblLiveDutCn, 1, 0);
-    telGrid->addWidget(m_lblLiveDelta, 1, 1);
-    telGrid->addWidget(m_lblStatusVideo, 1, 2);
-
-    telGrid->addWidget(m_lblLiveRefCn, 2, 0);
-    telGrid->addWidget(m_lblLivePower, 2, 1);
-    telGrid->addWidget(m_lblLiveTolerance, 2, 2);
-
-    leftCol->addWidget(grpTelemetry);
-    leftCol->addStretch();
+    leftCol->addWidget(grpGraph, 1);
 
     // =========================================================================
-    // RIGHT COLUMN: Overall Verdict Card + Progress + Clean 10-Row Table
+    // RIGHT COLUMN: Overall Verdict Card + Progress + Clean 10-Row Table + Telemetry Pills
     // =========================================================================
     QVBoxLayout *rightCol = new QVBoxLayout();
     rightCol->setSpacing(8);
@@ -778,44 +810,43 @@ void ClientWindow::setupProductionPage() {
     m_tableChannels->setColumnWidth(6, 96);
 
     chVBox->addWidget(m_tableChannels);
-    rightCol->addWidget(grpChannels, 3);
+    rightCol->addWidget(grpChannels, 1);
 
-    // Live Telemetry & Frequency Band Graph (directly on Production Page)
-    QGroupBox *grpGraph = new QGroupBox("📈 Canlı Sinyal C/N (DUT vs Referans) & Frekans Geçiş Grafiği", m_pageProduction);
-    QVBoxLayout *plotBox = new QVBoxLayout(grpGraph);
-    plotBox->setContentsMargins(8, 10, 8, 8);
-    plotBox->setSpacing(4);
+    // 3x3 Live RF Telemetry Pastel Pills (bottom-right)
+    QGroupBox *grpTelemetry = new QGroupBox("📡 Canlı RF Sinyal Telemetrisi ve Durum Rozetleri", m_pageProduction);
+    QGridLayout *telGrid = new QGridLayout(grpTelemetry);
+    telGrid->setSpacing(6);
 
-    QHBoxLayout *graphTop = new QHBoxLayout();
-    QLabel *lblPlotHint = new QLabel("Yatay sürükleyerek geçmişi inceleyin; yeniye dönmek için sağdaki butonu kullanın.", grpGraph);
-    lblPlotHint->setStyleSheet("color: #A7C4B5; font-size: 8.5pt;");
-    graphTop->addWidget(lblPlotHint);
-    graphTop->addStretch();
+    m_lblLiveChannel = new QLabel("📺 Kanal: Bekleniyor...", grpTelemetry);
+    m_lblLiveFreqPol = new QLabel("📡 Frekans: -- MHz (--)", grpTelemetry);
+    m_lblStatusSignal = new QLabel("📡 Sinyal: YOK", grpTelemetry);
 
-    m_btnPlotFollowLatest = new QPushButton("⏭ En Güncele Git", grpGraph);
-    m_btnPlotFollowLatest->setCursor(Qt::PointingHandCursor);
-    m_btnPlotFollowLatest->setFixedHeight(24);
-    m_btnPlotFollowLatest->setStyleSheet("background-color: #059669; color: #FFFFFF; border: none; border-radius: 4px; padding: 2px 10px; font-weight: bold;");
-    m_btnPlotFollowLatest->setVisible(false);
-    connect(m_btnPlotFollowLatest, &QPushButton::clicked, this, &ClientWindow::jumpPlotToLatest);
-    graphTop->addWidget(m_btnPlotFollowLatest);
+    m_lblLiveDutCn = new QLabel("📊 DUT C/N: -- dB", grpTelemetry);
+    m_lblLiveDelta = new QLabel("📐 Fark (Δ): -- dB", grpTelemetry);
+    m_lblStatusVideo = new QLabel("🎬 Video: YOK", grpTelemetry);
 
-    QPushButton *btnClearGraph = new QPushButton("🧹 Temizle", grpGraph);
-    btnClearGraph->setFixedHeight(24);
-    btnClearGraph->setCursor(Qt::PointingHandCursor);
-    connect(btnClearGraph, &QPushButton::clicked, this, &ClientWindow::onClearGraphClicked);
-    graphTop->addWidget(btnClearGraph);
+    m_lblLiveRefCn = new QLabel("🎯 REF C/N: -- dB", grpTelemetry);
+    m_lblLivePower = new QLabel("📶 POW: -- dBm", grpTelemetry);
+    m_lblLiveTolerance = new QLabel(QString("⚖️ Tolerans: ±%1 dB").arg(AppConfig::instance().defaultToleranceDb(), 0, 'f', 2), grpTelemetry);
 
-    plotBox->addLayout(graphTop);
+    resetLiveTelemetryPills();
 
-    m_plot = new QCustomPlot(grpGraph);
-    m_plot->setMinimumHeight(210);
-    plotBox->addWidget(m_plot, 1);
+    telGrid->addWidget(m_lblLiveChannel, 0, 0);
+    telGrid->addWidget(m_lblLiveFreqPol, 0, 1);
+    telGrid->addWidget(m_lblStatusSignal, 0, 2);
 
-    rightCol->addWidget(grpGraph, 2);
+    telGrid->addWidget(m_lblLiveDutCn, 1, 0);
+    telGrid->addWidget(m_lblLiveDelta, 1, 1);
+    telGrid->addWidget(m_lblStatusVideo, 1, 2);
 
-    mainCols->addLayout(leftCol, 48);
-    mainCols->addLayout(rightCol, 52);
+    telGrid->addWidget(m_lblLiveRefCn, 2, 0);
+    telGrid->addWidget(m_lblLivePower, 2, 1);
+    telGrid->addWidget(m_lblLiveTolerance, 2, 2);
+
+    rightCol->addWidget(grpTelemetry);
+
+    mainCols->addLayout(leftCol, 50);
+    mainCols->addLayout(rightCol, 50);
 }
 
 void ClientWindow::setupProfilesPage() {
@@ -1089,8 +1120,15 @@ void ClientWindow::setupPlot() {
     m_plot->graph(3)->setChannelFillGraph(m_plot->graph(4));
     m_plot->graph(3)->setBrush(QBrush(QColor(245, 158, 11, 20)));
 
+    // Place legend outside the plot area as a compact top bar so it never obscures curves
+    m_plot->plotLayout()->insertRow(0);
+    m_plot->plotLayout()->addElement(0, 0, m_plot->legend);
+    m_plot->plotLayout()->setRowStretchFactor(0, 0.001);
     m_plot->legend->setVisible(true);
-    m_plot->legend->setBrush(QBrush(QColor(10, 31, 23, 220)));
+    m_plot->legend->setFillOrder(QCPLegend::foColumnsFirst);
+    m_plot->legend->setWrap(3);
+    m_plot->legend->setFont(QFont("Segoe UI", 8));
+    m_plot->legend->setBrush(QBrush(QColor(10, 31, 23, 240)));
     m_plot->legend->setBorderPen(QPen(QColor("#1A3D2B")));
     m_plot->legend->setTextColor(QColor("#E6F4EE"));
 
@@ -1885,10 +1923,25 @@ void ClientWindow::onStartTestClicked() {
         QMessageBox::warning(this, "Test Başlatılamadı",
                              "Aktif uydu transponder profili bulunamadı veya test zaten devam ediyor.\n"
                              "Lütfen veritabanı bağlantısını ve uydu profillerini kontrol ediniz.");
+    } else {
+        DbManager::instance().logAudit(
+            "TEST_STARTED",
+            QString("Test başlatıldı | SN: %1 | Profil: %2 | Mod: %3 | Testi Yapan: %4")
+                .arg(sn, m_currentProfile.profileName,
+                     activeRefMode == ReferenceMode::GoldenSample ? "Golden" : "Canlı Ref",
+                     testerName),
+            AppConfig::instance().currentUsername(),
+            AppConfig::instance().stationId());
     }
 }
 
 void ClientWindow::onAbortTestClicked() {
+    DbManager::instance().logAudit(
+        "TEST_ABORTED",
+        QString("Test operatör tarafından durduruldu (SN: %1)")
+            .arg(m_activeAntennaSn.isEmpty() ? "--" : m_activeAntennaSn),
+        AppConfig::instance().currentUsername(),
+        AppConfig::instance().stationId());
     m_stateMachine->abortTest("Operatör tarafından durduruldu.");
 }
 
@@ -2159,6 +2212,11 @@ void ClientWindow::onSaveEngineerSettingsClicked() {
 
     m_lblLiveTolerance->setText(QString("⚖️ Tolerans: ±%1 dB").arg(tol, 0, 'f', 2));
     appendLog(QString("[Mühendis] Tolerans: ±%1 dB | Örnekleme: %2 sn olarak kaydedildi.").arg(tol, 0, 'f', 2).arg(sampleSec));
+    DbManager::instance().logAudit(
+        "SETTINGS_SAVED",
+        QString("İstasyon RF ayarları güncellendi (Tolerans: ±%1 dB, Örnekleme: %2 sn)")
+            .arg(tol, 0, 'f', 2).arg(sampleSec),
+        cfg.currentUsername(), cfg.stationId());
     setStatusMessage("Test ve tolerans parametreleri kaydedildi.");
     QMessageBox::information(this, "Kaydedildi", "RF test ve tolerans parametreleri güncellendi.");
 }
@@ -2170,6 +2228,12 @@ void ClientWindow::onSaveWebSettingsClicked() {
     cfg.setDrxUsername(m_txtDrxUser->text().trimmed());
     cfg.setDrxPassword(m_txtDrxPass->text());
     cfg.save();
+
+    DbManager::instance().logAudit(
+        "SETTINGS_SAVED",
+        QString("İstasyon DRX ağ ayarları güncellendi (DUT: %1, REF: %2)")
+            .arg(cfg.stationDrxHost(), cfg.refDrxHost()),
+        cfg.currentUsername(), cfg.stationId());
 
     m_dutWebClient.setHost(cfg.stationDrxHost(), cfg.stationDrxPort());
     m_dutWebClient.setCredentials(cfg.drxUsername(), cfg.drxPassword());

@@ -14,6 +14,8 @@
 #include <QHeaderView>
 #include <QFileDialog>
 #include <QMessageBox>
+#include <QMenuBar>
+#include <QMenu>
 #include <QNetworkInterface>
 #include <QDateTime>
 #include <QFileInfo>
@@ -86,6 +88,22 @@ void SimulatorWindow::startListening() {
 void SimulatorWindow::setupUi() {
     setWindowTitle(QStringLiteral("NETA DRX9000 TCP Telemetri & Eğri Simülatörü"));
     resize(1240, 820);
+
+    QMenu *menuYardim = menuBar()->addMenu(QStringLiteral("Yardım"));
+    QAction *actShortcuts = menuYardim->addAction(QStringLiteral("⌨️ Kısayollar"));
+    actShortcuts->setShortcut(QKeySequence(QStringLiteral("F1")));
+    connect(actShortcuts, &QAction::triggered, this, [this]() {
+        QMessageBox::information(
+            this,
+            QStringLiteral("DRX9000 Simülatörü — Kısayollar"),
+            QStringLiteral(
+                "<h3>📈 Simülatör Grafik Kısayolları</h3>"
+                "<ul>"
+                "<li><b>Sol Tık + Sürükle</b> : Grafik üzerinde C/N (dB) veya Güç (dBm) eğrisini serbest çizerek değiştirme</li>"
+                "<li><b>SHIFT + Sol Tık + Sürükle</b> : Tıklanan dB / dBm değerini yatayda sabit kilitleyerek düz plato çizme (ör. 1 sn sabit değer)</li>"
+                "<li><b>F1</b> : Bu Kısayollar Penceresi</li>"
+                "</ul>"));
+    });
 
     setStyleSheet(R"(
         QMainWindow, QWidget {

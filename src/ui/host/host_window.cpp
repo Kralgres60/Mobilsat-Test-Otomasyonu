@@ -331,6 +331,38 @@ void HostWindow::setupMenuBar() {
     actAbout->setShortcut(QKeySequence("Alt+A"));
     connect(actAbout, &QAction::triggered, this, &HostWindow::onAboutClicked);
 
+    QMenu *menuYardim = menuBar()->addMenu("Yardım");
+    QAction *actShortcuts = menuYardim->addAction("⌨️ Kısayollar");
+    actShortcuts->setShortcut(QKeySequence("F1"));
+    connect(actShortcuts, &QAction::triggered, this, [this]() {
+        QMessageBox::information(
+            this,
+            "Yönetici (Host) — Kısayollar",
+            "<h3>⌨️ Klavye & Menü Kısayolları</h3>"
+            "<ul>"
+            "<li><b>Ctrl + L</b> : Kullanıcı Değiştir</li>"
+            "<li><b>Ctrl + P</b> : Referans Ethernet Ping &amp; Veri Yenile</li>"
+            "<li><b>Ctrl + W</b> : Web Veritabanı Konsolu</li>"
+            "<li><b>Ctrl + Q</b> : Programı Kapat</li>"
+            "<li><b>F12</b> : DRX REST API Debug Konsolu</li>"
+            "<li><b>Ctrl + F12</b> : Veritabanı &amp; Kilit Test Aracı</li>"
+            "<li><b>Alt + A</b> : Hakkında</li>"
+            "<li><b>F1</b> : Bu Kısayollar Penceresi</li>"
+            "</ul>"
+            "<h3>📋 Tablo &amp; Liste Kısayolları</h3>"
+            "<ul>"
+            "<li><b>Shift + Tık</b> : Aralık (çoklu) satır seçimi</li>"
+            "<li><b>Ctrl + Tık</b> : Tek tek çoklu satır seçimi</li>"
+            "<li><b>Sağ Tık</b> : Seçili kayıtlar, kullanıcılar veya Golden frekanslar için toplu silme / işlem menüsü</li>"
+            "<li><b>Delete</b> : Seçili öğe(leri) silme</li>"
+            "<li><b>Çift Tık</b> : Kullanıcıyı pop-up pencere ile düzenleme</li>"
+            "</ul>"
+            "<h3>📊 SPC Grafiği</h3>"
+            "<ul>"
+            "<li><b>Fare Üzerine Getir (Hover)</b> : Anlık nokta değerini imleç ucunda görüntüleme</li>"
+            "</ul>");
+    });
+
     // Top-right corner: Live Animated Reference DRX Clock Badge
     m_topDrxClockBadge = new DrxClockBadge(this);
     menuBar()->setCornerWidget(m_topDrxClockBadge, Qt::TopRightCorner);
@@ -469,8 +501,8 @@ void HostWindow::setupUi() {
     addNavItem("  📦  İş Emirleri");
     addNavItem("  🗄️  Veritabanı (SQL)");
     addNavItem("  🔐  Kullanıcı & Yetki");
-    addNavItem("  ⚙️  Sistem Ayarları");
     addNavItem("  📜  Sistem Logları");
+    addNavItem("  ⚙️  Sistem Ayarları");
 
     m_sideNav->setCurrentRow(3);
 
@@ -492,8 +524,8 @@ void HostWindow::setupUi() {
     m_pageStack->addWidget(m_pageOrders);     // index 3
     m_pageStack->addWidget(m_pageDatabase);   // index 4
     m_pageStack->addWidget(m_userManager);    // index 5
-    m_pageStack->addWidget(m_pageSettings);   // index 6
-    m_pageStack->addWidget(m_pageLogs);       // index 7
+    m_pageStack->addWidget(m_pageLogs);       // index 6
+    m_pageStack->addWidget(m_pageSettings);   // index 7
 
     splitter->addWidget(m_sideNav);
     splitter->addWidget(m_pageStack);
@@ -1208,6 +1240,11 @@ void HostWindow::onSaveRefWebSettingsClicked() {
     }
 
     onRefEthPingSyncClicked();
+    DbManager::instance().logAudit(
+        "SETTINGS_SAVED",
+        QString("Host Referans DRX ağ ayarları güncellendi (%1:%2)")
+            .arg(cfg.refDrxHost()).arg(cfg.refDrxPort()),
+        cfg.currentUsername(), 0);
     QMessageBox::information(this, "Güncellendi", "Referans DRX Ethernet ayarları kaydedildi ve Ping testi başlatıldı.");
 }
 
@@ -1263,6 +1300,10 @@ void HostWindow::onStationConnected(int stationId, const QString &ip) {
     updateLobbySummary();
 
     m_beaconBroadcaster.setStationCount(m_tcpServer.connectedStations().size());
+    DbManager::instance().logAudit(
+        "STATION_CONNECTED",
+        QString("İstasyon %1 ağa bağlandı (IP: %2)").arg(stationId).arg(ip),
+        "SYSTEM", stationId);
     appendLog(QString("İstasyon %1 ağa bağlandı (%2)").arg(stationId).arg(ip));
 }
 
@@ -1297,6 +1338,10 @@ void HostWindow::onStationDisconnected(int stationId) {
     updateLobbySummary();
 
     m_beaconBroadcaster.setStationCount(m_tcpServer.connectedStations().size());
+    DbManager::instance().logAudit(
+        "STATION_DISCONNECTED",
+        QString("İstasyon %1 ağdan ayrıldı (IP: %2)").arg(stationId).arg(oldIp.isEmpty() ? "--" : oldIp),
+        "SYSTEM", stationId);
     appendLog(QString("İstasyon %1 ağdan ayrıldı.").arg(stationId));
 }
 
@@ -1409,6 +1454,14 @@ void HostWindow::onSaveSettingsClicked() {
         m_lblServerStatus->setText(QString("🟢 TCP Sunucu Aktif (Port %1)").arg(cfg.tcpPort()));
     }
 
+    DbManager::instance().logAudit(
+        "SETTINGS_SAVED",
+        QString("Host sistem ayarları güncellendi (Tolerans: ±%1 dB, Örnekleme: %2 sn, TCP: %3, DB: %4)")
+            .arg(cfg.defaultToleranceDb(), 0, 'f', 2)
+            .arg(cfg.sampleDurationSec())
+            .arg(cfg.tcpPort())
+            .arg(cfg.dbHost()),
+        cfg.currentUsername(), 0);
     QMessageBox::information(this, "Kaydedildi", "Sistem parametreleri ve ağ/port ayarları başarıyla güncellendi.");
 }
 

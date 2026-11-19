@@ -766,7 +766,12 @@ bool DbManager::saveProfile(const SatelliteProfileInfo &profile) {
         }
     }
 
-    return db.commit();
+    if (!db.commit()) return false;
+    logAudit(profile.id > 0 ? "PROFILE_UPDATED" : "PROFILE_CREATED",
+             QString("Profil: %1 (%2 kanal)").arg(profile.profileName).arg(profile.channels.size()),
+             AppConfig::instance().currentUsername(),
+             AppConfig::instance().role() == AppRole::Client ? AppConfig::instance().stationId() : 0);
+    return true;
 }
 
 bool DbManager::deleteProfile(int profileId) {
@@ -775,7 +780,11 @@ bool DbManager::deleteProfile(int profileId) {
     QSqlQuery q(db);
     q.prepare("UPDATE satellite_profiles SET is_active = 0 WHERE id = :id");
     q.bindValue(":id", profileId);
-    return q.exec();
+    if (!q.exec()) return false;
+    logAudit("PROFILE_DELETED", QString("Profil ID: %1 silindi").arg(profileId),
+             AppConfig::instance().currentUsername(),
+             AppConfig::instance().role() == AppRole::Client ? AppConfig::instance().stationId() : 0);
+    return true;
 }
 
 bool DbManager::updateChannelGoldenSample(int profileId, int channelNo, double cnDb, double powDbm) {
@@ -805,8 +814,14 @@ ReferenceMode DbManager::getReferenceMode() {
 
 bool DbManager::setReferenceMode(ReferenceMode mode) {
     QString val = (mode == ReferenceMode::GoldenSample) ? "GOLDEN" : "LIVE";
-    return setSetting("REFERENCE_MODE", val,
-                      "Reference mode: LIVE (Live Antenna) or GOLDEN (Saved Golden Sample)");
+    bool ok = setSetting("REFERENCE_MODE", val,
+                         "Reference mode: LIVE (Live Antenna) or GOLDEN (Saved Golden Sample)");
+    if (ok) {
+        logAudit("REF_MODE_CHANGED",
+                 QString("Referans modu değiştirildi: %1").arg(val),
+                 AppConfig::instance().currentUsername(), 0);
+    }
+    return ok;
 }
 
 int DbManager::getActiveGoldenRecordId() {
@@ -943,6 +958,13 @@ bool DbManager::saveGoldenFrequency(const GoldenFrequencyRecord &rec) {
         m_lastError = q.lastError().text();
         return false;
     }
+    logAudit(rec.id > 0 ? "GOLDEN_UPDATED" : "GOLDEN_SAVED",
+             QString("Golden: %1 (%2 MHz %3, C/N: %4 dB)")
+                 .arg(rec.label.isEmpty() ? "--" : rec.label)
+                 .arg(rec.frequencyMhz)
+                 .arg(rec.polarization)
+                 .arg(rec.goldenCnDb, 0, 'f', 2),
+             AppConfig::instance().currentUsername(), 0);
     return true;
 }
 
@@ -1161,6 +1183,12 @@ bool DbManager::incrementOrderCount(int workOrderId, bool isPass) {
 
 bool DbManager::logAudit(const QString &action, const QString &details, const QString &user, int stationId) {
     if (!isConnected()) return false;
+    int effectiveStationId = stationId;
+    if (effectiveStationId <= 0 &&
+        AppConfig::instance().role() == AppRole::Client &&
+        AppConfig::instance().stationId() > 0) {
+        effectiveStationId = AppConfig::instance().stationId();
+    }
     QSqlDatabase db = QSqlDatabase::database(m_connectionName);
     QSqlQuery q(db);
     q.prepare("INSERT INTO audit_logs (log_timestamp, action_type, details, operator_username, station_id) "
@@ -1169,7 +1197,7 @@ bool DbManager::logAudit(const QString &action, const QString &details, const QS
     q.bindValue(":act", action);
     q.bindValue(":det", details);
     q.bindValue(":usr", user.isEmpty() ? AppConfig::instance().currentUsername() : user);
-    q.bindValue(":st", stationId);
+    q.bindValue(":st", effectiveStationId);
     return q.exec();
 }
 
@@ -2047,6 +2075,12 @@ bool DbManager::saveUser(const UserRecord &user) {
         m_lastError = q.lastError().text();
         return false;
     }
+    logAudit(user.id <= 0 ? "USER_CREATED" : "USER_UPDATED",
+             QString("Kullanıcı: %1 (Rol: %2, Aktif: %3)")
+                 .arg(uname,
+                      user.role.trimmed().toUpper() == "ADMIN" ? "ADMIN" : "OPERATOR",
+                      user.isActive ? "Evet" : "Hayır"),
+             AppConfig::instance().currentUsername(), 0);
     return true;
 }
 

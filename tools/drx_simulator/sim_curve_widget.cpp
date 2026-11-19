@@ -113,18 +113,34 @@ void SimCurveWidget::applyMouseEdit(const QPoint &pos, bool modifyValue) {
     }
 
     if (modifyValue) {
-        SimTelemetryPoint &pt = (*m_points)[idx];
-        if (m_editTarget == EditTarget::CnCurve) {
-            pt.cnDb = cnFromY(pos.y());
-            if (pt.cnDb < 9.0 && pt.note == "Normal") {
-                pt.note = "Düşük C/N (Manuel)";
-            } else if (pt.cnDb >= 9.0 && pt.note == "Düşük C/N (Manuel)") {
-                pt.note = "Normal";
-            }
-        } else {
-            pt.powerDbm = powerFromY(pos.y());
+        if (!m_shiftLockActive) {
+            m_dragLockedValue = (m_editTarget == EditTarget::CnCurve)
+                                    ? cnFromY(pos.y())
+                                    : powerFromY(pos.y());
         }
-        emit pointEdited(idx, pt.cnDb, pt.powerDbm);
+
+        const int fromIdx = (m_dragLastIndex >= 0 && m_dragLastIndex < m_points->size())
+                                ? qMin(m_dragLastIndex, idx)
+                                : idx;
+        const int toIdx = (m_dragLastIndex >= 0 && m_dragLastIndex < m_points->size())
+                              ? qMax(m_dragLastIndex, idx)
+                              : idx;
+
+        for (int i = fromIdx; i <= toIdx; ++i) {
+            SimTelemetryPoint &pt = (*m_points)[i];
+            if (m_editTarget == EditTarget::CnCurve) {
+                pt.cnDb = m_dragLockedValue;
+                if (pt.cnDb < 9.0 && pt.note == "Normal") {
+                    pt.note = "Düşük C/N (Manuel)";
+                } else if (pt.cnDb >= 9.0 && pt.note == "Düşük C/N (Manuel)") {
+                    pt.note = "Normal";
+                }
+            } else {
+                pt.powerDbm = m_dragLockedValue;
+            }
+            emit pointEdited(i, pt.cnDb, pt.powerDbm);
+        }
+        m_dragLastIndex = idx;
     }
     update();
 }
@@ -132,7 +148,10 @@ void SimCurveWidget::applyMouseEdit(const QPoint &pos, bool modifyValue) {
 void SimCurveWidget::mousePressEvent(QMouseEvent *event) {
     if (event->button() == Qt::LeftButton) {
         m_dragging = true;
+        m_dragLastIndex = -1;
+        m_shiftLockActive = false; // Compute initial value from click Y first
         applyMouseEdit(event->pos(), true);
+        m_shiftLockActive = (event->modifiers() & Qt::ShiftModifier);
     }
     QWidget::mousePressEvent(event);
 }
@@ -140,8 +159,10 @@ void SimCurveWidget::mousePressEvent(QMouseEvent *event) {
 void SimCurveWidget::mouseMoveEvent(QMouseEvent *event) {
     m_hoverIndex = plotArea().contains(event->pos()) ? indexFromX(event->pos().x()) : -1;
     if (m_dragging && (event->buttons() & Qt::LeftButton)) {
+        m_shiftLockActive = (event->modifiers() & Qt::ShiftModifier);
         applyMouseEdit(event->pos(), true);
     } else {
+        m_shiftLockActive = false;
         update();
     }
     QWidget::mouseMoveEvent(event);
@@ -150,6 +171,9 @@ void SimCurveWidget::mouseMoveEvent(QMouseEvent *event) {
 void SimCurveWidget::mouseReleaseEvent(QMouseEvent *event) {
     if (event->button() == Qt::LeftButton) {
         m_dragging = false;
+        m_shiftLockActive = false;
+        m_dragLastIndex = -1;
+        update();
     }
     QWidget::mouseReleaseEvent(event);
 }
@@ -331,6 +355,25 @@ void SimCurveWidget::paintEvent(QPaintEvent *) {
         pillFont.setBold(true);
         p.setFont(pillFont);
         p.drawText(pill, Qt::AlignCenter, QString("CANLI #%1").arg(m_playheadIndex));
+    }
+
+    // Horizontal Shift-lock guide line during flat-line drag
+    if (m_dragging && m_shiftLockActive) {
+        const qreal lockY = (m_editTarget == EditTarget::CnCurve)
+                                ? yFromCn(m_dragLockedValue)
+                                : yFromPower(m_dragLockedValue);
+        p.setPen(QPen(QColor("#38BDF8"), 1.5, Qt::DashLine));
+        p.drawLine(QPointF(r.left(), lockY), QPointF(r.right(), lockY));
+
+        const QString lockLabel = (m_editTarget == EditTarget::CnCurve)
+                                      ? QString("SHIFT SABİT: %1 dB").arg(m_dragLockedValue, 0, 'f', 1)
+                                      : QString("SHIFT SABİT: %1 dBm").arg(m_dragLockedValue, 0, 'f', 1);
+        QRectF lockPill(r.left() + 8, r.top() + 6, 155, 22);
+        p.setPen(QPen(QColor("#38BDF8"), 1));
+        p.setBrush(QColor(15, 23, 42, 230));
+        p.drawRoundedRect(lockPill, 4, 4);
+        p.setPen(QColor("#38BDF8"));
+        p.drawText(lockPill, Qt::AlignCenter, lockLabel);
     }
 
     // Hover readout pill in bottom-right corner inside plot

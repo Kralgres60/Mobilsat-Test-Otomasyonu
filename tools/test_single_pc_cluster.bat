@@ -2,6 +2,11 @@
 chcp 65001 >nul
 title NETA DRX9000 - Coklu Istasyon ve Donanim Simulasyon Test Paneli
 
+if not defined NETA_WATCHDOG_STARTED (
+    set "NETA_WATCHDOG_STARTED=1"
+    start "" /min powershell -NoProfile -WindowStyle Hidden -Command "$me = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $PID); $batPid = $me.ParentProcessId; try { Wait-Process -Id $batPid -ErrorAction SilentlyContinue } catch {}; Stop-Process -Name NETA_Antenna_Test,NETA_DRX_Simulator -Force -ErrorAction SilentlyContinue"
+)
+
 set "SCRIPT_DIR=%~dp0"
 set "ROOT_DIR=%SCRIPT_DIR%.."
 
@@ -266,4 +271,6 @@ pause
 goto MENU
 
 :EXIT
+taskkill /f /im NETA_Antenna_Test.exe >nul 2>&1
+taskkill /f /im NETA_DRX_Simulator.exe >nul 2>&1
 exit /b 0

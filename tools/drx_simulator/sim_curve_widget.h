@@ -102,6 +102,9 @@ private:
     int        m_playheadIndex = 0;
     int        m_hoverIndex    = -1;
     bool       m_dragging      = false;
+    bool       m_shiftLockActive = false;
+    int        m_dragLastIndex = -1;
+    double     m_dragLockedValue = 0.0;
 
     static constexpr double kMinCn    = 0.0;
     static constexpr double kMaxCn    = 25.0;
