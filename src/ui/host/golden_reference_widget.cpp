@@ -197,7 +197,7 @@ void GoldenReferenceWidget::setupUi() {
     m_tableMeasurements->verticalHeader()->setVisible(false);
     m_tableMeasurements->setAlternatingRowColors(true);
     m_tableMeasurements->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_tableMeasurements->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_tableMeasurements->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_tableMeasurements->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     m_tableMeasurements->setColumnWidth(0, 36);
     m_tableMeasurements->setColumnWidth(2, 125);
@@ -581,14 +581,28 @@ void GoldenReferenceWidget::onAddFixedMeasurementClicked() {
 }
 
 void GoldenReferenceWidget::onRemoveSelectedRowClicked() {
-    int row = m_tableMeasurements->currentRow();
-    if (row < 0 || row >= m_tableMeasurements->rowCount()) return;
+    if (!m_tableMeasurements) return;
+    QVector<int> rowsToDelete;
+    if (m_tableMeasurements->selectionModel()) {
+        const auto selRows = m_tableMeasurements->selectionModel()->selectedRows();
+        for (const QModelIndex &rIdx : selRows) {
+            rowsToDelete.append(rIdx.row());
+        }
+    }
+    if (rowsToDelete.isEmpty()) {
+        int row = m_tableMeasurements->currentRow();
+        if (row >= 0 && row < m_tableMeasurements->rowCount()) {
+            rowsToDelete.append(row);
+        }
+    }
+    if (rowsToDelete.isEmpty()) return;
 
-    int deletedId = 0;
-    if (auto *it = m_tableMeasurements->item(row, 0)) {
-        deletedId = it->data(Qt::UserRole).toInt();
-        if (deletedId > 0) {
-            DbManager::instance().deleteGoldenFrequency(deletedId);
+    for (int row : rowsToDelete) {
+        if (auto *it = m_tableMeasurements->item(row, 0)) {
+            int deletedId = it->data(Qt::UserRole).toInt();
+            if (deletedId > 0) {
+                DbManager::instance().deleteGoldenFrequency(deletedId);
+            }
         }
     }
 
@@ -612,12 +626,20 @@ void GoldenReferenceWidget::showTableContextMenu(const QPoint &pos) {
     if (!idx.isValid()) return;
 
     int row = idx.row();
-    m_tableMeasurements->selectRow(row);
+    if (m_tableMeasurements->selectionModel() &&
+        !m_tableMeasurements->selectionModel()->isRowSelected(row, QModelIndex())) {
+        m_tableMeasurements->selectRow(row);
+    }
 
+    int selCount = m_tableMeasurements->selectionModel()
+                       ? m_tableMeasurements->selectionModel()->selectedRows().size()
+                       : 1;
     QMenu menu(this);
-    QAction *actDelete = menu.addAction("🗑️ Seçili Frekansı Sil (Delete)");
+    QAction *actDelete = menu.addAction(selCount > 1
+                                            ? QString("🗑️ Seçili %1 Frekansı Sil (Delete)").arg(selCount)
+                                            : QString("🗑️ Seçili Frekansı Sil (Delete)"));
     QAction *actToggle = nullptr;
-    if (row >= 0 && row < m_records.size()) {
+    if (selCount == 1 && row >= 0 && row < m_records.size()) {
         actToggle = menu.addAction(m_records[row].isActive ? "⚪ Pasif Yap (Canlı Teste Geç)" : "⭐ Aktif Yap");
     }
 

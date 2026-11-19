@@ -40,7 +40,9 @@ SOURCES += \
     src/core/spc_calculator.cpp \
     src/database/db_manager.cpp \
     src/database/backup_manager.cpp \
-    src/hardware/data_transfer.cpp \
+    src/hardware/drx_ethernet_transport.cpp \
+    src/hardware/drx_serial_transport.cpp \
+    src/hardware/drx_data_control.cpp \
     src/hardware/drx_protocol_config.cpp \
     src/network/udp_beacon.cpp \
     src/network/tcp_server.cpp \
@@ -78,6 +80,10 @@ HEADERS += \
     src/core/spc_calculator.h \
     src/database/db_manager.h \
     src/database/backup_manager.h \
+    src/hardware/drx_transport.h \
+    src/hardware/drx_ethernet_transport.h \
+    src/hardware/drx_serial_transport.h \
+    src/hardware/drx_data_control.h \
     src/hardware/data_transfer.h \
     src/hardware/drx_protocol_config.h \
     src/network/network_messages.h \

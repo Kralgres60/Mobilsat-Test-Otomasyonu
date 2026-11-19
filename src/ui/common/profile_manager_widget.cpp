@@ -23,6 +23,8 @@
 #include <QSpinBox>
 #include <QAbstractSpinBox>
 #include <numeric>
+#include <algorithm>
+#include <functional>
 
 ProfileManagerWidget::ProfileManagerWidget(bool isHostMode,
                                            DrxWebClient *refWeb,
@@ -138,6 +140,7 @@ void ProfileManagerWidget::setupUi() {
     leftVBox->setSpacing(8);
 
     m_listProfiles = new QListWidget(grpProfLeft);
+    m_listProfiles->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_listProfiles->setContextMenuPolicy(Qt::CustomContextMenu);
     m_listProfiles->installEventFilter(this);
     connect(m_listProfiles, &QListWidget::currentRowChanged, this, &ProfileManagerWidget::onProfileSelected);
@@ -168,6 +171,7 @@ void ProfileManagerWidget::setupUi() {
     m_tableProfileChannels->verticalHeader()->setVisible(false);
     m_tableProfileChannels->setAlternatingRowColors(true);
     m_tableProfileChannels->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_tableProfileChannels->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_tableProfileChannels->setContextMenuPolicy(Qt::CustomContextMenu);
     m_tableProfileChannels->installEventFilter(this);
     m_tableProfileChannels->viewport()->installEventFilter(this);
@@ -518,12 +522,18 @@ void ProfileManagerWidget::showProfileContextMenu(const QPoint &pos) {
     QListWidgetItem *item = m_listProfiles->itemAt(pos);
     if (!item) return;
     int row = m_listProfiles->row(item);
-    m_listProfiles->setCurrentRow(row);
+    if (!item->isSelected()) {
+        m_listProfiles->setCurrentRow(row);
+    }
 
+    int selCount = m_listProfiles->selectedItems().size();
     QMenu menu(this);
     QAction *actEdit = menu.addAction("✏️ Profili Düzenle");
-    QAction *actDel = menu.addAction("🗑️ Profili Sil");
-    if (row >= 0 && row < m_profiles.size() && m_profiles[row].id <= 1) {
+    actEdit->setEnabled(selCount == 1);
+    QAction *actDel = menu.addAction(selCount > 1
+                                         ? QString("🗑️ Seçili %1 Profili Sil (Delete)").arg(selCount)
+                                         : QString("🗑️ Profili Sil (Delete)"));
+    if (selCount == 1 && row >= 0 && row < m_profiles.size() && m_profiles[row].id <= 1) {
         actDel->setEnabled(false);
     }
 
@@ -536,22 +546,40 @@ void ProfileManagerWidget::showProfileContextMenu(const QPoint &pos) {
 }
 
 void ProfileManagerWidget::onDeleteProfileClicked() {
-    int row = m_listProfiles ? m_listProfiles->currentRow() : -1;
-    if (row < 0 || row >= m_profiles.size()) return;
-    int pid = m_profiles[row].id;
-    const QString name = m_profiles[row].profileName;
-    if (pid <= 1) {
-        QMessageBox::information(this, "Korunan Profil", "Varsayılan fabrika profili (ID 1) silinemez.");
+    if (!m_listProfiles) return;
+    QVector<int> pidsToDelete;
+    QStringList namesToDelete;
+    const auto selected = m_listProfiles->selectedItems();
+    for (QListWidgetItem *item : selected) {
+        int r = m_listProfiles->row(item);
+        if (r >= 0 && r < m_profiles.size() && m_profiles[r].id > 1) {
+            pidsToDelete.append(m_profiles[r].id);
+            namesToDelete.append(m_profiles[r].profileName);
+        }
+    }
+    if (pidsToDelete.isEmpty()) {
+        int row = m_listProfiles->currentRow();
+        if (row >= 0 && row < m_profiles.size() && m_profiles[row].id <= 1) {
+            QMessageBox::information(this, "Korunan Profil", "Varsayılan fabrika profili (ID 1) silinemez.");
+        }
         return;
     }
-    if (QMessageBox::question(this,
-                              "Profili Sil",
-                              QString("'%1' uydu profilini ve tüm kanallarını silmek istediğinize emin misiniz?").arg(name),
-                              QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes) {
+
+    const QString msg = (pidsToDelete.size() == 1)
+                            ? QString("'%1' uydu profilini ve tüm kanallarını silmek istediğinize emin misiniz?").arg(namesToDelete.first())
+                            : QString("%1 adet seçili uydu profilini silmek istediğinize emin misiniz?").arg(pidsToDelete.size());
+    if (QMessageBox::question(this, "Profili Sil", msg, QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes) {
         return;
     }
-    if (DbManager::instance().deleteProfile(pid)) {
-        emit logMessage("[Profiller] Uydu profili silindi (ID " + QString::number(pid) + ").");
+
+    int deleted = 0;
+    for (int pid : pidsToDelete) {
+        if (DbManager::instance().deleteProfile(pid)) {
+            emit logMessage("[Profiller] Uydu profili silindi (ID " + QString::number(pid) + ").");
+            deleted++;
+        }
+    }
+    if (deleted > 0) {
         reloadProfiles();
         emit profilesChanged();
     }
@@ -597,11 +625,26 @@ void ProfileManagerWidget::onRemoveChannelRowClicked() {
         return;
     }
 
-    int selRow = m_tableProfileChannels->currentRow();
-    int removeIdx = (selRow >= 0 && selRow < rows) ? selRow : (rows - 1);
+    QVector<int> rowsToRemove;
+    if (m_tableProfileChannels->selectionModel()) {
+        const auto selRows = m_tableProfileChannels->selectionModel()->selectedRows();
+        for (const QModelIndex &idx : selRows) {
+            rowsToRemove.append(idx.row());
+        }
+    }
+    if (rowsToRemove.isEmpty()) {
+        int selRow = m_tableProfileChannels->currentRow();
+        rowsToRemove.append((selRow >= 0 && selRow < rows) ? selRow : (rows - 1));
+    }
+    std::sort(rowsToRemove.begin(), rowsToRemove.end(), std::greater<int>());
 
     m_isPopulating = true;
-    m_tableProfileChannels->removeRow(removeIdx);
+    for (int r : rowsToRemove) {
+        if (m_tableProfileChannels->rowCount() <= 1) break;
+        if (r >= 0 && r < m_tableProfileChannels->rowCount()) {
+            m_tableProfileChannels->removeRow(r);
+        }
+    }
 
     // Re-number channel sequence indices cleanly
     for (int r = 0; r < m_tableProfileChannels->rowCount(); ++r) {
@@ -617,13 +660,19 @@ void ProfileManagerWidget::onRemoveChannelRowClicked() {
 void ProfileManagerWidget::showChannelContextMenu(const QPoint &pos) {
     if (!m_tableProfileChannels) return;
     int row = m_tableProfileChannels->rowAt(pos.y());
-    if (row >= 0) {
+    if (row >= 0 && m_tableProfileChannels->selectionModel() &&
+        !m_tableProfileChannels->selectionModel()->isRowSelected(row, QModelIndex())) {
         m_tableProfileChannels->selectRow(row);
     }
 
+    int selCount = m_tableProfileChannels->selectionModel()
+                       ? m_tableProfileChannels->selectionModel()->selectedRows().size()
+                       : 0;
     QMenu menu(this);
     QAction *actAdd = menu.addAction("➕ Yeni Kanal Ekle");
-    QAction *actDel = menu.addAction("🗑️ Seçili Kanalı Sil");
+    QAction *actDel = menu.addAction(selCount > 1
+                                         ? QString("🗑️ Seçili %1 Kanalı Sil (Delete)").arg(selCount)
+                                         : QString("🗑️ Seçili Kanalı Sil (Delete)"));
     actDel->setEnabled(row >= 0 && m_tableProfileChannels->rowCount() > 1);
 
     QAction *chosen = menu.exec(m_tableProfileChannels->viewport()->mapToGlobal(pos));

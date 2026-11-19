@@ -760,7 +760,8 @@ void ClientWindow::setupProductionPage() {
     m_tableChannels->setColumnCount(7);
     m_tableChannels->setHorizontalHeaderLabels({"#", "Kanal / Frekans", "DUT C/N", "REF C/N", "Fark (Δ)", "Kilit", "Durum"});
     m_tableChannels->verticalHeader()->setVisible(false);
-    m_tableChannels->setSelectionMode(QAbstractItemView::NoSelection);
+    m_tableChannels->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_tableChannels->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_tableChannels->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_tableChannels->setAlternatingRowColors(true);
     m_tableChannels->setShowGrid(true);

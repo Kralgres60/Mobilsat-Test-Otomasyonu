@@ -743,6 +743,7 @@ void HostWindow::setupOrdersPage() {
     m_tableOrders->verticalHeader()->setVisible(false);
     m_tableOrders->setAlternatingRowColors(true);
     m_tableOrders->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_tableOrders->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_tableOrders->setEditTriggers(QAbstractItemView::NoEditTriggers);
     vbox->addWidget(m_tableOrders);
 }

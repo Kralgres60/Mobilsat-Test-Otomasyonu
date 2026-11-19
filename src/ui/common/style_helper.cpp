@@ -254,12 +254,30 @@ QString StyleHelper::getAppStyle() {
             gridline-color: #1A3D2B;
             border: 1px solid #1A3D2B;
             border-radius: 6px;
-            selection-background-color: #1A3D2B;
-            selection-color: #34D399;
+            selection-background-color: #0284C7;
+            selection-color: #FFFFFF;
         }
         QTableWidget::item:alternate, QTableView::item:alternate {
             background-color: #0C2219;
             color: #E6F4EE;
+        }
+        QTableWidget::item:selected, QTableWidget::item:alternate:selected,
+        QTableWidget::item:selected:active, QTableWidget::item:selected:!active,
+        QTableView::item:selected, QTableView::item:alternate:selected,
+        QTableView::item:selected:active, QTableView::item:selected:!active,
+        QListWidget::item:selected, QListWidget::item:selected:active, QListWidget::item:selected:!active,
+        QTreeWidget::item:selected, QTreeWidget::item:selected:active, QTreeWidget::item:selected:!active {
+            background-color: #38BDF8;
+            color: #04131C;
+            font-weight: bold;
+        }
+        QListWidget#sideNav::item:selected,
+        QListWidget#sideNav::item:selected:active,
+        QListWidget#sideNav::item:selected:!active {
+            background-color: #065F46;
+            color: #34D399;
+            border-left: 4px solid #10B981;
+            font-weight: bold;
         }
         QHeaderView::section {
             background-color: #071210;

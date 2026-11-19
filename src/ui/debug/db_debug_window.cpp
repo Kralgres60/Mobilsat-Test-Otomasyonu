@@ -178,7 +178,7 @@ void DbDebugWindow::setupUi() {
     m_tableListWidget->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
     m_tableListWidget->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     m_tableListWidget->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_tableListWidget->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_tableListWidget->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_tableListWidget->setStyleSheet("QTableWidget { background-color: #11111B; border: 1px solid #313244; color: #CDD6F4; gridline-color: #313244; } "
                                     "QHeaderView::section { background-color: #1E1E2E; color: #89DCEB; font-weight: bold; padding: 4px; border: 1px solid #313244; }");
     connect(m_tableListWidget, &QTableWidget::cellClicked, this, &DbDebugWindow::onTableSelected);
@@ -220,6 +220,8 @@ void DbDebugWindow::setupUi() {
     m_tableDataWidget->setStyleSheet("QTableWidget { background-color: #0D0E15; border: 1px solid #313244; color: #E6F4EE; gridline-color: #252538; } "
                                      "QHeaderView::section { background-color: #181825; color: #34D399; font-weight: bold; padding: 4px; border: 1px solid #313244; }");
     m_tableDataWidget->setAlternatingRowColors(true);
+    m_tableDataWidget->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_tableDataWidget->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_tableDataWidget->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_tableDataWidget->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     m_tableDataWidget->horizontalHeader()->setStretchLastSection(true);

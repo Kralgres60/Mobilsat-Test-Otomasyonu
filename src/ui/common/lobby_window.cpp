@@ -196,7 +196,7 @@ void LobbyWindow::setupUi() {
     m_tableServers->setHorizontalHeaderLabels({"Sunucu Adı", "Host IP Adresi", "Port", "Bağlı İstasyon", "Sürüm"});
     m_tableServers->verticalHeader()->setVisible(false);
     m_tableServers->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_tableServers->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_tableServers->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_tableServers->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_tableServers->setAlternatingRowColors(true);
     m_tableServers->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);

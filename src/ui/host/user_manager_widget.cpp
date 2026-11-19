@@ -65,7 +65,7 @@ void UserManagerWidget::setupUi() {
     m_tableUsers->verticalHeader()->setVisible(false);
     m_tableUsers->setAlternatingRowColors(true);
     m_tableUsers->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_tableUsers->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_tableUsers->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_tableUsers->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_tableUsers->setContextMenuPolicy(Qt::CustomContextMenu);
     m_tableUsers->installEventFilter(this);
@@ -292,17 +292,39 @@ void UserManagerWidget::showTableContextMenu(const QPoint &pos) {
     if (!idx.isValid()) return;
 
     int row = idx.row();
-    m_tableUsers->selectRow(row);
+    if (m_tableUsers->selectionModel() &&
+        !m_tableUsers->selectionModel()->isRowSelected(row, QModelIndex())) {
+        m_tableUsers->selectRow(row);
+    }
     if (row < 0 || row >= m_users.size()) return;
+
+    const auto selRows = m_tableUsers->selectionModel()
+                             ? m_tableUsers->selectionModel()->selectedRows()
+                             : QModelIndexList();
+    int selCount = qMax(1, selRows.size());
+    bool anyDeletable = false;
+    if (selRows.isEmpty()) {
+        anyDeletable = (m_users[row].username.compare("admin", Qt::CaseInsensitive) != 0);
+    } else {
+        for (const QModelIndex &rIdx : selRows) {
+            int r = rIdx.row();
+            if (r >= 0 && r < m_users.size() && m_users[r].username.compare("admin", Qt::CaseInsensitive) != 0) {
+                anyDeletable = true;
+                break;
+            }
+        }
+    }
 
     QMenu menu(this);
     QAction *actEdit = menu.addAction("✏️ Kullanıcıyı Düzenle");
+    actEdit->setEnabled(selCount == 1);
     QAction *actPass = menu.addAction("🔑 Şifre Değiştir");
+    actPass->setEnabled(selCount == 1);
     menu.addSeparator();
-    QAction *actDel = menu.addAction("🗑️ Kullanıcıyı Sil (Delete)");
-    if (m_users[row].username.compare("admin", Qt::CaseInsensitive) == 0) {
-        actDel->setEnabled(false);
-    }
+    QAction *actDel = menu.addAction(selCount > 1
+                                         ? QString("🗑️ Seçili %1 Kullanıcıyı Sil (Delete)").arg(selCount)
+                                         : QString("🗑️ Kullanıcıyı Sil (Delete)"));
+    actDel->setEnabled(anyDeletable);
 
     QAction *chosen = menu.exec(m_tableUsers->viewport()->mapToGlobal(pos));
     if (chosen == actEdit) {
@@ -359,28 +381,59 @@ void UserManagerWidget::onChangePasswordClicked() {
 }
 
 void UserManagerWidget::onDeleteUserClicked() {
-    int row = m_tableUsers ? m_tableUsers->currentRow() : -1;
-    if (row < 0 || row >= m_users.size()) {
-        QMessageBox::information(this, "Seçim Yok", "Lütfen silmek istediğiniz kullanıcıyı seçin.");
+    if (!m_tableUsers) return;
+    QVector<UserRecord> toDelete;
+    bool skippedAdmin = false;
+    if (m_tableUsers->selectionModel()) {
+        const auto selRows = m_tableUsers->selectionModel()->selectedRows();
+        for (const QModelIndex &rIdx : selRows) {
+            int r = rIdx.row();
+            if (r >= 0 && r < m_users.size()) {
+                if (m_users[r].username.compare("admin", Qt::CaseInsensitive) == 0) {
+                    skippedAdmin = true;
+                } else {
+                    toDelete.append(m_users[r]);
+                }
+            }
+        }
+    }
+    if (toDelete.isEmpty() && !skippedAdmin) {
+        int row = m_tableUsers->currentRow();
+        if (row >= 0 && row < m_users.size()) {
+            if (m_users[row].username.compare("admin", Qt::CaseInsensitive) == 0) {
+                skippedAdmin = true;
+            } else {
+                toDelete.append(m_users[row]);
+            }
+        }
+    }
+
+    if (toDelete.isEmpty()) {
+        if (skippedAdmin) {
+            QMessageBox::warning(this, "Korunan Hesap", "Ana 'admin' hesabı silinemez.");
+        } else {
+            QMessageBox::information(this, "Seçim Yok", "Lütfen silmek istediğiniz kullanıcıyı seçin.");
+        }
         return;
     }
 
-    const UserRecord &u = m_users[row];
-    if (u.username.compare("admin", Qt::CaseInsensitive) == 0) {
-        QMessageBox::warning(this, "Korunan Hesap", "Ana 'admin' hesabı silinemez.");
+    const QString msg = (toDelete.size() == 1)
+                            ? QString("'%1' kullanıcısını silmek istediğinize emin misiniz?").arg(toDelete.first().username)
+                            : QString("%1 adet seçili kullanıcıyı silmek istediğinize emin misiniz?").arg(toDelete.size());
+    if (QMessageBox::question(this, "Kullanıcıyı Sil", msg) != QMessageBox::Yes) {
         return;
     }
 
-    if (QMessageBox::question(this, "Kullanıcıyı Sil",
-                              QString("'%1' kullanıcısını silmek istediğinize emin misiniz?").arg(u.username))
-        != QMessageBox::Yes) {
-        return;
+    int deleted = 0;
+    for (const UserRecord &u : toDelete) {
+        if (DbManager::instance().deleteUser(u.id)) {
+            emit logMessage(QString("[Yetkilendirme] Kullanıcı silindi: %1").arg(u.username));
+            deleted++;
+        }
     }
-
-    if (DbManager::instance().deleteUser(u.id)) {
-        emit logMessage(QString("[Yetkilendirme] Kullanıcı silindi: %1").arg(u.username));
+    if (deleted > 0) {
         reloadUsers();
     } else {
-        QMessageBox::warning(this, "Hata", "Kullanıcı silinemedi:\n" + DbManager::instance().lastError());
+        QMessageBox::warning(this, "Hata", "Kullanıcılar silinemedi:\n" + DbManager::instance().lastError());
     }
 }

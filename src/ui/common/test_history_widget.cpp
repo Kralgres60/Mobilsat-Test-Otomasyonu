@@ -154,7 +154,7 @@ void TestHistoryWidget::setupHistoryTab(QWidget *tab) {
     m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     m_table->horizontalHeader()->setStretchLastSection(true);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_table->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_table->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_table->setAlternatingRowColors(true);
     m_table->verticalHeader()->setDefaultSectionSize(26);
@@ -259,7 +259,7 @@ void TestHistoryWidget::setupDbViewerTab(QWidget *tab) {
     m_tableDb->setAlternatingRowColors(true);
     m_tableDb->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_tableDb->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_tableDb->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_tableDb->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_tableDb->verticalHeader()->setVisible(false);
     m_tableDb->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     m_tableDb->horizontalHeader()->setStretchLastSection(true);
@@ -745,6 +745,7 @@ void TestHistoryWidget::setupAuditLogTab(QWidget *tab) {
     m_tableAudit->verticalHeader()->setVisible(false);
     m_tableAudit->setAlternatingRowColors(true);
     m_tableAudit->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_tableAudit->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_tableAudit->setEditTriggers(QAbstractItemView::NoEditTriggers);
     vbox->addWidget(m_tableAudit, 1);
 }
@@ -805,45 +806,67 @@ void TestHistoryWidget::onTableContextMenuRequested(const QPoint &pos) {
     if (!idx.isValid()) return;
 
     int row = idx.row();
-    m_table->selectRow(row);
+    if (m_table->selectionModel() && !m_table->selectionModel()->isRowSelected(row, QModelIndex())) {
+        m_table->selectRow(row);
+    }
 
-    qint64 runId = m_table->item(row, 0) ? m_table->item(row, 0)->text().toLongLong() : 0;
-    if (runId <= 0) return;
-
-    QString sn = m_table->item(row, 6) ? m_table->item(row, 6)->text() : QString();
-    QString dateStr = m_table->item(row, 1) ? m_table->item(row, 1)->text() : QString();
+    QVector<QPair<qint64, QString>> targets;
+    if (m_table->selectionModel()) {
+        const auto selRows = m_table->selectionModel()->selectedRows();
+        for (const QModelIndex &rIdx : selRows) {
+            int r = rIdx.row();
+            qint64 id = m_table->item(r, 0) ? m_table->item(r, 0)->text().toLongLong() : 0;
+            QString sn = m_table->item(r, 6) ? m_table->item(r, 6)->text() : QString();
+            if (id > 0) targets.append({id, sn});
+        }
+    }
+    if (targets.isEmpty()) return;
 
     QMenu menu(this);
-    QAction *actDelete = menu.addAction(QString("🗑️ Test Kaydını Sil (ID #%1)").arg(runId));
+    QAction *actDelete = menu.addAction(
+        targets.size() > 1
+            ? QString("🗑️ Seçili %1 Test Kaydını Sil").arg(targets.size())
+            : QString("🗑️ Test Kaydını Sil (ID #%1)").arg(targets.first().first));
     QAction *chosen = menu.exec(m_table->viewport()->mapToGlobal(pos));
 
     if (chosen == actDelete) {
-        auto reply = QMessageBox::question(
-            this,
-            "Test Kaydı Silme Onayı",
-            QString("Seçili test kaydını kalıcı olarak silmek istediğinize emin misiniz?\n\n"
-                    "• Kayıt ID: #%1\n"
-                    "• Anten Seri No: %2\n"
-                    "• Tarih: %3\n\n"
-                    "Bu işlem geri alınamaz ve kanala ait ölçümler de silinir.")
-                .arg(runId)
-                .arg(sn.isEmpty() ? "--" : sn)
-                .arg(dateStr),
-            QMessageBox::Yes | QMessageBox::No,
-            QMessageBox::No);
+        QString confirmMsg;
+        if (targets.size() == 1) {
+            QString dateStr = m_table->item(row, 1) ? m_table->item(row, 1)->text() : QString();
+            confirmMsg = QString("Seçili test kaydını kalıcı olarak silmek istediğinize emin misiniz?\n\n"
+                                 "• Kayıt ID: #%1\n"
+                                 "• Anten Seri No: %2\n"
+                                 "• Tarih: %3\n\n"
+                                 "Bu işlem geri alınamaz ve kanala ait ölçümler de silinir.")
+                             .arg(targets.first().first)
+                             .arg(targets.first().second.isEmpty() ? "--" : targets.first().second)
+                             .arg(dateStr);
+        } else {
+            confirmMsg = QString("Seçili %1 adet test kaydını kalıcı olarak silmek istediğinize emin misiniz?\n\n"
+                                 "Bu işlem geri alınamaz ve tüm seçili kayıtlara ait kanal ölçümleri de silinir.")
+                             .arg(targets.size());
+        }
 
+        auto reply = QMessageBox::question(this, "Test Kaydı Silme Onayı", confirmMsg,
+                                           QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
         if (reply == QMessageBox::Yes) {
-            if (DbManager::instance().deleteTestRun(runId)) {
-                DbManager::instance().logAudit(
-                    "TEST_RUN_DELETED",
-                    QString("Deleted test run #%1 (SN: %2)").arg(runId).arg(sn),
-                    AppConfig::instance().currentUsername(),
-                    AppConfig::instance().stationId());
-                emit logMessage(QString("[Test Geçmişi] Test kaydı #%1 (SN: %2) silindi.").arg(runId).arg(sn));
+            int deleted = 0;
+            for (const auto &t : targets) {
+                if (DbManager::instance().deleteTestRun(t.first)) {
+                    DbManager::instance().logAudit(
+                        "TEST_RUN_DELETED",
+                        QString("Deleted test run #%1 (SN: %2)").arg(t.first).arg(t.second),
+                        AppConfig::instance().currentUsername(),
+                        AppConfig::instance().stationId());
+                    emit logMessage(QString("[Test Geçmişi] Test kaydı #%1 (SN: %2) silindi.").arg(t.first).arg(t.second));
+                    deleted++;
+                }
+            }
+            if (deleted > 0) {
                 refreshHistory();
             } else {
                 QMessageBox::warning(this, "Silme Hatası",
-                                     "Kayıt veritabanından silinemedi:\n" + DbManager::instance().lastError());
+                                     "Kayıtlar veritabanından silinemedi:\n" + DbManager::instance().lastError());
             }
         }
     }
