@@ -187,6 +187,7 @@ private:
     bool m_dutVideoLocked = false;
     bool m_dutAudioLocked = false;
     bool m_channelSelectedForCurrentFreq = false;
+    bool m_hasLiveLock = false; ///< True when a Reference hardware lock was acquired for the current test
 
     bool m_refCarrierLocked = false;
     bool m_refVideoLocked = false;
@@ -194,8 +195,11 @@ private:
     double m_lastRefCn = 0.0;
     double m_lastRefPow = 0.0;
     ReferenceMode m_referenceMode = ReferenceMode::LiveReference;
-    GoldenFrequencyRecord m_selectedGoldenRecord; ///< Active Golden Reference record for recorded testing
-    bool m_currentChannelIsGolden = false;        ///< True if active channel is evaluated against Golden Sample; false if Live Reference fallback
+    GoldenFrequencyRecord m_selectedGoldenRecord;      ///< Active Golden Reference record for recorded testing
+    GoldenFrequencyRecord m_activeChannelGoldenRecord; ///< Resolved Golden Reference record for the current channel
+    bool m_currentChannelIsGolden = false;             ///< True if active channel is evaluated against Golden Sample; false if Live Reference fallback
+    QVector<double> m_goldenCurveSamples;         ///< Parsed non-zero C/N curve samples for active Golden channel
+    int m_currentSampleDurationSec = 5;           ///< Active channel sampling duration in seconds
 
     // Time tracking & collection
     QDateTime m_lastDutDeviceTime;

@@ -287,8 +287,8 @@ void TcpServer::processClientMessage(quint64 peerId, const QJsonObject &msg) {
         QString pol = msg["pol"].toString();
         int stationId = msg["station_id"].toInt();
 
-        // Tune Reference DRX only in LiveReference mode and when requested by active lock holder
-        if (m_referenceMode == ReferenceMode::LiveReference && m_arbiter && m_arbiter->activeStationId() == stationId) {
+        // Tune Reference DRX when requested by active lock holder (LiveReference or Hybrid Golden fallback)
+        if (m_arbiter && m_arbiter->activeStationId() == stationId) {
             if (m_refStream && m_refStream->isConnected()) {
                 m_refStream->sendTune(freq, sr, pol);
                 m_refStream->requestStatus();

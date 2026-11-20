@@ -10,6 +10,8 @@ release_build/
 dist/
 OUTPUT/
 SETUP_OUTPUT/
+.neta_preserved_*/
+.neta_preserved_*
 /debug/
 /release/
 docs/doxygen/

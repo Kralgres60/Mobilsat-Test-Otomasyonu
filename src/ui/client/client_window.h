@@ -47,6 +47,10 @@ public:
     explicit ClientWindow(QWidget *parent = nullptr);
     ~ClientWindow() override;
 
+protected:
+    /** @brief Handles wheel modifier events on the live signal plot for vertical/horizontal zooming. */
+    bool eventFilter(QObject *watched, QEvent *event) override;
+
 private slots:
     void onStartTestClicked();
     void onAbortTestClicked();
@@ -120,7 +124,7 @@ private:
     void clearPlotBands();
     void jumpPlotToLatest();
     void onPlotMouseMove(QMouseEvent *event);
-    void loadGoldenOverlayCurve(const GoldenFrequencyRecord &rec);
+    void loadGoldenOverlayCurve(const GoldenFrequencyRecord &rec, double startOffsetX = 0.0);
     void clearGoldenOverlay();
     void loadWorkOrdersAndProfiles();
     void populateChannelTable();
@@ -248,6 +252,8 @@ private:
     QVector<SatelliteProfileInfo> m_profiles;
     SatelliteProfileInfo m_currentProfile;
     bool m_hasFinishedTestResults = false; ///< Keeps channel PASS/FAIL badges visible until next test or profile change
+    bool m_currentChannelUsesGoldenGraph = false; ///< True when active channel plots Golden curve instead of Live Reference
+    bool m_plotManualVerticalZoom = false; ///< Set when user adjusts vertical zoom via Ctrl+Scroll
 };
 
 #endif // CLIENT_WINDOW_H

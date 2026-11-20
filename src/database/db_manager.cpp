@@ -884,35 +884,57 @@ bool DbManager::setGoldenFrequencyActive(int id, bool active) {
 
 bool DbManager::findGoldenSampleForChannel(int freqMhz, int symbolRate, const QString &pol,
                                            double &outCn, double &outPow, double &outTol) {
+    GoldenFrequencyRecord rec;
+    if (!findGoldenSampleRecordForChannel(freqMhz, symbolRate, pol, rec)) {
+        return false;
+    }
+    outCn = rec.goldenCnDb;
+    outPow = rec.goldenPowDbm;
+    outTol = rec.toleranceDb;
+    return true;
+}
+
+bool DbManager::findGoldenSampleRecordForChannel(int freqMhz, int symbolRate, const QString &pol,
+                                                 GoldenFrequencyRecord &outRecord) {
     if (!isConnected()) return false;
+
+    auto readRow = [&](const DbQueryResult &res) -> bool {
+        if (!res.ok || !res.hasRows()) return false;
+        const auto &row = res.first();
+        outRecord.id = row.at(0).toInt();
+        outRecord.label = row.at(1).toString();
+        outRecord.frequencyMhz = row.at(2).toInt();
+        outRecord.symbolRate = row.at(3).toInt();
+        outRecord.polarization = row.at(4).toString();
+        outRecord.goldenCnDb = row.at(5).toDouble();
+        outRecord.goldenPowDbm = row.at(6).toDouble();
+        outRecord.toleranceDb = row.at(7).toDouble();
+        outRecord.isActive = (row.at(8).toInt() != 0);
+        outRecord.updatedAt = row.at(9).toString();
+        outRecord.sampleData = row.at(10).toString();
+        outRecord.durationSec = row.at(11).toInt();
+        return (outRecord.goldenCnDb > 0.1 || qAbs(outRecord.goldenPowDbm) > 0.1);
+    };
 
     // 1. Priority: Exact active frequency + symbol rate + polarization match
     const DbQueryResult exactRes = m_stream->execNamed(
-        "SELECT golden_cn_db, golden_pow_dbm, tolerance_db FROM golden_frequencies "
+        "SELECT id, label, frequency_mhz, symbol_rate, polarization, golden_cn_db, golden_pow_dbm, "
+        "tolerance_db, is_active, updated_at, sample_data, duration_sec FROM golden_frequencies "
         "WHERE frequency_mhz = :f AND symbol_rate = :sr AND polarization = :pol AND is_active = 1 "
         "ORDER BY id DESC LIMIT 1",
         {{":f", freqMhz}, {":sr", symbolRate}, {":pol", pol}});
-    if (exactRes.ok && exactRes.hasRows()) {
-        outCn = exactRes.first().at(0).toDouble();
-        outPow = exactRes.first().at(1).toDouble();
-        outTol = exactRes.first().at(2).toDouble();
-        return (outCn > 0.1 || qAbs(outPow) > 0.1);
+    if (readRow(exactRes)) {
+        return true;
     }
 
     // 2. Secondary: Active frequency + polarization match
     const DbQueryResult secRes = m_stream->execNamed(
-        "SELECT golden_cn_db, golden_pow_dbm, tolerance_db FROM golden_frequencies "
+        "SELECT id, label, frequency_mhz, symbol_rate, polarization, golden_cn_db, golden_pow_dbm, "
+        "tolerance_db, is_active, updated_at, sample_data, duration_sec FROM golden_frequencies "
         "WHERE frequency_mhz = :f AND polarization = :pol AND is_active = 1 "
         "ORDER BY id DESC LIMIT 1",
         {{":f", freqMhz}, {":pol", pol}});
-    if (secRes.ok && secRes.hasRows()) {
-        outCn = secRes.first().at(0).toDouble();
-        outPow = secRes.first().at(1).toDouble();
-        outTol = secRes.first().at(2).toDouble();
-        return (outCn > 0.1 || qAbs(outPow) > 0.1);
-    }
-
-    return false;
+    return readRow(secRes);
 }
 
 QVector<WorkOrderInfo> DbManager::getActiveWorkOrders() {

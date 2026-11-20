@@ -415,8 +415,16 @@ void MariaDbDriver::stopPortableMariaDbIfRunning() {
                 break;
             }
         }
-        if (!m_portableProcess->waitForFinished(4000)) {
+        if (!m_portableProcess->waitForFinished(3000)) {
+            const qint64 pid = m_portableProcess->processId();
             m_portableProcess->kill();
+            if (!m_portableProcess->waitForFinished(2000) && pid > 0) {
+                QProcess::execute(QStringLiteral("taskkill"),
+                                  QStringList() << QStringLiteral("/F")
+                                                << QStringLiteral("/T")
+                                                << QStringLiteral("/PID")
+                                                << QString::number(pid));
+            }
         }
         m_launchedPortableMysqld = false;
     }

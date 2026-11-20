@@ -602,8 +602,6 @@ void HostWindow::setupUi() {
     addNavItem("  📜  Sistem Logları");
     addNavItem("  ⚙️  Sistem Ayarları");
 
-    m_sideNav->setCurrentRow(3);
-
     m_pageStack = new QStackedWidget(splitter);
     setupLobbyPage();
     setupGoldenPage();
@@ -633,6 +631,7 @@ void HostWindow::setupUi() {
     mainLayout->addWidget(splitter, 1);
 
     connect(m_sideNav, &QListWidget::currentRowChanged, this, &HostWindow::onNavItemChanged);
+    m_sideNav->setCurrentRow(0);
 
     // 3. Clean Single-Line Status Bar
     m_statusLabel = new QLabel("Hazır", this);
@@ -1457,6 +1456,16 @@ void HostWindow::onStationStatusUpdated(const StationLiveStatus &status) {
         }
         w.lblSn->setText(status.currentAntennaSn.isEmpty() ? "Anten Barkodu: --" : "Anten Barkodu: " + status.currentAntennaSn);
         w.lblChannel->setText(status.currentChannel > 0 ? QString("Aktif Kanal: %1").arg(status.currentChannel) : "Aktif Kanal: --");
+        if (w.lblState) {
+            const QString stUpper = status.currentState.trimmed().toUpper();
+            if (!stUpper.isEmpty() && stUpper != "IDLE" && stUpper != "BOŞTA") {
+                w.lblState->setText("DURUM: TESTTE (" + status.currentState + ")");
+                w.lblState->setStyleSheet(StyleHelper::getPastelAmberStyle());
+            } else {
+                w.lblState->setText("DURUM: BOŞTA");
+                w.lblState->setStyleSheet(StyleHelper::getPastelGreenStyle());
+            }
+        }
         if (w.lblHeartbeat) {
             w.lblHeartbeat->setText("Son Sinyal: " + status.lastHeartbeat.toString("dd.MM hh:mm:ss"));
         }

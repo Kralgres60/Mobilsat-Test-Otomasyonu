@@ -147,5 +147,8 @@ int main(int argc, char *argv[]) {
         lobbyWin->show();
     }
 
-    return app.exec();
+    const int exitCode = app.exec();
+    DbManager::instance().closeDatabase();
+    DbManager::instance().stopPortableMariaDbIfRunning();
+    return exitCode;
 }

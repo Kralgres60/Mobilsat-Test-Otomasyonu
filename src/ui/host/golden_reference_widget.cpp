@@ -91,17 +91,17 @@ void GoldenReferenceWidget::setupUi() {
     m_spinTargetFreq = new QSpinBox(grpControls);
     m_spinTargetFreq->setRange(950, 14500);
     m_spinTargetFreq->setValue(12000);
-    m_spinTargetFreq->setSuffix(" MHz");
-    m_spinTargetFreq->setFixedWidth(115);
+    m_spinTargetFreq->setFixedWidth(90);
     rowTarget->addWidget(m_spinTargetFreq);
+    rowTarget->addWidget(new QLabel("MHz", grpControls));
 
     rowTarget->addWidget(new QLabel("Sembol Oranı:", grpControls));
     m_spinTargetSr = new QSpinBox(grpControls);
     m_spinTargetSr->setRange(1000, 45000);
     m_spinTargetSr->setValue(30000);
-    m_spinTargetSr->setSuffix(" kS/s");
-    m_spinTargetSr->setFixedWidth(115);
+    m_spinTargetSr->setFixedWidth(90);
     rowTarget->addWidget(m_spinTargetSr);
+    rowTarget->addWidget(new QLabel("kS/s", grpControls));
 
     rowTarget->addWidget(new QLabel("Pol:", grpControls));
     m_comboTargetPol = new QComboBox(grpControls);
@@ -142,27 +142,27 @@ void GoldenReferenceWidget::setupUi() {
     m_spinFixedCn->setRange(0.0, 30.0);
     m_spinFixedCn->setSingleStep(0.1);
     m_spinFixedCn->setValue(14.50);
-    m_spinFixedCn->setSuffix(" dB");
-    m_spinFixedCn->setFixedWidth(90);
+    m_spinFixedCn->setFixedWidth(75);
     rowFixed->addWidget(m_spinFixedCn);
+    rowFixed->addWidget(new QLabel("dB"));
 
     rowFixed->addWidget(new QLabel("Sabit Güç:"));
     m_spinFixedPow = new QDoubleSpinBox(grpControls);
     m_spinFixedPow->setRange(-100.0, 0.0);
     m_spinFixedPow->setSingleStep(0.5);
     m_spinFixedPow->setValue(-42.00);
-    m_spinFixedPow->setSuffix(" dBm");
-    m_spinFixedPow->setFixedWidth(100);
+    m_spinFixedPow->setFixedWidth(80);
     rowFixed->addWidget(m_spinFixedPow);
+    rowFixed->addWidget(new QLabel("dBm"));
 
     rowFixed->addWidget(new QLabel("Tolerans:"));
     m_spinFixedTol = new QDoubleSpinBox(grpControls);
     m_spinFixedTol->setRange(0.10, 10.0);
     m_spinFixedTol->setSingleStep(0.1);
     m_spinFixedTol->setValue(1.50);
-    m_spinFixedTol->setSuffix(" dB");
-    m_spinFixedTol->setFixedWidth(85);
+    m_spinFixedTol->setFixedWidth(70);
     rowFixed->addWidget(m_spinFixedTol);
+    rowFixed->addWidget(new QLabel("dB"));
 
     m_btnAddFixed = new QPushButton("➕ Sabit Değer Kaydet", grpControls);
     m_btnAddFixed->setCursor(Qt::PointingHandCursor);
@@ -285,6 +285,10 @@ void GoldenReferenceWidget::setupMiniPlot() {
     m_miniPlot->setInteractions(QCP::iRangeDrag | QCP::iRangeZoom);
     m_miniPlot->axisRect()->setRangeDrag(Qt::Horizontal);
     m_miniPlot->axisRect()->setRangeZoom(Qt::Horizontal);
+
+    connect(m_miniPlot, &QCustomPlot::mousePress, this, &GoldenReferenceWidget::onMiniPlotMousePress);
+    connect(m_miniPlot, &QCustomPlot::mouseMove, this, &GoldenReferenceWidget::onMiniPlotMouseMove);
+    connect(m_miniPlot, &QCustomPlot::mouseRelease, this, &GoldenReferenceWidget::onMiniPlotMouseRelease);
 }
 
 void GoldenReferenceWidget::setActiveReferenceMode(ReferenceMode mode) {
@@ -371,6 +375,8 @@ void GoldenReferenceWidget::refreshActiveGoldenUi() {
 
 void GoldenReferenceWidget::onReferenceTelemetryReceived(double powDbm, double cnDb) {
     if (!m_isRecording) return;
+    // Ignore unlocked / tuning-transient 0.0 dB samples during live recording
+    if (cnDb <= 0.05) return;
 
     m_currentRecCn.append(cnDb);
     m_currentRecPow.append(powDbm);
@@ -704,6 +710,142 @@ void GoldenReferenceWidget::updateMiniPlotForRecord(const GoldenFrequencyRecord 
     m_miniPlot->graph(2)->setData(xKeys, yUpper);
     m_miniPlot->graph(3)->setData(xKeys, yLower);
     m_miniPlot->replot();
+}
+
+void GoldenReferenceWidget::onMiniPlotMousePress(QMouseEvent *event) {
+    if (!m_miniPlot || m_isRecording || event->button() != Qt::LeftButton) return;
+    if (!m_tableMeasurements || m_tableMeasurements->currentRow() < 0) return;
+
+    auto data = m_miniPlot->graph(0)->data();
+    if (!data || data->isEmpty()) return;
+
+    int bestIdx = -1;
+    double bestDistSq = 18.0 * 18.0; // 18px hit radius around scatter dot
+    int idx = 0;
+    for (auto it = data->constBegin(); it != data->constEnd(); ++it, ++idx) {
+        const double px = m_miniPlot->xAxis->coordToPixel(it->key);
+        const double py = m_miniPlot->yAxis->coordToPixel(it->value);
+        const double dx = event->pos().x() - px;
+        const double dy = event->pos().y() - py;
+        const double distSq = dx * dx + dy * dy;
+        if (distSq <= bestDistSq) {
+            bestDistSq = distSq;
+            bestIdx = idx;
+        }
+    }
+
+    if (bestIdx >= 0) {
+        m_draggingSampleIndex = bestIdx;
+        m_dragLastIndex = bestIdx;
+        m_shiftLockActive = (event->modifiers() & Qt::ShiftModifier);
+        m_shiftLockValue = data->at(bestIdx)->value;
+        m_miniPlot->setInteraction(QCP::iRangeDrag, false);
+        m_miniPlot->setCursor(Qt::SizeVerCursor);
+    }
+}
+
+void GoldenReferenceWidget::onMiniPlotMouseMove(QMouseEvent *event) {
+    if (m_draggingSampleIndex < 0 || !m_miniPlot) return;
+
+    auto data = m_miniPlot->graph(0)->data();
+    if (!data || m_draggingSampleIndex >= data->size()) return;
+
+    const bool shiftNow = (event->modifiers() & Qt::ShiftModifier);
+    if (shiftNow && !m_shiftLockActive) {
+        m_shiftLockValue = qBound(0.0, m_miniPlot->yAxis->pixelToCoord(event->pos().y()), 35.0);
+        m_shiftLockActive = true;
+    } else if (!shiftNow) {
+        m_shiftLockActive = false;
+    }
+
+    const double newCn = m_shiftLockActive
+                             ? m_shiftLockValue
+                             : qBound(0.0, m_miniPlot->yAxis->pixelToCoord(event->pos().y()), 35.0);
+
+    int fromIdx = m_draggingSampleIndex;
+    int toIdx = m_draggingSampleIndex;
+    if (m_shiftLockActive) {
+        const double xCoord = m_miniPlot->xAxis->pixelToCoord(event->pos().x());
+        const int hoverIdx = qBound(0, qRound(xCoord), data->size() - 1);
+        fromIdx = (m_dragLastIndex >= 0 && m_dragLastIndex < data->size())
+                      ? qMin(m_dragLastIndex, hoverIdx)
+                      : hoverIdx;
+        toIdx = (m_dragLastIndex >= 0 && m_dragLastIndex < data->size())
+                    ? qMax(m_dragLastIndex, hoverIdx)
+                    : hoverIdx;
+        m_dragLastIndex = hoverIdx;
+    }
+
+    QVector<double> xKeys, yVals;
+    xKeys.reserve(data->size());
+    yVals.reserve(data->size());
+    int idx = 0;
+    double sum = 0.0;
+    for (auto it = data->constBegin(); it != data->constEnd(); ++it, ++idx) {
+        const double y = (idx >= fromIdx && idx <= toIdx) ? newCn : it->value;
+        xKeys.append(it->key);
+        yVals.append(y);
+        sum += y;
+    }
+
+    const double avgCn = sum / yVals.size();
+    const int row = m_tableMeasurements->currentRow();
+    const double tol = (row >= 0 && row < m_records.size()) ? m_records[row].toleranceDb : 1.50;
+
+    QVector<double> yAvg(yVals.size(), avgCn);
+    QVector<double> yUpper(yVals.size(), avgCn + tol);
+    QVector<double> yLower(yVals.size(), qMax(0.0, avgCn - tol));
+
+    m_miniPlot->graph(0)->setData(xKeys, yVals);
+    m_miniPlot->graph(1)->setData(xKeys, yAvg);
+    m_miniPlot->graph(2)->setData(xKeys, yUpper);
+    m_miniPlot->graph(3)->setData(xKeys, yLower);
+    if (m_lblPlotTitle && row >= 0 && row < m_records.size()) {
+        m_lblPlotTitle->setText(QString("📊 Seçili Ölçüm Analiz Grafiği: %1  |  Ort. C/N: %2 dB  |  Güç: %3 dBm  |  Tolerans: ±%4 dB")
+                                    .arg(m_records[row].label)
+                                    .arg(avgCn, 0, 'f', 2)
+                                    .arg(m_records[row].goldenPowDbm, 0, 'f', 2)
+                                    .arg(tol, 0, 'f', 2));
+    }
+    m_miniPlot->replot();
+}
+
+void GoldenReferenceWidget::onMiniPlotMouseRelease(QMouseEvent *event) {
+    Q_UNUSED(event);
+    if (m_draggingSampleIndex < 0 || !m_miniPlot) return;
+    m_draggingSampleIndex = -1;
+    m_dragLastIndex = -1;
+    m_shiftLockActive = false;
+    m_miniPlot->setInteraction(QCP::iRangeDrag, true);
+    m_miniPlot->unsetCursor();
+
+    if (!m_tableMeasurements) return;
+    const int row = m_tableMeasurements->currentRow();
+    if (row < 0 || row >= m_tableMeasurements->rowCount()) return;
+
+    auto data = m_miniPlot->graph(0)->data();
+    if (!data || data->isEmpty()) return;
+
+    QStringList tokens;
+    double sum = 0.0;
+    for (auto it = data->constBegin(); it != data->constEnd(); ++it) {
+        tokens << QString::number(it->value, 'f', 2);
+        sum += it->value;
+    }
+    const double avgCn = sum / data->size();
+    const QString curveStr = tokens.join(',');
+
+    if (row < m_records.size()) {
+        m_records[row].sampleData = curveStr;
+        m_records[row].goldenCnDb = avgCn;
+    }
+    if (auto *spinCn = qobject_cast<QDoubleSpinBox*>(m_tableMeasurements->cellWidget(row, 5))) {
+        spinCn->blockSignals(true);
+        spinCn->setValue(avgCn);
+        spinCn->blockSignals(false);
+    }
+    autoSaveRow(row);
+    emit logMessage(QString("[Golden Reference] Grafik noktası güncellendi ve veritabanına kaydedildi (Yeni Ort. C/N: %1 dB).").arg(avgCn, 0, 'f', 2));
 }
 
 void GoldenReferenceWidget::populateRow(int row, const GoldenFrequencyRecord &rec) {

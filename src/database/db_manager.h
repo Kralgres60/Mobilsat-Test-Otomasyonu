@@ -119,8 +119,13 @@ public:
      */
     bool setGoldenFrequencyActive(int id, bool active);
     /** @brief Looks up an active Host Golden Sample measurement matching a transponder frequency/sr/pol. */
+    /** @brief Finds active Golden Reference baseline values for a channel (frequency, symbol rate, polarization). */
     bool findGoldenSampleForChannel(int freqMhz, int symbolRate, const QString &pol,
                                     double &outCn, double &outPow, double &outTol);
+
+    /** @brief Finds full active Golden Reference record (including curve samples and duration) for a channel. */
+    bool findGoldenSampleRecordForChannel(int freqMhz, int symbolRate, const QString &pol,
+                                          GoldenFrequencyRecord &outRecord);
 
     // Work Order Management
     QVector<WorkOrderInfo> getActiveWorkOrders();

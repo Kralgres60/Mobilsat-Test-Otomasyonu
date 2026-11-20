@@ -73,6 +73,9 @@ private slots:
     void onTableSelectionChanged();
     /** @brief Displays context menu for deleting or toggling active state on right-click. */
     void showTableContextMenu(const QPoint &pos);
+    void onMiniPlotMousePress(QMouseEvent *event);
+    void onMiniPlotMouseMove(QMouseEvent *event);
+    void onMiniPlotMouseRelease(QMouseEvent *event);
 
 protected:
     /** @brief Handles Delete key, empty-space collapse, and Shift+Scroll vertical zoom. */
@@ -135,6 +138,10 @@ private:
 
     QVector<GoldenFrequencyRecord> m_records;
     bool m_isPopulating = false; ///< Guards against auto-save triggers during table reload
+    int m_draggingSampleIndex = -1;
+    int m_dragLastIndex = -1;
+    bool m_shiftLockActive = false;
+    double m_shiftLockValue = 0.0;
 };
 
 #endif // GOLDEN_REFERENCE_WIDGET_H

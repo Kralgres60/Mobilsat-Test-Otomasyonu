@@ -38,6 +38,7 @@
 #include <QSplitter>
 #include <QFrame>
 #include <QToolTip>
+#include <QWheelEvent>
 #include <QMouseEvent>
 
 ClientWindow::ClientWindow(QWidget *parent)
@@ -665,8 +666,8 @@ void ClientWindow::setupProductionPage() {
     m_lblLockBanner = new QLabel("⚪ Kilit: Bekleniyor", grpStation);
     m_lblLockBanner->setStyleSheet(StyleHelper::getPastelSlateStyle());
 
-    m_lblRefModeBadge = new QLabel("🟢 Ref: Canlı Anten", grpStation);
-    m_lblRefModeBadge->setStyleSheet(StyleHelper::getPastelGreenStyle());
+    m_lblRefModeBadge = new QLabel("📡 Ref: Yönetici (Host)", grpStation);
+    m_lblRefModeBadge->setStyleSheet(StyleHelper::getPastelBlueStyle());
 
     badgeRow->addWidget(m_lblStationBadge, 1);
     badgeRow->addWidget(m_lblConnectionStatus, 1);
@@ -754,10 +755,13 @@ void ClientWindow::setupProductionPage() {
     m_comboTestMode->addItem("🟢 Canlı Test (Referans Anten)", "LIVE");
     m_comboTestMode->addItem("💾 Kayıtlı Test (Golden Referans)", "GOLDEN");
     m_comboTestMode->setStyleSheet("font-weight: bold; padding: 4px;");
+    m_comboTestMode->setEnabled(false);
+    m_comboTestMode->setToolTip("Test/Referans modu yalnızca Yönetici PC (Host) tarafından belirlenir.");
 
     m_comboGoldenRecord = new QComboBox(grpLaunch);
     m_comboGoldenRecord->setStyleSheet("padding: 4px;");
-    m_comboGoldenRecord->setToolTip("Test sırasında referans alınacak Golden Reference kaydını seçiniz");
+    m_comboGoldenRecord->setEnabled(false);
+    m_comboGoldenRecord->setToolTip("Aktif Golden Reference kaydı yalnızca Yönetici PC (Host) tarafından belirlenir.");
 
     QPushButton *btnRefreshGolden = new QPushButton("🔄", grpLaunch);
     btnRefreshGolden->setToolTip("Kayıtlı Golden Referans listesini veritabanından yenile");
@@ -772,7 +776,9 @@ void ClientWindow::setupProductionPage() {
     m_lblTestModeHint = new QLabel("🟢 Normal referans anten ile canlı karşılaştırmalı test yapılacaktır.", grpLaunch);
     m_lblTestModeHint->setStyleSheet("color: #34D399; font-size: 8.5pt; font-style: italic;");
 
-    QVBoxLayout *modeBox = new QVBoxLayout();
+    QWidget *hiddenModeHolder = new QWidget(grpLaunch);
+    hiddenModeHolder->setVisible(false);
+    QVBoxLayout *modeBox = new QVBoxLayout(hiddenModeHolder);
     modeBox->setSpacing(3);
     modeBox->addLayout(modeRow);
     modeBox->addWidget(m_lblTestModeHint);
@@ -793,11 +799,16 @@ void ClientWindow::setupProductionPage() {
     if (!AppConfig::instance().lastAntennaSn().isEmpty()) {
         m_txtAntennaSn->setText(AppConfig::instance().lastAntennaSn());
     }
+    connect(m_txtAntennaSn, &QLineEdit::editingFinished, this, [this]() {
+        const QString sn = m_txtAntennaSn->text().trimmed();
+        if (!sn.isEmpty()) {
+            AppConfig::instance().setLastAntennaSn(sn);
+        }
+    });
     connect(m_txtAntennaSn, &QLineEdit::returnPressed, this, &ClientWindow::onStartTestClicked);
 
     launchForm->addRow(new QLabel("İş Emri:", grpLaunch), m_comboOrders);
     launchForm->addRow(new QLabel("Uydu Profili:", grpLaunch), profRow);
-    launchForm->addRow(new QLabel("Test / Referans Modu:", grpLaunch), modeBox);
     launchForm->addRow(new QLabel("Testi Yapan İsim *:", grpLaunch), m_txtTesterName);
     launchForm->addRow(new QLabel("Barkod / Seri No *:", grpLaunch), m_txtAntennaSn);
 
@@ -1234,31 +1245,34 @@ void ClientWindow::setupPlot() {
     m_plot->graph(0)->setPen(QPen(QColor("#34D399"), 2.5));
     m_plot->graph(0)->setName("DUT C/N (Test Anteni)");
 
-    // Graph 1: Live Reference Dish
+    // Graph 1: Unified Reference C/N (provided/decided by Host)
     m_plot->addGraph();
     m_plot->graph(1)->setPen(QPen(QColor("#60A5FA"), 2.0));
-    m_plot->graph(1)->setName("REF C/N (Canlı Referans)");
+    m_plot->graph(1)->setName("REF C/N (Referans)");
 
-    // Graph 2: Golden Sample Baseline Overlay Curve
+    // Graph 2: Legacy Golden overlay slot (kept hidden; unified into Graph 1)
     m_plot->addGraph();
     QPen goldenPen(QColor("#F59E0B"), 2.0, Qt::DashLine);
     m_plot->graph(2)->setPen(goldenPen);
     m_plot->graph(2)->setName("🌟 Golden Referans Eğrisi");
     m_plot->graph(2)->setVisible(false);
+    m_plot->graph(2)->removeFromLegend();
 
-    // Graph 3: Upper Tolerance Bound (+Tol)
+    // Graph 3: Upper Tolerance Bound (+Tol) - hidden for clean Golden line display
     m_plot->addGraph();
     QPen upperPen(QColor(239, 68, 68, 160), 1.2, Qt::DotLine);
     m_plot->graph(3)->setPen(upperPen);
     m_plot->graph(3)->setName("Tolerans Üst Sınır (+Tol)");
     m_plot->graph(3)->setVisible(false);
+    m_plot->graph(3)->removeFromLegend();
 
-    // Graph 4: Lower Tolerance Bound (-Tol)
+    // Graph 4: Lower Tolerance Bound (-Tol) - hidden for clean Golden line display
     m_plot->addGraph();
     QPen lowerPen(QColor(239, 68, 68, 160), 1.2, Qt::DotLine);
     m_plot->graph(4)->setPen(lowerPen);
     m_plot->graph(4)->setName("Tolerans Alt Sınır (-Tol)");
     m_plot->graph(4)->setVisible(false);
+    m_plot->graph(4)->removeFromLegend();
 
     // Tolerance corridor: fill area between graph 3 and graph 4
     m_plot->graph(3)->setChannelFillGraph(m_plot->graph(4));
@@ -1277,8 +1291,9 @@ void ClientWindow::setupPlot() {
     m_plot->legend->setTextColor(QColor("#E6F4EE"));
 
     m_plot->setInteractions(QCP::iRangeDrag | QCP::iRangeZoom);
-    m_plot->axisRect()->setRangeDrag(Qt::Horizontal);
+    m_plot->axisRect()->setRangeDrag(Qt::Horizontal | Qt::Vertical);
     m_plot->axisRect()->setRangeZoom(Qt::Horizontal);
+    m_plot->installEventFilter(this);
 
     m_plotTracer = new QCPItemTracer(m_plot);
     m_plotTracer->setGraph(m_plot->graph(0));
@@ -1332,6 +1347,8 @@ void ClientWindow::clearPlotBands() {
 void ClientWindow::jumpPlotToLatest() {
     if (!m_plot) return;
     m_plotAutoFollow = true;
+    m_plotManualVerticalZoom = false;
+    m_plot->yAxis->setRange(0, 22);
     if (m_btnPlotFollowLatest) m_btnPlotFollowLatest->setVisible(false);
 
     const int count = m_plot->graph(0)->dataCount();
@@ -1397,15 +1414,17 @@ void ClientWindow::onPlotMouseMove(QMouseEvent *event) {
     m_plot->replot(QCustomPlot::rpQueuedReplot);
 }
 
-void ClientWindow::loadGoldenOverlayCurve(const GoldenFrequencyRecord &rec) {
+void ClientWindow::loadGoldenOverlayCurve(const GoldenFrequencyRecord &rec, double startOffsetX) {
     if (!m_plot) return;
 
     m_isGoldenModeActive = true;
     m_activeGoldenRecord = rec;
 
-    m_plot->graph(2)->data()->clear();
-    m_plot->graph(3)->data()->clear();
-    m_plot->graph(4)->data()->clear();
+    if (startOffsetX <= 0.0) {
+        m_plot->graph(2)->data()->clear();
+        m_plot->graph(3)->data()->clear();
+        m_plot->graph(4)->data()->clear();
+    }
 
     double tol = rec.toleranceDb > 0 ? rec.toleranceDb : m_currentProfile.defaultToleranceDb;
     if (tol <= 0) tol = 1.0;
@@ -1415,14 +1434,16 @@ void ClientWindow::loadGoldenOverlayCurve(const GoldenFrequencyRecord &rec) {
     QString rawSamples = rec.sampleData.trimmed();
     if (!rawSamples.isEmpty()) {
         QStringList tokens = rawSamples.split(',', Qt::SkipEmptyParts);
+        int idx = 0;
         for (int i = 0; i < tokens.size(); ++i) {
             bool ok = false;
             double v = tokens[i].trimmed().toDouble(&ok);
-            if (ok) {
-                xVals.append(i);
+            if (ok && v > 0.05) {
+                xVals.append(startOffsetX + idx);
                 yVals.append(v);
                 upperVals.append(v + tol);
                 lowerVals.append(v - tol);
+                ++idx;
             }
         }
     }
@@ -1430,26 +1451,43 @@ void ClientWindow::loadGoldenOverlayCurve(const GoldenFrequencyRecord &rec) {
     // If no curve samples available (e.g. fixed value baseline), synthesize a flat corridor
     if (xVals.isEmpty()) {
         double baseline = rec.goldenCnDb > 0 ? rec.goldenCnDb : 12.0;
-        int pts = qMax(15, rec.durationSec > 0 ? rec.durationSec * 5 : 25);
+        int pts = qMax(15, rec.durationSec > 0 ? rec.durationSec * 4 : 20);
         for (int i = 0; i <= pts; ++i) {
-            xVals.append(i);
+            xVals.append(startOffsetX + i);
             yVals.append(baseline);
             upperVals.append(baseline + tol);
             lowerVals.append(baseline - tol);
         }
     }
 
-    m_plot->graph(2)->setData(xVals, yVals);
-    m_plot->graph(3)->setData(xVals, upperVals);
-    m_plot->graph(4)->setData(xVals, lowerVals);
+    if (startOffsetX <= 0.0) {
+        m_plot->graph(2)->setData(xVals, yVals);
+        m_plot->graph(3)->setData(xVals, upperVals);
+        m_plot->graph(4)->setData(xVals, lowerVals);
+    } else {
+        m_plot->graph(2)->addData(xVals, yVals);
+        m_plot->graph(3)->addData(xVals, upperVals);
+        m_plot->graph(4)->addData(xVals, lowerVals);
+    }
 
-    m_plot->graph(1)->setVisible(false); // Hide live reference when overlaying golden
+    m_plot->graph(1)->setVisible(true); // Keep live reference visible for hybrid golden+live tests
     m_plot->graph(2)->setVisible(true);
-    m_plot->graph(3)->setVisible(true);
-    m_plot->graph(4)->setVisible(true);
+    m_plot->graph(3)->setVisible(false);
+    m_plot->graph(4)->setVisible(false);
 
-    int maxPts = qMax(30, xVals.size() + 5);
-    m_plot->xAxis->setRange(0, maxPts);
+    if (startOffsetX <= 0.0) {
+        int maxPts = qMax(30, xVals.size() + 5);
+        m_plot->xAxis->setRange(0, maxPts);
+        if (!yVals.isEmpty()) {
+            double minY = yVals.first();
+            double maxY = yVals.first();
+            for (int i = 0; i < yVals.size(); ++i) {
+                minY = qMin(minY, yVals[i]);
+                maxY = qMax(maxY, yVals[i]);
+            }
+            m_plot->yAxis->setRange(qMax(0.0, minY - 2.0), maxY + 2.0);
+        }
+    }
     m_plot->replot();
 }
 
@@ -1606,18 +1644,13 @@ void ClientWindow::onReferenceModeChanged(ReferenceMode mode) {
         m_stateMachine->setReferenceMode(mode);
     }
     if (m_lblRefModeBadge) {
-        if (mode == ReferenceMode::GoldenSample) {
-            m_lblRefModeBadge->setText("🌟 Ref: Golden Sample");
-            m_lblRefModeBadge->setStyleSheet(StyleHelper::getPastelAmberStyle());
-        } else {
-            m_lblRefModeBadge->setText("🟢 Ref: Canlı Anten");
-            m_lblRefModeBadge->setStyleSheet(StyleHelper::getPastelGreenStyle());
-        }
+        m_lblRefModeBadge->setText("📡 Ref: Yönetici (Host)");
+        m_lblRefModeBadge->setStyleSheet(StyleHelper::getPastelBlueStyle());
     }
 
     if (mode == ReferenceMode::GoldenSample) {
         if (m_comboGoldenRecord) {
-            m_comboGoldenRecord->setEnabled(true);
+            m_comboGoldenRecord->setEnabled(false);
         }
         reloadGoldenRecordsList();
     } else {
@@ -1639,7 +1672,9 @@ void ClientWindow::onReferenceModeChanged(ReferenceMode mode) {
         }
     }
 
-    populateChannelTable();
+    if (!m_hasFinishedTestResults) {
+        populateChannelTable();
+    }
 }
 
 void ClientWindow::onTestModeComboChanged(int /*index*/) {
@@ -1715,8 +1750,10 @@ void ClientWindow::onGoldenRecordComboChanged(int /*index*/) {
         if (m_stateMachine) {
             m_stateMachine->setSelectedGoldenRecord(selected);
         }
-        loadGoldenOverlayCurve(selected);
-        populateChannelTable();
+        m_activeGoldenRecord = selected;
+        if (!m_hasFinishedTestResults) {
+            populateChannelTable();
+        }
         if (m_lblTestModeHint) {
             QString freqDesc = QString("%1 MHz %2").arg(selected.frequencyMhz).arg(selected.polarization);
             if (selected.durationSec > 0) {
@@ -1737,11 +1774,15 @@ void ClientWindow::onGoldenRecordComboChanged(int /*index*/) {
             }
         }
     } else {
-        clearGoldenOverlay();
+        if (!m_hasFinishedTestResults) {
+            clearGoldenOverlay();
+        }
         if (m_stateMachine) {
             m_stateMachine->setSelectedGoldenRecord(GoldenFrequencyRecord());
         }
-        populateChannelTable();
+        if (!m_hasFinishedTestResults) {
+            populateChannelTable();
+        }
         if (m_lblTestModeHint) {
             m_lblTestModeHint->setText("ℹ️ Genel Golden Mod: Her kanal için veritabanında veya profilde tanımlı frekansa özel kayıt aranır; bulunamayanlar canlı ölçülür.");
             m_lblTestModeHint->setStyleSheet("color: #38BDF8; font-size: 8.5pt;");
@@ -1751,6 +1792,7 @@ void ClientWindow::onGoldenRecordComboChanged(int /*index*/) {
 
 void ClientWindow::populateChannelTable() {
     int count = m_currentProfile.channels.isEmpty() ? 10 : m_currentProfile.channels.size();
+    m_tableChannels->setRowCount(0);
     m_tableChannels->setRowCount(count);
     m_progressTest->setRange(0, count);
     m_progressTest->setValue(0);
@@ -1797,20 +1839,16 @@ void ClientWindow::populateChannelTable() {
         }
 
         QTableWidgetItem *itName = new QTableWidgetItem(chLabel);
-        QTableWidgetItem *itDut = new QTableWidgetItem("-- dB");
+        QTableWidgetItem *itDut = new QTableWidgetItem("");
         itDut->setTextAlignment(Qt::AlignCenter);
-        QTableWidgetItem *itRef = new QTableWidgetItem(refPreview);
+        QTableWidgetItem *itRef = new QTableWidgetItem("");
         itRef->setTextAlignment(Qt::AlignCenter);
-        if (isGoldenMode) {
-            itRef->setForeground(QBrush(QColor(hasGoldenForThisChannel ? "#FBBF24" : "#34D399")));
-        }
-        QTableWidgetItem *itDelta = new QTableWidgetItem("--");
+        QTableWidgetItem *itDelta = new QTableWidgetItem("");
         itDelta->setTextAlignment(Qt::AlignCenter);
-        QTableWidgetItem *itLock = new QTableWidgetItem("S:- V:-");
+        QTableWidgetItem *itLock = new QTableWidgetItem("");
         itLock->setTextAlignment(Qt::AlignCenter);
-        QTableWidgetItem *itStat = new QTableWidgetItem("BEKLİYOR");
+        QTableWidgetItem *itStat = new QTableWidgetItem("");
         itStat->setTextAlignment(Qt::AlignCenter);
-        itStat->setForeground(QBrush(QColor("#94A3B8")));
 
         m_tableChannels->setItem(i, 0, itIdx);
         m_tableChannels->setItem(i, 1, itName);
@@ -2102,6 +2140,8 @@ void ClientWindow::onStartTestClicked() {
 
     GoldenFrequencyRecord selectedGolden;
     if (activeRefMode == ReferenceMode::GoldenSample) {
+        // Always reload latest Golden records from DB so edits on Host take effect immediately
+        reloadGoldenRecordsList();
         int recId = (m_comboGoldenRecord) ? m_comboGoldenRecord->currentData().toInt() : 0;
         for (const auto &r : m_cachedGoldenRecords) {
             if (r.id == recId) {
@@ -2132,8 +2172,21 @@ void ClientWindow::onStartTestClicked() {
     resetLiveTelemetryPills();
     onClearGraphClicked();
 
+    if (m_btnOpenLastPdf) {
+        m_btnOpenLastPdf->setEnabled(false);
+    }
+    m_lastGeneratedPdfPath.clear();
+
+    // Clear any preview golden overlay at X=0; it will be plotted on the exact matching channel band
+    if (m_plot) {
+        m_plot->graph(2)->data()->clear();
+        m_plot->graph(3)->data()->clear();
+        m_plot->graph(4)->data()->clear();
+        m_plot->replot();
+    }
     if (activeRefMode == ReferenceMode::GoldenSample && selectedGolden.id > 0) {
-        loadGoldenOverlayCurve(selectedGolden);
+        m_isGoldenModeActive = true;
+        m_activeGoldenRecord = selectedGolden;
     } else {
         clearGoldenOverlay();
     }
@@ -2141,17 +2194,19 @@ void ClientWindow::onStartTestClicked() {
     m_resultBannerFrame->setStyleSheet("QFrame#resultBannerFrame { background-color: #112D21; border: 2px solid #10B981; border-radius: 6px; padding: 6px; } QFrame#resultBannerFrame QLabel { border: none; padding: 0px; background: transparent; }");
     m_lblOverallResult->setText("TEST DEVAM EDİYOR");
     m_lblOverallResult->setStyleSheet("font-size: 20pt; font-weight: bold; color: #34D399;");
-    m_lblOverallDetails->setText(activeRefMode == ReferenceMode::GoldenSample ? "Kayıtlı referans testi başlatılıyor..." : "Referans kilidi talep ediliyor...");
+    m_lblOverallDetails->setText("Referans verisi bekleniyor...");
 
     m_btnStartTest->setEnabled(false);
     m_btnAbortTest->setEnabled(true);
-    setStatusMessage(QString("Test başlatıldı (%1): Seri No %2")
-                         .arg(activeRefMode == ReferenceMode::GoldenSample ? "Kayıtlı Golden Test" : "Canlı Referans Anten")
-                         .arg(sn));
+    if (m_txtTesterName) m_txtTesterName->setEnabled(false);
+    if (m_txtAntennaSn) m_txtAntennaSn->setEnabled(false);
+    setStatusMessage(QString("Test başlatıldı: Seri No %1").arg(sn));
 
     if (!m_stateMachine->startTest(sn, m_currentProfile, woId, 0, testerName, activeRefMode, selectedGolden)) {
         m_btnStartTest->setEnabled(true);
         m_btnAbortTest->setEnabled(false);
+        if (m_txtTesterName) m_txtTesterName->setEnabled(true);
+        if (m_txtAntennaSn) m_txtAntennaSn->setEnabled(true);
         m_resultBannerFrame->setStyleSheet("QFrame#resultBannerFrame { background-color: #112D21; border: 1px solid #1A3D2B; border-radius: 6px; padding: 6px; } QFrame#resultBannerFrame QLabel { border: none; padding: 0px; background: transparent; }");
         m_lblOverallResult->setText("BEKLEMEDE");
         m_lblOverallResult->setStyleSheet("font-size: 20pt; font-weight: bold; color: #A7C4B5;");
@@ -2256,6 +2311,12 @@ void ClientWindow::onChannelStarted(int channelNo, const QString &name, int freq
         m_activeBandStartX = startX;
         m_plotBandRects.append(band);
         m_plotBandLabels.append(lbl);
+
+        // Reference mode is managed centrally by Host; plot unified REF C/N curve on graph(1)
+        m_currentChannelUsesGoldenGraph = false;
+        m_plot->graph(2)->setVisible(false);
+        m_plot->graph(3)->setVisible(false);
+        m_plot->graph(4)->setVisible(false);
     }
 }
 
@@ -2279,8 +2340,19 @@ void ClientWindow::onChannelSampleUpdated(int channelNo, double dutCn, double du
 
     int count = m_plot->graph(0)->dataCount();
     m_plot->graph(0)->addData(count, dutCn);
-    if (!m_isGoldenModeActive) {
+    if (m_currentChannelUsesGoldenGraph) {
+        m_plot->graph(1)->addData(count, qQNaN());
+        const double tol = (m_activeGoldenRecord.toleranceDb > 0)
+                               ? m_activeGoldenRecord.toleranceDb
+                               : m_currentProfile.defaultToleranceDb;
+        m_plot->graph(2)->addData(count, refCn);
+        m_plot->graph(3)->addData(count, refCn + tol);
+        m_plot->graph(4)->addData(count, qMax(0.0, refCn - tol));
+    } else {
         m_plot->graph(1)->addData(count, refCn);
+        m_plot->graph(2)->addData(count, qQNaN());
+        m_plot->graph(3)->addData(count, qQNaN());
+        m_plot->graph(4)->addData(count, qQNaN());
     }
 
     if (m_activeBandRect) {
@@ -2288,6 +2360,14 @@ void ClientWindow::onChannelSampleUpdated(int channelNo, double dutCn, double du
         m_activeBandRect->bottomRight->setCoords(endX, 1.0);
         if (m_activeBandLabel) {
             m_activeBandLabel->position->setCoords((m_activeBandStartX + endX) * 0.5, 0.03);
+        }
+    }
+
+    const double peakCn = qMax(dutCn, refCn);
+    if (!m_plotManualVerticalZoom || peakCn >= m_plot->yAxis->range().upper) {
+        const double neededTop = peakCn + 3.0;
+        if (neededTop > m_plot->yAxis->range().upper) {
+            m_plot->yAxis->setRangeUpper(neededTop);
         }
     }
 
@@ -2362,6 +2442,8 @@ void ClientWindow::onWaitingForLockUpdate(int queuePos, int activeStation) {
 void ClientWindow::onTestFinished(const TestRunData &finalResult) {
     m_btnStartTest->setEnabled(true);
     m_btnAbortTest->setEnabled(false);
+    if (m_txtTesterName) m_txtTesterName->setEnabled(true);
+    if (m_txtAntennaSn) m_txtAntennaSn->setEnabled(true);
     m_hasFinishedTestResults = true;
 
     if (finalResult.overallResult == "PASS") {
@@ -2503,19 +2585,17 @@ void ClientWindow::onClearGraphClicked() {
     if (m_plotTracer) m_plotTracer->setVisible(false);
     clearPlotBands();
     m_plotAutoFollow = true;
+    m_plotManualVerticalZoom = false;
+    m_plot->yAxis->setRange(0, 22);
     if (m_btnPlotFollowLatest) m_btnPlotFollowLatest->setVisible(false);
 
-    if (m_isGoldenModeActive && m_activeGoldenRecord.id > 0) {
-        loadGoldenOverlayCurve(m_activeGoldenRecord);
-    } else {
-        m_plot->graph(2)->data()->clear();
-        m_plot->graph(3)->data()->clear();
-        m_plot->graph(4)->data()->clear();
-        m_plotUpdatingRange = true;
-        m_plot->xAxis->setRange(0, 45);
-        m_plotUpdatingRange = false;
-        m_plot->replot();
-    }
+    m_plot->graph(2)->data()->clear();
+    m_plot->graph(3)->data()->clear();
+    m_plot->graph(4)->data()->clear();
+    m_plotUpdatingRange = true;
+    m_plot->xAxis->setRange(0, 45);
+    m_plotUpdatingRange = false;
+    m_plot->replot();
 }
 
 void ClientWindow::onClearLogClicked() {
@@ -2635,4 +2715,17 @@ void ClientWindow::onReturnLobbyClicked() {
     LobbyWindow *lobbyWin = new LobbyWindow();
     lobbyWin->show();
     this->close();
+}
+
+bool ClientWindow::eventFilter(QObject *watched, QEvent *event) {
+    if (watched == m_plot && event && event->type() == QEvent::Wheel) {
+        auto *wheelEvent = static_cast<QWheelEvent *>(event);
+        if (wheelEvent->modifiers() & Qt::ControlModifier) {
+            m_plot->axisRect()->setRangeZoom(Qt::Vertical);
+            m_plotManualVerticalZoom = true;
+        } else {
+            m_plot->axisRect()->setRangeZoom(Qt::Horizontal);
+        }
+    }
+    return QMainWindow::eventFilter(watched, event);
 }

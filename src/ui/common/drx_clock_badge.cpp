@@ -19,6 +19,9 @@ DrxClockBadge::DrxClockBadge(QWidget *parent)
     m_lblClock = new QLabel(this);
     m_lblClock->setAlignment(Qt::AlignCenter);
     m_lblClock->setCursor(Qt::PointingHandCursor);
+    m_lblClock->setFixedWidth(168);
+    m_lblClock->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     lay->addWidget(m_lblClock);
 
     // Setup opacity effect for pulse animation
@@ -76,8 +79,9 @@ void DrxClockBadge::setConnected(bool connected) {
     } else if (m_lastTimeStr.isEmpty()) {
         m_lblClock->setText("🕒 DRX: Bağlandı");
         m_lblClock->setStyleSheet(
-            "background-color: #064E3B; border: 1px solid #10B981; color: #34D399; "
-            "padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 9pt;");
+            "background-color: #064E3B; border: 1.5px solid #10B981; color: #34D399; "
+            "padding: 4px 8px; border-radius: 6px; font-weight: bold; font-size: 9pt; "
+            "font-family: 'Consolas', 'Courier New', monospace;");
     }
 }
 
@@ -87,15 +91,17 @@ void DrxClockBadge::resetClock() {
     m_lblClock->setText("🕒 DRX: Bekleniyor");
     m_lblClock->setToolTip("DRX9000 alıcısı henüz bağlı değil.");
     m_lblClock->setStyleSheet(
-        "background-color: #181825; border: 1px solid #45475A; color: #9399B2; "
-        "padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 9pt;");
+        "background-color: #181825; border: 1.5px solid #45475A; color: #9399B2; "
+        "padding: 4px 8px; border-radius: 6px; font-weight: bold; font-size: 9pt; "
+        "font-family: 'Consolas', 'Courier New', monospace;");
 }
 
 void DrxClockBadge::triggerTickAnimation() {
     // 1. High-tech pulse styling: bright cyan border and white highlight
     m_lblClock->setStyleSheet(
         "background-color: #065F46; border: 1.5px solid #38BDF8; color: #FFFFFF; "
-        "padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 9pt;");
+        "padding: 4px 8px; border-radius: 6px; font-weight: bold; font-size: 9pt; "
+        "font-family: 'Consolas', 'Courier New', monospace;");
 
     // 2. Opacity spring animation
     if (m_fadeAnim) {
@@ -110,6 +116,7 @@ void DrxClockBadge::triggerTickAnimation() {
 void DrxClockBadge::onFlashTimeout() {
     if (!m_isConnected) return;
     m_lblClock->setStyleSheet(
-        "background-color: #064E3B; border: 1px solid #10B981; color: #34D399; "
-        "padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 9pt;");
+        "background-color: #064E3B; border: 1.5px solid #10B981; color: #34D399; "
+        "padding: 4px 8px; border-radius: 6px; font-weight: bold; font-size: 9pt; "
+        "font-family: 'Consolas', 'Courier New', monospace;");
 }

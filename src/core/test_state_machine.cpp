@@ -174,9 +174,11 @@ bool TestStateMachine::startTest(const QString &antennaSn,
     }
 
     if (!needsLiveLock) {
+        m_hasLiveLock = false;
         emit logMessage(QString("[Kayıtlı Test] Tüm frekanslar için Golden Sample mevcut. Donanımsal anten kilidi aranmaz."));
         changeState(TestState::WaitingForLock);
         onLockGranted(90);
+        m_hasLiveLock = false; // No actual lock was acquired on Host/DB
     } else {
         if (m_referenceMode == ReferenceMode::GoldenSample) {
             emit logMessage(QString("[Hibrit Referans] Bazı frekanslar için Golden kayıt bulunamadığından Canlı Referans Anten kilidi talep ediliyor..."));
@@ -228,13 +230,18 @@ void TestStateMachine::onDbLockRetryTick() {
 }
 
 void TestStateMachine::abortTest(const QString &reason) {
+    if (m_state == TestState::Idle || m_state == TestState::Completed || m_state == TestState::Aborted) {
+        return;
+    }
+
     m_carrierWaitTimer.stop();
     m_channelSelectTimer.stop();
     m_sampleDurationTimer.stop();
     m_sampleTickTimer.stop();
     m_dbLockRetryTimer.stop();
 
-    if (m_referenceMode != ReferenceMode::GoldenSample) {
+    if (m_hasLiveLock) {
+        m_hasLiveLock = false;
 #if defined(NETA_ALGORITMA_2_THREE_PC)
         DbManager::instance().releaseDbLock(AppConfig::instance().stationId());
         emit logMessage(QString("[Algorithm 2] MariaDB reference lock released (Station %1).").arg(AppConfig::instance().stationId()));
@@ -256,6 +263,7 @@ void TestStateMachine::abortTest(const QString &reason) {
 
 void TestStateMachine::onLockGranted(int /*timeoutSec*/) {
     if (m_state != TestState::WaitingForLock) return;
+    m_hasLiveLock = true;
     emit logMessage("Reference hardware lock granted. Commencing multi-channel testing pipeline...");
     runCurrentChannel();
 }
@@ -265,6 +273,10 @@ void TestStateMachine::onLockWaiting(int queuePosition, int activeStationId) {
 }
 
 void TestStateMachine::onLockExpired(const QString &reason) {
+    if (m_state == TestState::Idle || m_state == TestState::Completed || m_state == TestState::Aborted) {
+        return;
+    }
+    m_hasLiveLock = false;
     abortTest("Lock guard timeout expired: " + reason);
 }
 
@@ -306,6 +318,7 @@ void TestStateMachine::runCurrentChannel() {
     // 2. Reference comparison handling:
     //    Determine whether this transponder frequency has a Golden Sample baseline
     m_currentChannelIsGolden = false;
+    m_activeChannelGoldenRecord = GoldenFrequencyRecord();
     double gCn = 0.0;
     double gPow = 0.0;
     double gTol = ch.toleranceDb;
@@ -316,6 +329,7 @@ void TestStateMachine::runCurrentChannel() {
         if (m_selectedGoldenRecord.id > 0 && m_selectedGoldenRecord.isActive &&
             m_selectedGoldenRecord.frequencyMhz == ch.frequencyMhz &&
             (m_selectedGoldenRecord.polarization.isEmpty() || m_selectedGoldenRecord.polarization == ch.polarization)) {
+            m_activeChannelGoldenRecord = m_selectedGoldenRecord;
             gCn = m_selectedGoldenRecord.goldenCnDb;
             gPow = m_selectedGoldenRecord.goldenPowDbm;
             if (m_selectedGoldenRecord.toleranceDb > 0.05) gTol = m_selectedGoldenRecord.toleranceDb;
@@ -332,22 +346,41 @@ void TestStateMachine::runCurrentChannel() {
         }
         // Priority 3: Check database golden_frequencies table for matching frequency & polarization
         else {
-            bool foundInPool = DbManager::instance().findGoldenSampleForChannel(
-                ch.frequencyMhz, ch.symbolRate, ch.polarization, gCn, gPow, gTol);
-            if (foundInPool) {
-                goldenLabel = QString("DB Kayıtlı (%1 MHz %2)").arg(ch.frequencyMhz).arg(ch.polarization);
+            GoldenFrequencyRecord dbRec;
+            if (DbManager::instance().findGoldenSampleRecordForChannel(ch.frequencyMhz, ch.symbolRate, ch.polarization, dbRec)) {
+                m_activeChannelGoldenRecord = dbRec;
+                gCn = dbRec.goldenCnDb;
+                gPow = dbRec.goldenPowDbm;
+                if (dbRec.toleranceDb > 0.05) gTol = dbRec.toleranceDb;
+                goldenLabel = dbRec.label.isEmpty()
+                                  ? QString("DB Kayıtlı (%1 MHz %2)").arg(ch.frequencyMhz).arg(ch.polarization)
+                                  : dbRec.label;
                 m_currentChannelIsGolden = true;
             }
         }
     }
 
+    m_goldenCurveSamples.clear();
     if (m_currentChannelIsGolden) {
         m_lastRefCn = gCn;
         m_lastRefPow = gPow;
         m_profile.channels[m_currentChannelIndex].toleranceDb = gTol;
         m_refCarrierLocked = true;
         m_refVideoLocked = true;
-        m_refCnSamples.append(gCn);
+
+        if (!m_activeChannelGoldenRecord.sampleData.trimmed().isEmpty()) {
+            const QStringList tokens = m_activeChannelGoldenRecord.sampleData.trimmed().split(',', Qt::SkipEmptyParts);
+            for (const QString &tok : tokens) {
+                bool ok = false;
+                const double v = tok.trimmed().toDouble(&ok);
+                if (ok && v > 0.05) {
+                    m_goldenCurveSamples.append(v);
+                }
+            }
+        }
+        if (m_goldenCurveSamples.isEmpty()) {
+            m_refCnSamples.append(gCn);
+        }
         m_refPowSamples.append(gPow);
         emit logMessage(QString("[Kayıtlı Test] Frekans: %1 MHz %2 (%3) -> Kayıtlı Golden Sample kullanılıyor: C/N=%4 dB | POW=%5 dBm | Tolerans=±%6 dB (%7)")
                             .arg(ch.frequencyMhz)
@@ -358,6 +391,11 @@ void TestStateMachine::runCurrentChannel() {
                             .arg(gTol, 0, 'f', 2)
                             .arg(goldenLabel));
     } else {
+        m_refCarrierLocked = false;
+        m_refVideoLocked = false;
+        m_lastRefCn = 0.0;
+        m_lastRefPow = 0.0;
+
         // Fallback to Live Reference DRX measurement (either mode is LiveReference or no golden baseline exists for this frequency)
         if (m_referenceMode == ReferenceMode::GoldenSample) {
             emit logMessage(QString("[Hibrit Referans] Frekans: %1 MHz %2 (%3) için Golden kayıt bulunamadı -> Canlı Referans Anten ölçümüne geçildi.")
@@ -396,9 +434,11 @@ void TestStateMachine::onDutStatus(bool signalLocked, bool videoProducing, bool 
             emit logMessage("Taşıyıcı kilitlendi (S:+). Kanal listesi isteniyor (channelSelection)...");
             m_channelSelectTimer.start(1500); // Bounded fallback timeout
             m_dutStream->requestChannelList();
+#if defined(NETA_ALGORITMA_2_THREE_PC)
             if (!m_currentChannelIsGolden && m_refStream && m_refStream->hasChannelSelectionSupport()) {
                 m_refStream->requestChannelList();
             }
+#endif
             return;
         }
 
@@ -416,11 +456,11 @@ void TestStateMachine::beginSamplingPhase() {
     changeState(TestState::SamplingTelemetry);
 
     int sampleSec = AppConfig::instance().sampleDurationSec();
-    if (m_currentChannelIsGolden && m_selectedGoldenRecord.id > 0 && m_selectedGoldenRecord.durationSec > 0 &&
-        m_selectedGoldenRecord.frequencyMhz == m_profile.channels[m_currentChannelIndex].frequencyMhz) {
-        sampleSec = m_selectedGoldenRecord.durationSec;
+    if (m_currentChannelIsGolden && m_activeChannelGoldenRecord.durationSec > 0) {
+        sampleSec = m_activeChannelGoldenRecord.durationSec;
     }
-    m_sampleDurationTimer.start(sampleSec * 1000);
+    m_currentSampleDurationSec = qMax(1, sampleSec);
+    m_sampleDurationTimer.start(m_currentSampleDurationSec * 1000);
     m_sampleTickTimer.start(250); // Sample telemetry at 250ms intervals
     emit logMessage(QString("Telemetri toplanıyor: %1 saniye (%2)...")
                         .arg(sampleSec)
@@ -523,12 +563,25 @@ void TestStateMachine::onDutTelemetry(double powerDbm, double cnDb, double /*ber
             return;
         }
 
+        double activeRefCn = m_lastRefCn;
+        if (m_currentChannelIsGolden && !m_goldenCurveSamples.isEmpty()) {
+            const int totalExpected = qMax(2, m_currentSampleDurationSec * 4);
+            const double progress = qBound(0.0, static_cast<double>(m_dutCnSamples.size()) / (totalExpected - 1), 1.0);
+            const double fIdx = progress * (m_goldenCurveSamples.size() - 1);
+            const int i0 = qBound(0, static_cast<int>(fIdx), m_goldenCurveSamples.size() - 1);
+            const int i1 = qMin(i0 + 1, m_goldenCurveSamples.size() - 1);
+            const double frac = fIdx - i0;
+            activeRefCn = m_goldenCurveSamples[i0] * (1.0 - frac) + m_goldenCurveSamples[i1] * frac;
+            m_refCnSamples.append(activeRefCn);
+            m_lastRefCn = activeRefCn;
+        }
+
         m_dutPowSamples.append(powerDbm);
         m_dutCnSamples.append(cnDb);
 
-        double delta = cnDb - m_lastRefCn;
+        double delta = cnDb - activeRefCn;
         const auto &ch = m_profile.channels[m_currentChannelIndex];
-        emit channelSampleUpdated(ch.channelNo, cnDb, powerDbm, m_lastRefCn, m_lastRefPow, delta);
+        emit channelSampleUpdated(ch.channelNo, cnDb, powerDbm, activeRefCn, m_lastRefPow, delta);
     }
 }
 
@@ -723,7 +776,8 @@ void TestStateMachine::finishCurrentChannel() {
 void TestStateMachine::completeTest() {
     changeState(TestState::ReleasingLock);
 
-    if (m_referenceMode != ReferenceMode::GoldenSample) {
+    if (m_hasLiveLock) {
+        m_hasLiveLock = false;
 #if defined(NETA_ALGORITMA_2_THREE_PC)
         m_dbLockRetryTimer.stop();
         DbManager::instance().releaseDbLock(AppConfig::instance().stationId());

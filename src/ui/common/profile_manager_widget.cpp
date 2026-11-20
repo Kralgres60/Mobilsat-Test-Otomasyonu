@@ -257,7 +257,6 @@ void ProfileManagerWidget::populateChannelRow(int row, const ChannelConfig &ch) 
     spinFreq->setRange(950, 14500);
     spinFreq->setButtonSymbols(QAbstractSpinBox::NoButtons);
     spinFreq->setAlignment(Qt::AlignCenter);
-    spinFreq->setSuffix(" MHz");
     spinFreq->setValue(qBound(950, ch.frequencyMhz, 14500));
     spinFreq->setToolTip("Frekans formatı: 950 - 14500 MHz (Örn: 11054)");
     connect(spinFreq, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int) { autoSaveCurrentProfile(); });
@@ -268,7 +267,6 @@ void ProfileManagerWidget::populateChannelRow(int row, const ChannelConfig &ch) 
     spinSr->setRange(1000, 65000);
     spinSr->setButtonSymbols(QAbstractSpinBox::NoButtons);
     spinSr->setAlignment(Qt::AlignCenter);
-    spinSr->setSuffix(" kS/s");
     spinSr->setValue(qBound(1000, ch.symbolRate, 65000));
     spinSr->setToolTip("Sembol hızı formatı: 1000 - 65000 kS/s (Örn: 30000)");
     connect(spinSr, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int) { autoSaveCurrentProfile(); });
@@ -290,7 +288,6 @@ void ProfileManagerWidget::populateChannelRow(int row, const ChannelConfig &ch) 
     spinTol->setSingleStep(0.10);
     spinTol->setButtonSymbols(QAbstractSpinBox::NoButtons);
     spinTol->setAlignment(Qt::AlignCenter);
-    spinTol->setSuffix(" dB");
     spinTol->setValue(qBound(0.10, ch.toleranceDb, 10.00));
     connect(spinTol, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this](double) { autoSaveCurrentProfile(); });
     m_tableProfileChannels->setCellWidget(row, 5, spinTol);
@@ -301,7 +298,6 @@ void ProfileManagerWidget::populateChannelRow(int row, const ChannelConfig &ch) 
     spinGcn->setDecimals(2);
     spinGcn->setButtonSymbols(QAbstractSpinBox::NoButtons);
     spinGcn->setAlignment(Qt::AlignCenter);
-    spinGcn->setSuffix(" dB");
     spinGcn->setValue(qBound(0.0, ch.goldenCnDb, 40.0));
     connect(spinGcn, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this](double) { autoSaveCurrentProfile(); });
     m_tableProfileChannels->setCellWidget(row, 6, spinGcn);
@@ -312,7 +308,6 @@ void ProfileManagerWidget::populateChannelRow(int row, const ChannelConfig &ch) 
     spinGpow->setDecimals(2);
     spinGpow->setButtonSymbols(QAbstractSpinBox::NoButtons);
     spinGpow->setAlignment(Qt::AlignCenter);
-    spinGpow->setSuffix(" dBm");
     spinGpow->setValue(qBound(-120.0, ch.goldenPowDbm, 20.0));
     connect(spinGpow, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this](double) { autoSaveCurrentProfile(); });
     m_tableProfileChannels->setCellWidget(row, 7, spinGpow);

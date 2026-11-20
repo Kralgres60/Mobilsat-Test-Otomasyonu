@@ -169,12 +169,10 @@ void DebugRunnerWindow::setupUi() {
     m_spinFreq = new QSpinBox(grpTune);
     m_spinFreq->setRange(950, 21500);
     m_spinFreq->setValue(11054);
-    m_spinFreq->setSuffix(" MHz");
 
     m_spinSymbolRate = new QSpinBox(grpTune);
     m_spinSymbolRate->setRange(1000, 45000);
     m_spinSymbolRate->setValue(30000);
-    m_spinSymbolRate->setSuffix(" kS/s");
 
     m_comboPol = new QComboBox(grpTune);
     m_comboPol->addItems({"Dikey (V) / 13V", "Yatay (H) / 18V"});
@@ -184,9 +182,9 @@ void DebugRunnerWindow::setupUi() {
     m_btnTune->setCursor(Qt::PointingHandCursor);
     connect(m_btnTune, &QPushButton::clicked, this, &DebugRunnerWindow::onTuneClicked);
 
-    gridTune->addWidget(new QLabel("Frekans:", grpTune), 0, 0);
+    gridTune->addWidget(new QLabel("Frekans (MHz):", grpTune), 0, 0);
     gridTune->addWidget(m_spinFreq, 0, 1);
-    gridTune->addWidget(new QLabel("Sembol Oranı:", grpTune), 0, 2);
+    gridTune->addWidget(new QLabel("Sembol Oranı (kS/s):", grpTune), 0, 2);
     gridTune->addWidget(m_spinSymbolRate, 0, 3);
     gridTune->addWidget(new QLabel("Polarizasyon:", grpTune), 1, 0);
     gridTune->addWidget(m_comboPol, 1, 1);
