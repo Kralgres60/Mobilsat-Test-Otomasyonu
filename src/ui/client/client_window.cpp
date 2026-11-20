@@ -153,11 +153,28 @@ ClientWindow::ClientWindow(QWidget *parent)
         }
     };
     dutOps.deviceInfoFn = [this]() { m_dutWebClient.requestDeviceInfo(); };
+    dutOps.channelListFn = [this]() {
+        if (m_dutWebClient.isReachable() || !m_dutSerial.isConnected()) {
+            m_dutWebClient.requestChannelList();
+        }
+    };
+    dutOps.selectChannelFn = [this](int chNo) {
+        if (m_dutWebClient.isReachable() || !m_dutSerial.isConnected()) {
+            m_dutWebClient.selectChannel(chNo);
+        }
+    };
 
     m_dutStream = new DataStream(dutOps, this);
     connect(&m_dutWebClient, &Ethernet::statusReceived, m_dutStream, &DataStream::pushStatus);
     connect(&m_dutWebClient, &Ethernet::telemetryReceived, m_dutStream, &DataStream::pushTelemetry);
     connect(&m_dutWebClient, &Ethernet::timestampReceived, m_dutStream, &DataStream::pushTimestamp);
+    connect(&m_dutWebClient, &Ethernet::channelListReceived, m_dutStream, [this](const QVector<DrxChannelItem> &items) {
+        QVector<QPair<int, QString>> list;
+        list.reserve(items.size());
+        for (const auto &it : items) list.append({it.no, it.name});
+        m_dutStream->pushChannelList(list);
+    });
+    connect(&m_dutWebClient, &Ethernet::channelSelected, m_dutStream, &DataStream::pushChannelSelected);
     connect(&m_dutSerial, &RS232::statusReceived, m_dutStream, &DataStream::pushStatus);
     connect(&m_dutSerial, &RS232::telemetryReceived, m_dutStream, &DataStream::pushTelemetry);
 
@@ -171,11 +188,20 @@ ClientWindow::ClientWindow(QWidget *parent)
     refOps.tuneFn = [this](int f, int sr, const QString &pol) { m_refWebClient.sendTune(f, sr, pol); };
     refOps.statusFn = [this]() { m_refWebClient.requestStatus(); };
     refOps.deviceInfoFn = [this]() { m_refWebClient.requestDeviceInfo(); };
+    refOps.channelListFn = [this]() { m_refWebClient.requestChannelList(); };
+    refOps.selectChannelFn = [this](int chNo) { m_refWebClient.selectChannel(chNo); };
 
     m_refStream = new DataStream(refOps, this);
     connect(&m_refWebClient, &Ethernet::statusReceived, m_refStream, &DataStream::pushStatus);
     connect(&m_refWebClient, &Ethernet::telemetryReceived, m_refStream, &DataStream::pushTelemetry);
     connect(&m_refWebClient, &Ethernet::timestampReceived, m_refStream, &DataStream::pushTimestamp);
+    connect(&m_refWebClient, &Ethernet::channelListReceived, m_refStream, [this](const QVector<DrxChannelItem> &items) {
+        QVector<QPair<int, QString>> list;
+        list.reserve(items.size());
+        for (const auto &it : items) list.append({it.no, it.name});
+        m_refStream->pushChannelList(list);
+    });
+    connect(&m_refWebClient, &Ethernet::channelSelected, m_refStream, &DataStream::pushChannelSelected);
 
     m_stateMachine->setDataStreams(m_dutStream, m_refStream);
 
@@ -849,25 +875,30 @@ void ClientWindow::setupProductionPage() {
     rightCol->setSpacing(8);
 
     QGroupBox *grpOutcome = new QGroupBox("🏁 Test Sonuç Özeti", rightPane);
-    grpOutcome->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+    grpOutcome->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     QVBoxLayout *outVBox = new QVBoxLayout(grpOutcome);
     outVBox->setSpacing(6);
 
     m_resultBannerFrame = new QFrame(grpOutcome);
-    m_resultBannerFrame->setFixedHeight(86);
-    m_resultBannerFrame->setStyleSheet("background-color: #112D21; border: 1px solid #1A3D2B; border-radius: 6px; padding: 8px;");
+    m_resultBannerFrame->setObjectName("resultBannerFrame");
+    m_resultBannerFrame->setMinimumHeight(92);
+    m_resultBannerFrame->setStyleSheet(
+        "QFrame#resultBannerFrame { background-color: #112D21; border: 1px solid #1A3D2B; border-radius: 6px; padding: 6px; }"
+        "QFrame#resultBannerFrame QLabel { border: none; padding: 0px; background: transparent; }");
     QVBoxLayout *bannerVBox = new QVBoxLayout(m_resultBannerFrame);
     bannerVBox->setContentsMargins(8, 6, 8, 6);
-    bannerVBox->setSpacing(2);
+    bannerVBox->setSpacing(4);
 
     m_lblOverallResult = new QLabel("BEKLEMEDE", m_resultBannerFrame);
     m_lblOverallResult->setAlignment(Qt::AlignCenter);
+    m_lblOverallResult->setMinimumHeight(34);
     m_lblOverallResult->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     m_lblOverallResult->setStyleSheet("font-size: 20pt; font-weight: bold; color: #A7C4B5;");
 
     m_lblOverallDetails = new QLabel("Hazır: Anten barkodunu okutunuz", m_resultBannerFrame);
     m_lblOverallDetails->setAlignment(Qt::AlignCenter);
     m_lblOverallDetails->setWordWrap(true);
+    m_lblOverallDetails->setMinimumHeight(22);
     m_lblOverallDetails->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     m_lblOverallDetails->setStyleSheet("font-size: 9.5pt; color: #E6F4EE;");
 
@@ -2107,7 +2138,7 @@ void ClientWindow::onStartTestClicked() {
         clearGoldenOverlay();
     }
 
-    m_resultBannerFrame->setStyleSheet("background-color: #112D21; border: 2px solid #10B981; border-radius: 6px; padding: 10px;");
+    m_resultBannerFrame->setStyleSheet("QFrame#resultBannerFrame { background-color: #112D21; border: 2px solid #10B981; border-radius: 6px; padding: 6px; } QFrame#resultBannerFrame QLabel { border: none; padding: 0px; background: transparent; }");
     m_lblOverallResult->setText("TEST DEVAM EDİYOR");
     m_lblOverallResult->setStyleSheet("font-size: 20pt; font-weight: bold; color: #34D399;");
     m_lblOverallDetails->setText(activeRefMode == ReferenceMode::GoldenSample ? "Kayıtlı referans testi başlatılıyor..." : "Referans kilidi talep ediliyor...");
@@ -2121,7 +2152,7 @@ void ClientWindow::onStartTestClicked() {
     if (!m_stateMachine->startTest(sn, m_currentProfile, woId, 0, testerName, activeRefMode, selectedGolden)) {
         m_btnStartTest->setEnabled(true);
         m_btnAbortTest->setEnabled(false);
-        m_resultBannerFrame->setStyleSheet("background-color: #112D21; border: 1px solid #1A3D2B; border-radius: 6px; padding: 10px;");
+        m_resultBannerFrame->setStyleSheet("QFrame#resultBannerFrame { background-color: #112D21; border: 1px solid #1A3D2B; border-radius: 6px; padding: 6px; } QFrame#resultBannerFrame QLabel { border: none; padding: 0px; background: transparent; }");
         m_lblOverallResult->setText("BEKLEMEDE");
         m_lblOverallResult->setStyleSheet("font-size: 20pt; font-weight: bold; color: #A7C4B5;");
         m_lblOverallDetails->setText("Hazır: Uydu profili veya kanal listesi yüklenemedi.");
@@ -2334,7 +2365,7 @@ void ClientWindow::onTestFinished(const TestRunData &finalResult) {
     m_hasFinishedTestResults = true;
 
     if (finalResult.overallResult == "PASS") {
-        m_resultBannerFrame->setStyleSheet("background-color: #064E3B; border: 2px solid #10B981; border-radius: 6px; padding: 10px;");
+        m_resultBannerFrame->setStyleSheet("QFrame#resultBannerFrame { background-color: #064E3B; border: 2px solid #10B981; border-radius: 6px; padding: 6px; } QFrame#resultBannerFrame QLabel { border: none; padding: 0px; background: transparent; }");
         m_lblOverallResult->setText("✔ GEÇTİ (PASS)");
         m_lblOverallResult->setStyleSheet("font-size: 22pt; font-weight: bold; color: #34D399;");
         m_lblOverallDetails->setText(QString("Süre: %1 sn  |  Ort. Fark: %2 dB  |  Max Fark: %3 dB")
@@ -2343,13 +2374,13 @@ void ClientWindow::onTestFinished(const TestRunData &finalResult) {
                                          .arg(finalResult.maxDeltaDb, 0, 'f', 2));
         setStatusMessage(QString("Test Tamamlandı [PASS]: %1 (%2 sn)").arg(finalResult.antennaSn).arg(finalResult.durationSec));
     } else if (finalResult.overallResult == "ABORTED") {
-        m_resultBannerFrame->setStyleSheet("background-color: #451A03; border: 2px solid #F59E0B; border-radius: 6px; padding: 10px;");
+        m_resultBannerFrame->setStyleSheet("QFrame#resultBannerFrame { background-color: #451A03; border: 2px solid #F59E0B; border-radius: 6px; padding: 6px; } QFrame#resultBannerFrame QLabel { border: none; padding: 0px; background: transparent; }");
         m_lblOverallResult->setText("⏹ İPTAL EDİLDİ");
         m_lblOverallResult->setStyleSheet("font-size: 20pt; font-weight: bold; color: #FBBF24;");
         m_lblOverallDetails->setText(finalResult.failReason);
         setStatusMessage("Test operatör tarafından durduruldu.");
     } else {
-        m_resultBannerFrame->setStyleSheet("background-color: #450A0A; border: 2px solid #EF4444; border-radius: 6px; padding: 10px;");
+        m_resultBannerFrame->setStyleSheet("QFrame#resultBannerFrame { background-color: #450A0A; border: 2px solid #EF4444; border-radius: 6px; padding: 6px; } QFrame#resultBannerFrame QLabel { border: none; padding: 0px; background: transparent; }");
         m_lblOverallResult->setText("✖ KALDI (FAIL)");
         m_lblOverallResult->setStyleSheet("font-size: 22pt; font-weight: bold; color: #F87171;");
         m_lblOverallDetails->setText(QString("Neden: %1").arg(finalResult.failReason));

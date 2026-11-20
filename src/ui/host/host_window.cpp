@@ -103,10 +103,27 @@ HostWindow::HostWindow(QWidget *parent)
             m_refSerial.requestStatus();
         }
     };
+    refOps.channelListFn = [this]() {
+        if (m_refWebClient.isReachable()) {
+            m_refWebClient.requestChannelList();
+        }
+    };
+    refOps.selectChannelFn = [this](int chNo) {
+        if (m_refWebClient.isReachable()) {
+            m_refWebClient.selectChannel(chNo);
+        }
+    };
     m_refStream = new DataStream(refOps, this);
     connect(&m_refWebClient, &Ethernet::statusReceived, m_refStream, &DataStream::pushStatus);
     connect(&m_refWebClient, &Ethernet::telemetryReceived, m_refStream, &DataStream::pushTelemetry);
     connect(&m_refWebClient, &Ethernet::timestampReceived, m_refStream, &DataStream::pushTimestamp);
+    connect(&m_refWebClient, &Ethernet::channelListReceived, m_refStream, [this](const QVector<DrxChannelItem> &items) {
+        QVector<QPair<int, QString>> list;
+        list.reserve(items.size());
+        for (const auto &it : items) list.append({it.no, it.name});
+        m_refStream->pushChannelList(list);
+    });
+    connect(&m_refWebClient, &Ethernet::channelSelected, m_refStream, &DataStream::pushChannelSelected);
     connect(&m_refSerial, &RS232::statusReceived, m_refStream, &DataStream::pushStatus);
     connect(&m_refSerial, &RS232::telemetryReceived, m_refStream, &DataStream::pushTelemetry);
     m_tcpServer.setRefDataStream(m_refStream);

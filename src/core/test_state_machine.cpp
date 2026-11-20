@@ -24,6 +24,9 @@ TestStateMachine::TestStateMachine(TcpClient *netClient, QObject *parent)
 
     connect(&m_sampleTickTimer, &QTimer::timeout, this, &TestStateMachine::onSampleTimerTick);
 
+    m_channelSelectTimer.setSingleShot(true);
+    connect(&m_channelSelectTimer, &QTimer::timeout, this, &TestStateMachine::beginSamplingPhase);
+
     connect(&m_dbLockRetryTimer, &QTimer::timeout, this, &TestStateMachine::onDbLockRetryTick);
 
     if (m_netClient) {
@@ -51,6 +54,8 @@ void TestStateMachine::setDataStreams(DataStream *dutStream, DataStream *refStre
                 [this](const QDateTime &devTime, const QDateTime &hTime, const QString &rawStr) {
                     onDutTimestampReceived(devTime, hTime, rawStr);
                 });
+        connect(m_dutStream, &DataStream::channelListReceived, this,
+                &TestStateMachine::onDutChannelListReceived);
     }
 
     if (m_refStream) {
@@ -63,6 +68,8 @@ void TestStateMachine::setDataStreams(DataStream *dutStream, DataStream *refStre
                 [this](double pwr, double cn, double /*ber*/) {
                     onRefData(cn, pwr, m_refCarrierLocked, m_refVideoLocked);
                 });
+        connect(m_refStream, &DataStream::channelListReceived, this,
+                &TestStateMachine::onRefChannelListReceived);
     }
 }
 
@@ -222,6 +229,7 @@ void TestStateMachine::onDbLockRetryTick() {
 
 void TestStateMachine::abortTest(const QString &reason) {
     m_carrierWaitTimer.stop();
+    m_channelSelectTimer.stop();
     m_sampleDurationTimer.stop();
     m_sampleTickTimer.stop();
     m_dbLockRetryTimer.stop();
@@ -282,6 +290,8 @@ void TestStateMachine::runCurrentChannel() {
     m_dutCarrierLocked = false;
     m_dutVideoLocked = false;
     m_dutAudioLocked = false;
+    m_channelSelectedForCurrentFreq = false;
+    m_channelSelectTimer.stop();
     m_dutCnSamples.clear();
     m_dutPowSamples.clear();
     m_refCnSamples.clear();
@@ -378,22 +388,120 @@ void TestStateMachine::onDutStatus(bool signalLocked, bool videoProducing, bool 
     m_dutAudioLocked = audioProducing;
 
     if (m_state == TestState::WaitingCarrierLock && signalLocked) {
-        // Carrier lock acquired; transition to sampling
         m_carrierWaitTimer.stop();
-        changeState(TestState::SamplingTelemetry);
 
-        int sampleSec = AppConfig::instance().sampleDurationSec();
-        if (m_currentChannelIsGolden && m_selectedGoldenRecord.id > 0 && m_selectedGoldenRecord.durationSec > 0 &&
-            m_selectedGoldenRecord.frequencyMhz == m_profile.channels[m_currentChannelIndex].frequencyMhz) {
-            sampleSec = m_selectedGoldenRecord.durationSec;
+        if (!m_channelSelectedForCurrentFreq && m_dutStream && m_dutStream->hasChannelSelectionSupport()) {
+            m_channelSelectedForCurrentFreq = true;
+            m_sampleTickTimer.stop();
+            emit logMessage("Taşıyıcı kilitlendi (S:+). Kanal listesi isteniyor (channelSelection)...");
+            m_channelSelectTimer.start(1500); // Bounded fallback timeout
+            m_dutStream->requestChannelList();
+            if (!m_currentChannelIsGolden && m_refStream && m_refStream->hasChannelSelectionSupport()) {
+                m_refStream->requestChannelList();
+            }
+            return;
         }
-        m_sampleDurationTimer.start(sampleSec * 1000);
-        m_sampleTickTimer.start(250); // Sample telemetry at 250ms intervals
-        emit logMessage(QString("Taşıyıcı kilitlendi (S:+). Telemetri toplanıyor: %1 saniye (%2)...")
-                            .arg(sampleSec)
-                            .arg(m_currentChannelIsGolden
-                                     ? "Kayıtlı/Sabit Golden Referans"
-                                     : "Canlı Referans Anten Testi"));
+
+        if (!m_channelSelectedForCurrentFreq) {
+            beginSamplingPhase();
+        }
+    }
+}
+
+void TestStateMachine::beginSamplingPhase() {
+    if (m_state != TestState::WaitingCarrierLock) {
+        return;
+    }
+    m_channelSelectTimer.stop();
+    changeState(TestState::SamplingTelemetry);
+
+    int sampleSec = AppConfig::instance().sampleDurationSec();
+    if (m_currentChannelIsGolden && m_selectedGoldenRecord.id > 0 && m_selectedGoldenRecord.durationSec > 0 &&
+        m_selectedGoldenRecord.frequencyMhz == m_profile.channels[m_currentChannelIndex].frequencyMhz) {
+        sampleSec = m_selectedGoldenRecord.durationSec;
+    }
+    m_sampleDurationTimer.start(sampleSec * 1000);
+    m_sampleTickTimer.start(250); // Sample telemetry at 250ms intervals
+    emit logMessage(QString("Telemetri toplanıyor: %1 saniye (%2)...")
+                        .arg(sampleSec)
+                        .arg(m_currentChannelIsGolden
+                                 ? "Kayıtlı/Sabit Golden Referans"
+                                 : "Canlı Referans Anten Testi"));
+}
+
+int TestStateMachine::pickTargetChannelNo(const QVector<QPair<int, QString>> &channels,
+                                          const QString &expectedName,
+                                          QString *pickedNameOut) {
+    if (channels.isEmpty()) return 0;
+
+    auto normalize = [](QString s) {
+        s.remove(QStringLiteral("(H)"), Qt::CaseInsensitive);
+        s.remove(QStringLiteral("(V)"), Qt::CaseInsensitive);
+        return s.trimmed().toUpper();
+    };
+    const QString targetNorm = normalize(expectedName);
+
+    // 1. Exact name match
+    if (!targetNorm.isEmpty()) {
+        for (const auto &ch : channels) {
+            if (normalize(ch.second) == targetNorm) {
+                if (pickedNameOut) *pickedNameOut = ch.second;
+                return ch.first;
+            }
+        }
+        // 2. Substring match (e.g., "NTV HD" <-> "NTV")
+        for (const auto &ch : channels) {
+            const QString chNorm = normalize(ch.second);
+            if (!chNorm.isEmpty() && (chNorm.contains(targetNorm) || targetNorm.contains(chNorm))) {
+                if (pickedNameOut) *pickedNameOut = ch.second;
+                return ch.first;
+            }
+        }
+    }
+
+    // 3. Fallback: automatically pick the first channel on the transponder
+    if (pickedNameOut) *pickedNameOut = channels.first().second;
+    return channels.first().first;
+}
+
+void TestStateMachine::onDutChannelListReceived(const QVector<QPair<int, QString>> &channels) {
+    if (m_state != TestState::WaitingCarrierLock || !m_dutStream) {
+        return;
+    }
+
+    if (channels.isEmpty()) {
+        emit logMessage("Kanal listesi boş döndü; mevcut kanalla örneklemeye geçiliyor.");
+        beginSamplingPhase();
+        return;
+    }
+
+    const QString expectedName = (m_currentChannelIndex >= 0 && m_currentChannelIndex < m_profile.channels.size())
+                                     ? m_profile.channels[m_currentChannelIndex].channelName
+                                     : QString();
+    QString pickedName;
+    const int chosenNo = pickTargetChannelNo(channels, expectedName, &pickedName);
+    if (chosenNo > 0) {
+        m_dutStream->selectChannel(chosenNo);
+        emit logMessage(QString("📺 DUT Kanal Seçimi: #%1 - %2 (Profil hedefi: %3)")
+                            .arg(chosenNo).arg(pickedName, expectedName));
+    }
+
+    // Brief 250ms settle before starting 5s telemetry sampling
+    m_channelSelectTimer.start(250);
+}
+
+void TestStateMachine::onRefChannelListReceived(const QVector<QPair<int, QString>> &channels) {
+    if (m_state != TestState::WaitingCarrierLock || m_currentChannelIsGolden || !m_refStream || channels.isEmpty()) {
+        return;
+    }
+    const QString expectedName = (m_currentChannelIndex >= 0 && m_currentChannelIndex < m_profile.channels.size())
+                                     ? m_profile.channels[m_currentChannelIndex].channelName
+                                     : QString();
+    QString pickedName;
+    const int chosenNo = pickTargetChannelNo(channels, expectedName, &pickedName);
+    if (chosenNo > 0) {
+        m_refStream->selectChannel(chosenNo);
+        emit logMessage(QString("📺 REF Kanal Seçimi: #%1 - %2").arg(chosenNo).arg(pickedName));
     }
 }
 
@@ -531,7 +639,9 @@ void TestStateMachine::finishCurrentChannel() {
             const double instAbsDelta = qAbs(signedDelta);
             sumAbsDelta += instAbsDelta;
             if (i > 0) {
-                cumulativeStepDelta += qAbs(signedDelta - prevSignedDelta);
+                // Apply a 0.20 dB per-step RF noise deadband so normal 250ms receiver jitter
+                // does not accumulate into a false failure across 20 samples.
+                cumulativeStepDelta += qMax(0.0, qAbs(signedDelta - prevSignedDelta) - 0.20);
             }
             prevSignedDelta = signedDelta;
 
@@ -547,7 +657,7 @@ void TestStateMachine::finishCurrentChannel() {
     }
 
     const bool unstableOscillation =
-        (cumulativeStepDelta > res.toleranceDb) ||
+        (cumulativeStepDelta > (res.toleranceDb * 2.0)) ||
         (meanAbsDelta > res.toleranceDb) ||
         (dutSwing > (res.toleranceDb * 2.0 + 0.5)) ||
         (m_dutCnSamples.size() >= 3 && maxSampleDelta > (res.toleranceDb * 1.25) && outOfTolSamples >= 2);

@@ -136,6 +136,10 @@ private slots:
 private:
     void handleHttpRequest(QTcpSocket *socket, const QByteArray &rawRequest);
     QJsonObject buildAlarmStatusJson() const;
+    /** @brief Builds `channelSelection` (`menuid: "chnsel"`) JSON for the active transponder. */
+    QJsonObject buildChannelSelectionJson() const;
+    /** @brief Returns simulated channels `(no, name)` for the given transponder. */
+    QList<QPair<int, QString>> simulatedChannelsForFreq(int freqMhz, const QString &pol) const;
     QByteArray buildJsonResponse(const QJsonObject &obj, int httpCode = 200, const QString &statusText = "OK") const;
     QString resolveChannelName(int freqMhz, const QString &pol) const;
     static QString cleanPeerAddress(const QTcpSocket *socket);
@@ -156,6 +160,7 @@ private:
     int     m_currentFreqMhz    = 11977;
     int     m_currentSymbolRate = 27500;
     QString m_currentPol        = "H";
+    int     m_selectedChannelNo = 1;
     bool    m_isTuning          = false;
     quint64 m_requestCount      = 0;
 

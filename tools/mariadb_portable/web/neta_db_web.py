@@ -2610,13 +2610,19 @@ HTML_PAGE = r"""<!DOCTYPE html>
         let cachedProfiles = [];
 
         async function loadProfiles(targetProfileId) {
-            if (targetProfileId) currentSelectedProfileId = targetProfileId;
+            if (targetProfileId) currentSelectedProfileId = Number(targetProfileId);
             try {
                 const res = await fetch(`/api/profiles?profile_id=${currentSelectedProfileId}`);
                 if (res.status === 401) { showLoginOverlay(); return; }
                 const data = await res.json();
+                if (!res.ok || data.error) {
+                    document.getElementById('profilesTableBody').innerHTML = `<tr><td colspan="7" style="color:var(--danger); text-align:center;">Profil yükleme hatası: ${data.error || res.statusText}</td></tr>`;
+                    return;
+                }
                 cachedProfiles = data.profiles || [];
-                currentSelectedProfileId = data.selected_profile_id || currentSelectedProfileId;
+                currentSelectedProfileId = Number(data.selected_profile_id || currentSelectedProfileId || 1);
+
+                const escQuote = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 
                 // Render Profiles Table & Dropdown
                 const pBody = document.getElementById('profilesTableBody');
@@ -2624,33 +2630,41 @@ HTML_PAGE = r"""<!DOCTYPE html>
                 const pSelect = document.getElementById('profileSelectDropdown');
                 pSelect.innerHTML = '';
 
-                data.profiles.forEach(p => {
+                if (cachedProfiles.length === 0) {
+                    pBody.innerHTML = '<tr><td colspan="7" style="color:var(--text-muted); text-align:center; padding:16px;">Henüz uydu profili tanımlanmamış.</td></tr>';
+                }
+
+                cachedProfiles.forEach(p => {
+                    const pid = Number(p.id);
                     const opt = document.createElement('option');
-                    opt.value = p.id;
-                    opt.textContent = `#${p.id} - ${p.name} (${p.satellite})`;
-                    if (p.id === currentSelectedProfileId) opt.selected = true;
+                    opt.value = pid;
+                    opt.textContent = `#${pid} - ${p.name} (${p.satellite})`;
+                    if (pid === currentSelectedProfileId) opt.selected = true;
                     pSelect.appendChild(opt);
 
                     const tr = document.createElement('tr');
-                    if (p.id === currentSelectedProfileId) {
+                    if (pid === currentSelectedProfileId) {
                         tr.style.backgroundColor = 'rgba(0, 210, 106, 0.08)';
                     }
+                    const activeBadge = (Number(p.is_active) === 1)
+                        ? '<span class="badge badge-online">Aktif</span>'
+                        : '<span class="badge badge-offline">Pasif</span>';
                     tr.innerHTML = `
-                        <td>#${p.id}</td>
+                        <td>#${pid}</td>
                         <td><b>${p.name}</b></td>
                         <td>${p.satellite}</td>
                         <td>${p.orbital}</td>
                         <td>± ${p.tolerance} dB</td>
-                        <td><span class="badge badge-online">Aktif</span></td>
+                        <td>${activeBadge}</td>
                         <td style="display:flex; gap:6px;">
-                            <button class="btn btn-outline btn-sm" onclick="selectProfile(${p.id})">🔍 Frekansları Gör</button>
-                            ${p.id > 1 ? `<button class="btn btn-danger btn-sm" onclick="deleteProfile(${p.id}, '${p.name}')">Sil</button>` : `<span style="font-size:11px; color:var(--text-muted); align-self:center;">(Varsayılan)</span>`}
+                            <button class="btn btn-outline btn-sm" onclick="selectProfile(${pid})">🔍 Frekansları Gör</button>
+                            ${pid > 1 ? `<button class="btn btn-danger btn-sm" onclick="deleteProfile(${pid}, '${escQuote(p.name)}')">Sil</button>` : `<span style="font-size:11px; color:var(--text-muted); align-self:center;">(Varsayılan)</span>`}
                         </td>
                     `;
                     pBody.appendChild(tr);
                 });
 
-                const curProf = data.profiles.find(p => p.id === currentSelectedProfileId);
+                const curProf = cachedProfiles.find(p => Number(p.id) === currentSelectedProfileId);
                 const titleStr = curProf ? `📡 ${curProf.name} (${curProf.satellite} - ${curProf.orbital}) Kanal & Frekans Listesi` : '📡 Kanal & Frekans Listesi';
                 document.getElementById('selectedProfileTitle').textContent = titleStr;
 
@@ -2670,7 +2684,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
                             <td><code>${c.pol}</code></td>
                             <td>± ${c.tol} dB</td>
                             <td>
-                                <button class="btn btn-danger btn-sm" onclick="deleteChannel(${currentSelectedProfileId}, ${c.no}, '${c.name}')">Sil</button>
+                                <button class="btn btn-danger btn-sm" onclick="deleteChannel(${currentSelectedProfileId}, ${c.no}, '${escQuote(c.name)}')">Sil</button>
                             </td>
                         `;
                         cBody.appendChild(tr);
@@ -2678,6 +2692,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
                 }
             } catch (err) {
                 console.error(err);
+                document.getElementById('profilesTableBody').innerHTML = `<tr><td colspan="7" style="color:var(--danger); text-align:center;">Bağlantı/Ayrıştırma hatası: ${err.message}</td></tr>`;
             }
         }
 
@@ -3150,8 +3165,21 @@ class NetaWebHandler(BaseHTTPRequestHandler):
 
         # Profiles
         elif path == "/api/profiles":
-            _, r_p, _ = run_sql("SELECT id, profile_name, satellite_name, orbital_position, default_tolerance_db, is_active FROM satellite_profiles ORDER BY id ASC;")
-            profiles = [{"id": r[0], "name": r[1], "satellite": r[2], "orbital": r[3], "tolerance": r[4], "is_active": r[5]} for r in r_p]
+            _, r_p, err_p = run_sql("SELECT id, profile_name, satellite_name, orbital_position, default_tolerance_db, is_active FROM satellite_profiles ORDER BY id ASC;")
+            if err_p:
+                self.send_json({"error": err_p, "profiles": [], "channels": []}, 500)
+                return
+            profiles = [
+                {
+                    "id": int(r[0]),
+                    "name": r[1],
+                    "satellite": r[2],
+                    "orbital": r[3],
+                    "tolerance": r[4],
+                    "is_active": int(r[5]) if len(r) > 5 and str(r[5]).isdigit() else 1,
+                }
+                for r in r_p if len(r) >= 5
+            ]
 
             try:
                 profile_id = int(qs.get("profile_id", [1])[0])
@@ -3160,8 +3188,21 @@ class NetaWebHandler(BaseHTTPRequestHandler):
             if not any(p["id"] == profile_id for p in profiles) and profiles:
                 profile_id = profiles[0]["id"]
 
-            _, r_c, _ = run_sql(f"SELECT channel_no, channel_name, frequency_mhz, symbol_rate, polarization, tolerance_db FROM profile_channels WHERE profile_id = {profile_id} ORDER BY channel_no ASC;")
-            channels = [{"no": r[0], "name": r[1], "freq": r[2], "sr": r[3], "pol": r[4], "tol": r[5]} for r in r_c]
+            _, r_c, err_c = run_sql(f"SELECT channel_no, channel_name, frequency_mhz, symbol_rate, polarization, tolerance_db FROM profile_channels WHERE profile_id = {profile_id} ORDER BY channel_no ASC;")
+            if err_c:
+                self.send_json({"error": err_c, "profiles": profiles, "channels": [], "selected_profile_id": profile_id}, 500)
+                return
+            channels = [
+                {
+                    "no": int(r[0]),
+                    "name": r[1],
+                    "freq": int(r[2]),
+                    "sr": int(r[3]),
+                    "pol": r[4],
+                    "tol": r[5],
+                }
+                for r in r_c if len(r) >= 6
+            ]
 
             self.send_json({"profiles": profiles, "channels": channels, "selected_profile_id": profile_id})
             return

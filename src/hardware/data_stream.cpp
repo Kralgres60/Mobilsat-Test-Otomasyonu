@@ -123,6 +123,18 @@ void DataStream::requestDeviceInfo() {
     if (m_ops.deviceInfoFn) m_ops.deviceInfoFn();
 }
 
+void DataStream::requestChannelList() {
+    if (m_ops.channelListFn) m_ops.channelListFn();
+}
+
+void DataStream::selectChannel(int channelNo) {
+    if (m_ops.selectChannelFn) m_ops.selectChannelFn(channelNo);
+}
+
+bool DataStream::hasChannelSelectionSupport() const {
+    return static_cast<bool>(m_ops.channelListFn) && static_cast<bool>(m_ops.selectChannelFn);
+}
+
 void DataStream::sendRaw(const QString &command) {
     sendData(command.toUtf8());
 }
@@ -141,6 +153,14 @@ void DataStream::pushDeviceInfo(const QString &key, const QString &value) {
 
 void DataStream::pushTimestamp(const QDateTime &deviceTime, const QDateTime &hostTime, const QString &rawTimeStr) {
     emit timestampReceived(deviceTime, hostTime, rawTimeStr);
+}
+
+void DataStream::pushChannelList(const QVector<QPair<int, QString>> &channels) {
+    emit channelListReceived(channels);
+}
+
+void DataStream::pushChannelSelected(bool ok, const QString &details) {
+    emit channelSelected(ok, details);
 }
 
 void DataStream::pushLog(const QString &message, bool isError) {

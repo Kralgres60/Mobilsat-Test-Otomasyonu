@@ -145,7 +145,7 @@ Tüm sistemde paylaşılan ana veri yapılarını ve JSON serileştirme fonksiyo
   5. `SamplingTelemetry` ➔ Telemetri toplama (Kayıtlı canlı süresi veya varsayılan süre boyunca 250ms periyotla).
   6. `EvaluatingChannel` ➔ Kanal Geçti/Kaldı (`PASS/FAIL`) kararı yalnızca basit ortalamaya bakılarak verilmez; **4 katmanlı kararlılık denetimi** uygulanır (`finishCurrentChannel()`):
      - **Aritmetik Ortalama Farkı:** $|\overline{\text{DUT}} - \overline{\text{Ref}}| \le \text{Tolerans}$ (ör. $\pm 1.50\text{ dB}$).
-     - **Kümülatif Örneklem Değişimi (`CumStepDelta`):** Aynı frekansın ardışık örnekleri ($i=1 \dots N-1$) arasındaki farkların toplamı $\sum |(\text{dut}_i - \text{ref}_i) - (\text{dut}_{i-1} - \text{ref}_{i-1})| \le \text{Tolerans}$ olmalıdır.
+     - **Kümülatif Örneklem Değişimi (`CumStepDelta`):** Aynı frekansın ardışık örnekleri ($i=1 \dots N-1$) arasındaki farkların $0.20\text{ dB}$ gürültü ölü bandı düşüldükten sonraki toplamı $\sum \max(0, |(\text{dut}_i - \text{ref}_i) - (\text{dut}_{i-1} - \text{ref}_{i-1})| - 0.20) \le 2 \times \text{Tolerans}$ olmalıdır.
      - **Anlık Sapma ve Salınım Koruması:** Örnek bazlı mutlak sapma ortalaması (`meanAbsDelta`) ve tepe-tepe salınım (`Swing`) birlikte kontrol edilir.
      - *Gerçek Test Örnekleri (Tolerans $\pm 1.50\text{ dB}$):*
        - **Sağlam Anten (`SER0003` / `SER0006`):** Sinyal sabit veya küçük gürültülüdür (`Delta ≈ -0.03..+0.42 dB`, `CumStepDelta = 0.72..1.31 dB <= 1.50 dB`, `Swing <= 0.30 dB`) ➔ **`PASS`**.

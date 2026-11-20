@@ -12,6 +12,8 @@
 #include <QString>
 #include <QByteArray>
 #include <QDateTime>
+#include <QPair>
+#include <QVector>
 #include <functional>
 
 /**
@@ -28,6 +30,8 @@ struct DrxTransportOps {
     std::function<void(int, int, const QString &)> tuneFn;          ///< Transponder tune callback
     std::function<void()> statusFn;                                 ///< Status / telemetry query callback
     std::function<void()> deviceInfoFn;                             ///< Device info query callback
+    std::function<void()> channelListFn;                            ///< Channel list query callback (`channelSelection`)
+    std::function<void(int)> selectChannelFn;                       ///< Channel selection callback (`ResponseTo=chnsel`)
 };
 
 /**
@@ -75,6 +79,12 @@ public:
     void sendTune(int freqMhz, int symbolRate, const QString &polarity);
     void requestStatus();
     void requestDeviceInfo();
+    /** @brief Queries transponder channels via bound transport callback. */
+    void requestChannelList();
+    /** @brief Selects a channel by index via bound transport callback. */
+    void selectChannel(int channelNo);
+    /** @brief Returns true if bound transport provides channel list & selection callbacks. */
+    bool hasChannelSelectionSupport() const;
     void sendRaw(const QString &command);
 
 public slots:
@@ -82,6 +92,8 @@ public slots:
     void pushTelemetry(double powerDbm, double cnDb, double ber, double ebN0Db = 0.0);
     void pushDeviceInfo(const QString &key, const QString &value);
     void pushTimestamp(const QDateTime &deviceTime, const QDateTime &hostTime, const QString &rawTimeStr);
+    void pushChannelList(const QVector<QPair<int, QString>> &channels);
+    void pushChannelSelected(bool ok, const QString &details);
     void pushLog(const QString &message, bool isError);
 
 signals:
@@ -91,6 +103,8 @@ signals:
     void telemetryReceived(double powerDbm, double cnDb, double ber, double ebN0Db = 0.0);
     void deviceInfoReceived(const QString &key, const QString &value);
     void timestampReceived(const QDateTime &deviceTime, const QDateTime &hostTime, const QString &rawTimeStr);
+    void channelListReceived(const QVector<QPair<int, QString>> &channels);
+    void channelSelected(bool ok, const QString &details);
     void logMessage(const QString &message, bool isError);
 
 private:

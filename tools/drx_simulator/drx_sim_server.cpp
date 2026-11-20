@@ -245,6 +245,7 @@ void DrxSimServer::handleHttpRequest(QTcpSocket *socket, const QByteArray &rawRe
         m_currentFreqMhz    = (freqKhz >= 50000) ? (freqKhz / 1000) : freqKhz;
         m_currentSymbolRate = (srBd >= 100000) ? (srBd / 1000) : srBd;
         m_currentPol        = (polEnum == 1) ? "H" : "V";
+        m_selectedChannelNo = 1;
 
         m_isTuning = true;
         QTimer::singleShot(250, this, [this]() { m_isTuning = false; });
@@ -254,6 +255,33 @@ void DrxSimServer::handleHttpRequest(QTcpSocket *socket, const QByteArray &rawRe
         emit tuned(m_currentFreqMhz, m_currentSymbolRate, m_currentPol);
         emit logMessage(QString("[%1] TUNE -> %2 MHz | %3 kS/s | %4")
                             .arg(peerIp).arg(m_currentFreqMhz).arg(m_currentSymbolRate).arg(m_currentPol));
+    } else if (responseTo == "chnsel") {
+        actionTag = "CHANNEL_SELECT";
+        const int sel = params.value("sel").toInt();
+        const auto chs = simulatedChannelsForFreq(m_currentFreqMhz, m_currentPol);
+        QString chosenName;
+        bool found = false;
+        for (const auto &c : chs) {
+            if (c.first == sel) {
+                found = true;
+                chosenName = c.second;
+                break;
+            }
+        }
+        if (found) {
+            m_selectedChannelNo = sel;
+            jsonResp["confirmed"] = "OK";
+            jsonResp["menuheader"] = "Confirmation";
+            jsonResp["menuid"] = "confirmation";
+            emit logMessage(QString("[%1] CHANNEL_SELECT -> #%2 (%3)").arg(peerIp).arg(sel).arg(chosenName));
+        } else {
+            jsonResp["confirmed"] = "NOK";
+            jsonResp["menuheader"] = "Confirmation";
+            jsonResp["menuid"] = "confirmation";
+        }
+    } else if (query == "channelSelection") {
+        actionTag = "CHANNEL_LIST";
+        jsonResp = buildChannelSelectionJson();
     } else if (query == "deviceInfo") {
         actionTag = "DEVICE_INFO";
         QJsonArray elems;
@@ -358,11 +386,58 @@ QByteArray DrxSimServer::buildJsonResponse(const QJsonObject &obj,
     return http;
 }
 
+QList<QPair<int, QString>> DrxSimServer::simulatedChannelsForFreq(int freqMhz, const QString &pol) const {
+    if (freqMhz == 11054) return {{1, "TRT 1 HD"}, {2, "TRT HABER HD"}, {3, "TRT SPOR HD"}, {4, "TRT COCUK"}};
+    if (freqMhz == 11958) return {{1, "TRT SPOR HD"}, {2, "TRT AVAZ HD"}, {3, "TRT BELGESEL"}};
+    if (freqMhz == 11977) return {{1, "TRT 1 HD"}, {2, "TRT 3 SPOR"}, {3, "TRT MUZIK"}};
+    if (freqMhz == 12053) return {{1, "ATV HD"}, {2, "A HABER HD"}, {3, "A SPOR HD"}};
+    if (freqMhz == 12015) return {{1, "STAR TV HD"}, {2, "NTV"}, {3, "KRAL POP"}};
+    if (freqMhz == 12209 || freqMhz == 12210) return {{1, "SHOW TV HD"}, {2, "HABERTURK HD"}, {3, "BLOOMBERG HT"}};
+    if (freqMhz == 12245) return {{1, "KANAL D HD"}, {2, "CNN TURK HD"}, {3, "TEVE2 HD"}};
+    return {{1, QString("CH_%1MHz_%2").arg(freqMhz).arg(pol)}, {2, "TEST 1"}, {3, "TEST 2"}};
+}
+
+QJsonObject DrxSimServer::buildChannelSelectionJson() const {
+    const auto chs = simulatedChannelsForFreq(m_currentFreqMhz, m_currentPol);
+    QJsonArray elems;
+    for (const auto &c : chs) {
+        QJsonObject o;
+        o["no"] = c.first;
+        o["name"] = c.second;
+        o["sid"] = 10100 + c.first;
+        o["vpid"] = 1700 + c.first;
+        o["vcodec"] = "H.264";
+        o["apid"] = 1800 + c.first;
+        o["acodec"] = "MP2A";
+        o["alan"] = "tur";
+        o["ppid"] = 1700 + c.first;
+        o["selected"] = (c.first == m_selectedChannelNo);
+        elems.append(o);
+    }
+
+    QJsonObject sec;
+    sec["elements"] = elems;
+    sec["header"] = "";
+    sec["type"] = "channelselectiontable";
+    sec["submit"] = "Gönder";
+    sec["waitmessage"] = "Lutfen bekleyin.";
+
+    QJsonArray secs;
+    secs.append(sec);
+
+    QJsonObject root;
+    root["menuheader"] = "Kanal Seçimi";
+    root["menuid"] = "chnsel";
+    root["sections"] = secs;
+    return root;
+}
+
 QString DrxSimServer::resolveChannelName(int freqMhz, const QString &pol) const {
-    if (freqMhz == 11977) return QStringLiteral("TRT 1 HD (%1)").arg(pol);
-    if (freqMhz == 11054) return QStringLiteral("TRT HABER HD (%1)").arg(pol);
-    if (freqMhz == 12015) return QStringLiteral("ATV HD (%1)").arg(pol);
-    if (freqMhz == 12209) return QStringLiteral("SHOW TV HD (%1)").arg(pol);
-    if (freqMhz == 12245) return QStringLiteral("STAR TV HD (%1)").arg(pol);
-    return QString("CH_%1MHz_%2").arg(freqMhz).arg(pol);
+    const auto chs = simulatedChannelsForFreq(freqMhz, pol);
+    for (const auto &c : chs) {
+        if (c.first == m_selectedChannelNo) {
+            return c.second;
+        }
+    }
+    return chs.isEmpty() ? QString("CH_%1MHz_%2").arg(freqMhz).arg(pol) : chs.first().second;
 }

@@ -141,6 +141,8 @@ private slots:
     void onDutStatus(bool signalLocked, bool videoProducing, bool audioProducing);
     void onDutTelemetry(double powerDbm, double cnDb, double ber);
     void onDutTimestampReceived(const QDateTime &deviceTime, const QDateTime &hostTime, const QString &rawTimeStr);
+    void onDutChannelListReceived(const QVector<QPair<int, QString>> &channels);
+    void onRefChannelListReceived(const QVector<QPair<int, QString>> &channels);
     void onRefData(double refCn, double refPow, bool carrierLocked, bool videoLocked);
 
     void onCarrierTimeout();
@@ -151,8 +153,12 @@ private slots:
 private:
     void changeState(TestState newState);
     void runCurrentChannel();
+    void beginSamplingPhase();
     void finishCurrentChannel();
     void completeTest();
+    static int pickTargetChannelNo(const QVector<QPair<int, QString>> &channels,
+                                   const QString &expectedName,
+                                   QString *pickedNameOut = nullptr);
 
     TcpClient  *m_netClient = nullptr;
     DataStream *m_dutStream = nullptr;
@@ -166,6 +172,7 @@ private:
     // Timers
     QElapsedTimer m_totalTestTimer;
     QTimer m_carrierWaitTimer;      ///< Carrier acquisition timeout timer (15s)
+    QTimer m_channelSelectTimer;    ///< Bounded timeout for post-lock channelSelection + chnsel
     QTimer m_sampleDurationTimer;   ///< Sampling duration timer (5s)
     QTimer m_sampleTickTimer;       ///< 250ms multi-sampling collection ticker
     QTimer m_dbLockRetryTimer;      ///< MariaDB distributed lock retry timer (Architecture 2)
@@ -179,6 +186,7 @@ private:
     bool m_dutCarrierLocked = false;
     bool m_dutVideoLocked = false;
     bool m_dutAudioLocked = false;
+    bool m_channelSelectedForCurrentFreq = false;
 
     bool m_refCarrierLocked = false;
     bool m_refVideoLocked = false;
