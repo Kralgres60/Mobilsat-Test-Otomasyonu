@@ -4,7 +4,7 @@ title NETA DRX9000 - Coklu Istasyon ve Donanim Simulasyon Test Paneli
 
 if not defined NETA_WATCHDOG_STARTED (
     set "NETA_WATCHDOG_STARTED=1"
-    start "" /min powershell -NoProfile -WindowStyle Hidden -Command "$me = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $PID); $batPid = $me.ParentProcessId; try { Wait-Process -Id $batPid -ErrorAction SilentlyContinue } catch {}; Stop-Process -Name NETA_Antenna_Test,NETA_DRX_Simulator -Force -ErrorAction SilentlyContinue; Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | Where-Object { $_.CommandLine -like '*neta_db_web.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; $adm = Get-ChildItem '%~dp0..' -Filter 'mysqladmin.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1; if ($adm) { & $adm.FullName -h 127.0.0.1 -P 3306 -u root -pneta123 shutdown 2>$null }; Stop-Process -Name mysqld -Force -ErrorAction SilentlyContinue"
+    start "" /min powershell -NoProfile -WindowStyle Hidden -Command "$batPid = (Get-CimInstance Win32_Process -Filter ('ProcessId=' + $PID)).ParentProcessId; try { Wait-Process -Id $batPid -ErrorAction SilentlyContinue } catch {}; Stop-Process -Name NETA_Antenna_Test,NETA_DRX_Simulator -Force -ErrorAction SilentlyContinue; Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*neta_db_web.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; Get-NetTCPConnection -LocalPort 8888 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; $adm = Get-ChildItem '%~dp0..' -Filter 'mysqladmin.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1; if ($adm) { & $adm.FullName -h 127.0.0.1 -P 3306 -u root -pneta123 shutdown 2>$null }; Start-Sleep -Milliseconds 300; Stop-Process -Name mysqld -Force -ErrorAction SilentlyContinue; Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'cmd.exe' -and ($_.CommandLine -like '*start_db.bat*' -or $_.CommandLine -like '*NETA MariaDB Server*' -or $_.CommandLine -like '*NETA Web DB Server*') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
 )
 
 set "SCRIPT_DIR=%~dp0"
@@ -235,11 +235,14 @@ goto MENU
 :STOP_ALL_SILENT
 taskkill /f /im NETA_Antenna_Test.exe >nul 2>&1
 taskkill /f /im NETA_DRX_Simulator.exe >nul 2>&1
-powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | Where-Object { $_.CommandLine -like '*neta_db_web.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>&1
+taskkill /f /fi "WINDOWTITLE eq NETA Web DB Server*" >nul 2>&1
+taskkill /f /fi "WINDOWTITLE eq NETA MariaDB Server*" >nul 2>&1
+for /f "tokens=5" %%p in ('netstat -ano ^| findstr ":8888" ^| findstr "LISTENING"') do taskkill /f /pid %%p >nul 2>&1
+powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*neta_db_web.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>&1
 if exist "%ROOT_DIR%\OUTPUT\Database\mariadb_portable\stop_db.bat" (
-    call "%ROOT_DIR%\OUTPUT\Database\mariadb_portable\stop_db.bat" >nul 2>&1
+    call "%ROOT_DIR%\OUTPUT\Database\mariadb_portable\stop_db.bat" nopause >nul 2>&1
 ) else if exist "%ROOT_DIR%\tools\mariadb_portable\stop_db.bat" (
-    call "%ROOT_DIR%\tools\mariadb_portable\stop_db.bat" >nul 2>&1
+    call "%ROOT_DIR%\tools\mariadb_portable\stop_db.bat" nopause >nul 2>&1
 )
 taskkill /f /im mysqld.exe >nul 2>&1
 exit /b 0
@@ -264,7 +267,7 @@ if "%DB_START%"=="" (
     exit /b 0
 )
 echo [DB] Tasinabilir MariaDB baslatiliyor [Port 3306]...
-start "NETA MariaDB Server" /min cmd /c call "%DB_START%"
+start "NETA MariaDB Server" /min cmd /c call "%DB_START%" nopause
 timeout /t 2 /nobreak >nul
 exit /b 0
 

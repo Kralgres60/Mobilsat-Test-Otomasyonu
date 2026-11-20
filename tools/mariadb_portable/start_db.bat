@@ -37,4 +37,4 @@ echo.
 echo Bu pencereyi kapatabilirsiniz (Sunucu arka planda calisir).
 echo Durdurmak icin 'stop_db.bat' calistiriniz.
 echo =====================================================================
-pause
+if /i not "%~1"=="nopause" pause

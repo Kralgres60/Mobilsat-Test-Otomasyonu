@@ -20,6 +20,12 @@
 #include <QApplication>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QDir>
+#include <QFile>
+#include <QFileDialog>
+#include <QScrollBar>
+#include <QTextStream>
+#include <QCoreApplication>
 #include <numeric>
 
 DebugRunnerWindow::DebugRunnerWindow(QWidget *parent)
@@ -29,11 +35,14 @@ DebugRunnerWindow::DebugRunnerWindow(QWidget *parent)
     connect(&m_sampleTickTimer, &QTimer::timeout, this, &DebugRunnerWindow::onSampleTimerTick);
     connect(&m_sampleDurationTimer, &QTimer::timeout, this, &DebugRunnerWindow::onSamplingFinished);
     m_sampleDurationTimer.setSingleShot(true);
+    connect(&m_discoveryTimer, &QTimer::timeout, this, &DebugRunnerWindow::onDiscoveryStep);
 
     // Wire Ethernet Web CGI Signals
     connect(m_webClient, &Ethernet::loginSucceeded, this, &DebugRunnerWindow::onSessionKeyReceived);
     connect(m_webClient, &Ethernet::loginFailed, this, &DebugRunnerWindow::onLoginFailed);
     connect(m_webClient, &Ethernet::tuneCompleted, this, &DebugRunnerWindow::onTuneFinished);
+    connect(m_webClient, &Ethernet::channelListReceived, this, &DebugRunnerWindow::onChannelListReceived);
+    connect(m_webClient, &Ethernet::channelSelected, this, &DebugRunnerWindow::onChannelSelected);
     connect(m_webClient, &Ethernet::rawResponseReceived, this, &DebugRunnerWindow::onRawResponseReceived);
     connect(m_webClient, &Ethernet::telemetryReceived, this, &DebugRunnerWindow::onTelemetryReceived);
     connect(m_webClient, &Ethernet::statusReceived, this, &DebugRunnerWindow::onStatusReceived);
@@ -182,6 +191,24 @@ void DebugRunnerWindow::setupUi() {
     gridTune->addWidget(new QLabel("Polarizasyon:", grpTune), 1, 0);
     gridTune->addWidget(m_comboPol, 1, 1);
     gridTune->addWidget(m_btnTune, 1, 2, 1, 2);
+
+    m_btnFetchChannels = new QPushButton("🔄 Kanal Listesi", grpTune);
+    m_btnFetchChannels->setStyleSheet(StyleHelper::getPastelBlueStyle());
+    m_btnFetchChannels->setCursor(Qt::PointingHandCursor);
+    connect(m_btnFetchChannels, &QPushButton::clicked, this, &DebugRunnerWindow::onFetchChannelsClicked);
+
+    m_comboChannels = new QComboBox(grpTune);
+    m_comboChannels->setPlaceholderText("Frekans kilitlenince kanallar listelenir...");
+
+    m_btnSelectChannel = new QPushButton("📺 Kanalı Seç", grpTune);
+    m_btnSelectChannel->setStyleSheet(StyleHelper::getPastelGreenStyle());
+    m_btnSelectChannel->setCursor(Qt::PointingHandCursor);
+    m_btnSelectChannel->setEnabled(false);
+    connect(m_btnSelectChannel, &QPushButton::clicked, this, &DebugRunnerWindow::onSelectChannelClicked);
+
+    gridTune->addWidget(m_btnFetchChannels, 2, 0);
+    gridTune->addWidget(m_comboChannels, 2, 1, 1, 2);
+    gridTune->addWidget(m_btnSelectChannel, 2, 3);
     vLeft->addWidget(grpTune);
 
     // Group: Live Telemetry Badges & Queries
@@ -210,11 +237,17 @@ void DebugRunnerWindow::setupUi() {
     m_btnStartSample->setStyleSheet(StyleHelper::getPastelAmberStyle());
     connect(m_btnStartSample, &QPushButton::clicked, this, &DebugRunnerWindow::onStartSamplingClicked);
 
+    m_btnDiscoverApi = new QPushButton("🔎 API Keşif Taraması", grpTele);
+    m_btnDiscoverApi->setStyleSheet(StyleHelper::getPastelPurpleStyle());
+    m_btnDiscoverApi->setToolTip("DRX9000 CGI endpoint/komutlarını otomatik tarar ve tam keşif raporu üretir");
+    connect(m_btnDiscoverApi, &QPushButton::clicked, this, &DebugRunnerWindow::onStartDiscoveryClicked);
+
     hTeleBtns->addWidget(m_btnAlarmStatus);
     hTeleBtns->addWidget(m_btnDeviceInfo);
     hTeleBtns->addWidget(m_spinSampleSec);
     hTeleBtns->addWidget(m_btnStartSample);
     vTele->addLayout(hTeleBtns);
+    vTele->addWidget(m_btnDiscoverApi);
 
     // Live Indicators Grid
     QGridLayout *gridBadges = new QGridLayout();
@@ -261,7 +294,7 @@ void DebugRunnerWindow::setupUi() {
 
     QHBoxLayout *hCustomHead = new QHBoxLayout();
     m_comboCgiAction = new QComboBox(grpCustom);
-    m_comboCgiAction->addItems({"alarmStatus", "deviceInfo", "freq", "login", "raw"});
+    m_comboCgiAction->addItems({"alarmStatus", "deviceInfo", "channelSelection", "channelSelect (chnsel)", "freq", "login", "raw"});
     connect(m_comboCgiAction, QOverload<const QString &>::of(&QComboBox::currentTextChanged), this, &DebugRunnerWindow::setPresetPayloadForAction);
 
     m_btnSendCustom = new QPushButton("📤 İsteği Gönder (POST)", grpCustom);
@@ -306,6 +339,10 @@ void DebugRunnerWindow::setupUi() {
     m_lblResponseLatency = new QLabel("Gecikme: -- ms", grpOutput);
     m_lblResponseLatency->setStyleSheet("background-color: #181825; color: #89DCEB; padding: 4px 8px; border-radius: 4px;");
 
+    m_btnSaveReport = new QPushButton("💾 Raporu Kaydet", grpOutput);
+    m_btnSaveReport->setStyleSheet(StyleHelper::getPastelGreenStyle());
+    connect(m_btnSaveReport, &QPushButton::clicked, this, &DebugRunnerWindow::onSaveReportClicked);
+
     m_btnCopyRaw = new QPushButton("📋 JSON Kopyala", grpOutput);
     m_btnCopyRaw->setStyleSheet(StyleHelper::getPastelBlueStyle());
     connect(m_btnCopyRaw, &QPushButton::clicked, this, &DebugRunnerWindow::onCopyRawClicked);
@@ -317,6 +354,7 @@ void DebugRunnerWindow::setupUi() {
     hOutBar->addWidget(m_lblResponseStatus);
     hOutBar->addWidget(m_lblResponseLatency);
     hOutBar->addStretch();
+    hOutBar->addWidget(m_btnSaveReport);
     hOutBar->addWidget(m_btnCopyRaw);
     hOutBar->addWidget(m_btnClearOutput);
     vOut->addLayout(hOutBar);
@@ -384,6 +422,10 @@ void DebugRunnerWindow::setPresetPayloadForAction(const QString &action) {
         m_txtCustomPayload->setPlainText(QString("query=alarmStatus\nsessionKey=%1\n").arg(skStr));
     } else if (action == "deviceInfo") {
         m_txtCustomPayload->setPlainText(QString("query=deviceInfo\nsessionKey=%1\n").arg(skStr));
+    } else if (action == "channelSelection") {
+        m_txtCustomPayload->setPlainText(QString("query=channelSelection\nsessionKey=%1\n").arg(skStr));
+    } else if (action == "channelSelect (chnsel)") {
+        m_txtCustomPayload->setPlainText(QString("ResponseTo=chnsel\nsessionKey=%1\nsel=1\n").arg(skStr));
     } else if (action == "freq") {
         m_txtCustomPayload->setPlainText(QString("ResponseTo=freq\nsessionKey=%1\nfr_frequency=11054000\nfr_srate=30000000\nfr_pol=0\n").arg(skStr));
     } else if (action == "login") {
@@ -413,8 +455,30 @@ void DebugRunnerWindow::onTuneClicked() {
     int sr = m_spinSymbolRate->value();
     QString pol = (m_comboPol->currentIndex() == 1) ? "H" : "V";
 
+    m_pendingAutoChannelFetch = true;
+    m_lockPollAttempts = 0;
+    if (m_comboChannels) m_comboChannels->clear();
+    if (m_btnSelectChannel) m_btnSelectChannel->setEnabled(false);
+
     appendLog(QString("Frekans gönderiliyor: %1 MHz, %2 kS/s, %3").arg(freq).arg(sr).arg(pol), "#FAB387");
     m_webClient->sendTune(freq, sr, pol);
+}
+
+void DebugRunnerWindow::onFetchChannelsClicked() {
+    syncEndpointSettings();
+    appendLog("🔄 Transponder kanal listesi isteniyor (query=channelSelection)...", "#89DCEB");
+    m_webClient->requestChannelList();
+}
+
+void DebugRunnerWindow::onSelectChannelClicked() {
+    if (!m_comboChannels || m_comboChannels->count() == 0) return;
+    syncEndpointSettings();
+    const int chNo = m_comboChannels->currentData().toInt();
+    const QString label = m_comboChannels->currentText();
+    if (chNo <= 0) return;
+
+    appendLog(QString("📺 Kanal seçiliyor: %1 (ResponseTo=chnsel, sel=%2)...").arg(label).arg(chNo), "#FAB387");
+    m_webClient->selectChannel(chNo);
 }
 
 void DebugRunnerWindow::onPollAlarmStatusClicked() {
@@ -518,9 +582,55 @@ void DebugRunnerWindow::onLoginFailed(const QString &reason) {
 
 void DebugRunnerWindow::onTuneFinished(bool isOk, const QString &details) {
     if (isOk) {
-        appendLog(QString("✔ Frekans başarıyla kilitlendi: %1").arg(details), "#34D399");
+        appendLog(QString("✔ Frekans komutu kabul edildi: %1 (Kilit durumu kontrol ediliyor...)").arg(details), "#34D399");
+        QTimer::singleShot(800, this, [this]() {
+            if (m_webClient) m_webClient->requestStatus();
+        });
     } else {
+        m_pendingAutoChannelFetch = false;
         appendLog(QString("❌ Frekans ayarlama hatası: %1").arg(details), "#EF4444");
+    }
+}
+
+void DebugRunnerWindow::onChannelListReceived(const QVector<DrxChannelItem> &channels) {
+    if (!m_comboChannels) return;
+    m_comboChannels->clear();
+
+    int selectedIdx = 0;
+    for (int i = 0; i < channels.size(); ++i) {
+        const auto &ch = channels[i];
+        const QString text = QString("#%1 - %2 (SID: %3)%4")
+                                 .arg(ch.no)
+                                 .arg(ch.name)
+                                 .arg(ch.sid)
+                                 .arg(ch.selected ? QStringLiteral("  [SEÇİLİ]") : QString());
+        m_comboChannels->addItem(text, ch.no);
+        if (ch.selected) {
+            selectedIdx = i;
+        }
+    }
+
+    if (!channels.isEmpty()) {
+        m_comboChannels->setCurrentIndex(selectedIdx);
+        if (m_btnSelectChannel) m_btnSelectChannel->setEnabled(true);
+        appendLog(QString("📺 %1 adet kanal listelendi. Seçip 'Kanalı Seç' butonuna basabilirsiniz.").arg(channels.size()), "#34D399");
+    } else {
+        if (m_btnSelectChannel) m_btnSelectChannel->setEnabled(false);
+        appendLog("⚠ Kanal listesi boş döndü (transponder kilitli olmayabilir).", "#FAB387");
+    }
+}
+
+void DebugRunnerWindow::onChannelSelected(bool isOk, const QString &details) {
+    if (isOk) {
+        appendLog(QString("✔ %1 — aktif kanal ve telemetri güncelleniyor...").arg(details), "#34D399");
+        QTimer::singleShot(700, this, [this]() {
+            if (m_webClient) {
+                m_webClient->requestStatus();
+                m_webClient->requestChannelList();
+            }
+        });
+    } else {
+        appendLog(QString("❌ Kanal seçimi başarısız: %1").arg(details), "#EF4444");
     }
 }
 
@@ -537,10 +647,29 @@ void DebugRunnerWindow::onRawResponseReceived(const QString &actionName, const Q
     // Pretty format if JSON
     QJsonParseError parseErr;
     QJsonDocument doc = QJsonDocument::fromJson(rawJson, &parseErr);
-    if (parseErr.error == QJsonParseError::NoError) {
-        m_txtRawOutput->setPlainText(QString::fromUtf8(doc.toJson(QJsonDocument::Indented)));
+    const QString formatted = (parseErr.error == QJsonParseError::NoError)
+                                  ? QString::fromUtf8(doc.toJson(QJsonDocument::Indented))
+                                  : QString::fromUtf8(rawJson);
+
+    if (m_isDiscovering) {
+        const QString entry = QString(
+            "=====================================================================\n"
+            "[PROBE %1/%2] %3 | Action: %4 | Durum: %5\n"
+            "Payload:\n%6\n"
+            "Response (%7 bytes):\n%8\n")
+            .arg(m_discoveryIndex)
+            .arg(m_discoveryQueue.size())
+            .arg(QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss.zzz"))
+            .arg(actionName)
+            .arg(isErr ? "ERROR/DENIED" : "OK")
+            .arg(m_currentDiscoveryPayload.trimmed())
+            .arg(rawJson.size())
+            .arg(formatted);
+        m_discoveryLog.append(entry);
+        m_txtRawOutput->setPlainText(m_discoveryLog);
+        m_txtRawOutput->verticalScrollBar()->setValue(m_txtRawOutput->verticalScrollBar()->maximum());
     } else {
-        m_txtRawOutput->setPlainText(QString::fromUtf8(rawJson));
+        m_txtRawOutput->setPlainText(formatted);
     }
 }
 
@@ -581,6 +710,24 @@ void DebugRunnerWindow::onStatusReceived(bool signalLocked, bool videoLocked, bo
         m_lblChannelName->setText("Kanal: " + channelName);
         m_lblChannelName->setStyleSheet("background-color: #1E1E2E; color: #89DCEB; padding: 6px; border-radius: 4px; font-weight: bold;");
     }
+
+    if (m_pendingAutoChannelFetch) {
+        if (signalLocked) {
+            m_pendingAutoChannelFetch = false;
+            appendLog("🔒 Frekans kilitlendi! Kanal listesi (channelSelection) otomatik alınıyor...", "#34D399");
+            m_webClient->requestChannelList();
+        } else if (++m_lockPollAttempts <= 8) {
+            // Bounded re-check of lock status after tuning (max 8 attempts)
+            QTimer::singleShot(1000, this, [this]() {
+                if (m_pendingAutoChannelFetch && m_webClient) {
+                    m_webClient->requestStatus();
+                }
+            });
+        } else {
+            m_pendingAutoChannelFetch = false;
+            appendLog("⚠ Frekans 8 sn içinde kilitlenmedi; kanal listesi otomatik alınamadı.", "#FAB387");
+        }
+    }
 }
 
 void DebugRunnerWindow::onTimestampReceived(const QDateTime &deviceTime, const QDateTime &hostTime, const QString &rawTimeStr) {
@@ -613,4 +760,110 @@ void DebugRunnerWindow::onOpenDbToolClicked() {
     auto *dbTool = new DbDebugWindow(this);
     dbTool->setAttribute(Qt::WA_DeleteOnClose);
     dbTool->show();
+}
+
+void DebugRunnerWindow::onStartDiscoveryClicked() {
+    if (m_isDiscovering) {
+        m_discoveryTimer.stop();
+        m_isDiscovering = false;
+        m_btnDiscoverApi->setText("🔎 API Keşif Taraması");
+        m_btnDiscoverApi->setStyleSheet(StyleHelper::getPastelPurpleStyle());
+        appendLog("API keşif taraması durduruldu.", "#FAB387");
+        return;
+    }
+
+    syncEndpointSettings();
+    const int sk = m_webClient->sessionKey();
+    const QString skLine = (sk > 0) ? QString("sessionKey=%1\n").arg(sk) : QString();
+
+    m_discoveryQueue.clear();
+    const QStringList queryCandidates = {
+        "alarmStatus", "deviceInfo", "channelSelection", "channelList", "serviceList",
+        "programList", "presetList", "tunerStatus", "rfStatus", "frontendStatus",
+        "networkInfo", "networkStatus", "systemStatus", "status", "info",
+        "services", "channels", "presets", "freq", "audio", "video", "accessRights"
+    };
+    for (const QString &q : queryCandidates) {
+        m_discoveryQueue << q;
+    }
+
+    const QStringList responseToCandidates = {
+        "channelSelection", "channelList", "serviceList", "programList",
+        "deviceInfo", "alarmStatus", "status", "tuner", "preset", "channel", "service"
+    };
+    for (const QString &r : responseToCandidates) {
+        m_discoveryQueue << QString("ResponseTo=%1\n%2").arg(r, skLine).trimmed();
+    }
+
+    m_discoveryIndex = 0;
+    m_isDiscovering = true;
+    m_discoveryLog = QString(
+        "NETA DRX9000 REST API KESIF RAPORU\n"
+        "Tarih: %1\n"
+        "Hedef: %2:%3 | SessionKey: %4\n"
+        "Toplam Probe: %5\n\n")
+        .arg(QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss"))
+        .arg(m_txtIp->text().trimmed())
+        .arg(m_spinPort->value())
+        .arg(sk > 0 ? QString::number(sk) : QStringLiteral("YOK (Once Login onerilir)"))
+        .arg(m_discoveryQueue.size());
+
+    m_txtRawOutput->setPlainText(m_discoveryLog);
+    m_btnDiscoverApi->setText("⏹️ Taramayı Durdur");
+    m_btnDiscoverApi->setStyleSheet(StyleHelper::getPastelRedStyle());
+    appendLog(QString("🔎 %1 adet CGI endpoint/komut için API keşif taraması başlatıldı...").arg(m_discoveryQueue.size()), "#CBA6F7");
+
+    onDiscoveryStep();
+    m_discoveryTimer.start(400);
+}
+
+void DebugRunnerWindow::onDiscoveryStep() {
+    if (!m_isDiscovering) return;
+
+    if (m_discoveryIndex >= m_discoveryQueue.size()) {
+        m_discoveryTimer.stop();
+        m_isDiscovering = false;
+        m_btnDiscoverApi->setText("🔎 API Keşif Taraması");
+        m_btnDiscoverApi->setStyleSheet(StyleHelper::getPastelPurpleStyle());
+
+        const QString logDir = QDir(QCoreApplication::applicationDirPath()).filePath("logs");
+        QDir().mkpath(logDir);
+        const QString filePath = QDir(logDir).filePath(
+            QString("drx_api_discovery_%1.txt").arg(QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss")));
+        QFile f(filePath);
+        if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            QTextStream out(&f);
+            out.setCodec("UTF-8");
+            out << m_discoveryLog;
+            f.close();
+            appendLog(QString("✔ API keşif taraması tamamlandı! Rapor kaydedildi: %1").arg(filePath), "#34D399");
+        } else {
+            appendLog("✔ API keşif taraması tamamlandı (dosyaya yazılamadı, ekrandan kopyalayabilirsiniz).", "#FAB387");
+        }
+        return;
+    }
+
+    m_currentDiscoveryPayload = m_discoveryQueue[m_discoveryIndex];
+    ++m_discoveryIndex;
+    appendLog(QString("🔎 Probe [%1/%2]: %3").arg(m_discoveryIndex).arg(m_discoveryQueue.size()).arg(m_currentDiscoveryPayload.simplified()), "#89DCEB");
+    m_webClient->sendRaw(m_currentDiscoveryPayload);
+}
+
+void DebugRunnerWindow::onSaveReportClicked() {
+    if (!m_txtRawOutput) return;
+    const QString logDir = QDir(QCoreApplication::applicationDirPath()).filePath("logs");
+    QDir().mkpath(logDir);
+    const QString defaultPath = QDir(logDir).filePath(
+        QString("drx_api_report_%1.txt").arg(QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss")));
+    const QString path = QFileDialog::getSaveFileName(this, "DRX REST API Raporunu Kaydet", defaultPath, "Metin Dosyası (*.txt);;Tüm Dosyalar (*)");
+    if (path.isEmpty()) return;
+
+    QFile f(path);
+    if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QTextStream out(&f);
+        out.setCodec("UTF-8");
+        out << m_txtRawOutput->toPlainText();
+        f.close();
+        appendLog(QString("💾 Rapor kaydedildi: %1").arg(path), "#34D399");
+    }
 }

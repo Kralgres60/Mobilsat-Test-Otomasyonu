@@ -15,6 +15,12 @@
 #include <QTextStream>
 #include <QDir>
 #include <QStringList>
+#include <QCryptographicHash>
+#include <QMessageAuthenticationCode>
+#include <QDataStream>
+#include <QRandomGenerator>
+#include <QCoreApplication>
+#include <QStandardPaths>
 
 DbManager& DbManager::instance() {
     static DbManager s_instance;
@@ -73,6 +79,8 @@ bool DbManager::connectToDatabase(const QString &host, int port, const QString &
         initTablesIfSqlite();
     }
     ensureDefaultDataIfMissing();
+    // Synchronize local encrypted user vault immediately upon connecting to MariaDB
+    getUsers();
     emit connectionStatusChanged(true, "Connected (" + driverName() + ")");
     return true;
 }
@@ -1546,7 +1554,7 @@ bool DbManager::setSetting(const QString &key, const QString &value, const QStri
     const QString sql = isUsingSqlite()
         ? "INSERT OR REPLACE INTO system_settings (setting_key, setting_value, description) VALUES (:k, :v, :d)"
         : "INSERT INTO system_settings (setting_key, setting_value, description) "
-          "VALUES (:k, :v, :d) ON DUPLICATE KEY UPDATE setting_value = :v, description = :d";
+          "VALUES (:k, :v, :d) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), description = VALUES(description)";
     return m_stream->execNamed(sql, {{":k", key}, {":v", value}, {":d", desc}}).ok;
 }
 
@@ -1556,15 +1564,15 @@ bool DbManager::tryAcquireDbLock(int stationId, int &outLockedByStation, int &ou
     if (!isConnected()) return false;
 
     const QString sql = isUsingSqlite()
-        ? "UPDATE reference_lock SET locked_by_station = :sid WHERE id = 1 AND (locked_by_station = 0 OR locked_by_station = :sid)"
+        ? "UPDATE reference_lock SET locked_by_station = :sid WHERE id = 1 AND (locked_by_station = 0 OR locked_by_station = :sid2)"
         : "UPDATE reference_lock "
           "SET locked_by_station = :sid, "
           "    lock_acquired_at = CURRENT_TIMESTAMP, "
           "    heartbeat_at = CURRENT_TIMESTAMP "
-          "WHERE id = 1 AND (locked_by_station = 0 OR locked_by_station = :sid "
+          "WHERE id = 1 AND (locked_by_station = 0 OR locked_by_station = :sid2 "
           "      OR TIMESTAMPDIFF(SECOND, heartbeat_at, NOW()) > 45)";
 
-    const DbQueryResult res = m_stream->execNamed(sql, {{":sid", stationId}});
+    const DbQueryResult res = m_stream->execNamed(sql, {{":sid", stationId}, {":sid2", stationId}});
     if (res.ok && res.rowsAffected > 0) {
         outLockedByStation = stationId;
         return true;
@@ -1583,8 +1591,8 @@ bool DbManager::releaseDbLock(int stationId) {
     if (!isConnected()) return false;
     return m_stream->execNamed(
         "UPDATE reference_lock SET locked_by_station = 0, current_channel_no = 0 "
-        "WHERE id = 1 AND (locked_by_station = :sid OR :sid <= 0)",
-        {{":sid", stationId}}).ok;
+        "WHERE id = 1 AND (locked_by_station = :sid OR :sid2 <= 0)",
+        {{":sid", stationId}, {":sid2", stationId}}).ok;
 }
 
 bool DbManager::updateDbLockHeartbeat(int stationId, int currentChannel) {
@@ -1631,63 +1639,275 @@ void DbManager::stopPortableMariaDbIfRunning() {
     }
 }
 
-bool DbManager::authenticateUser(const QString &username, const QString &password, UserRole &outRole, QString &outFullName) {
-    QString trimmedUser = username.trimmed();
-    QString trimmedPass = password.trimmed();
+namespace {
 
-    if (trimmedUser.isEmpty()) {
-        return false;
+// Constant-time byte array comparison to prevent timing side-channel attacks
+bool constantTimeEquals(const QByteArray &a, const QByteArray &b) {
+    if (a.size() != b.size()) return false;
+    unsigned char diff = 0;
+    for (int i = 0; i < a.size(); ++i) {
+        diff |= static_cast<unsigned char>(a[i] ^ b[i]);
+    }
+    return diff == 0;
+}
+
+// Generates a 256-bit keystream block for CTR-mode payload encryption
+QByteArray vaultKeystreamBlock(const QByteArray &masterKey, const QByteArray &iv, quint32 counter) {
+    QByteArray blockInput = iv;
+    blockInput.append(static_cast<char>((counter >> 24) & 0xFF));
+    blockInput.append(static_cast<char>((counter >> 16) & 0xFF));
+    blockInput.append(static_cast<char>((counter >> 8) & 0xFF));
+    blockInput.append(static_cast<char>(counter & 0xFF));
+    return QMessageAuthenticationCode::hash(blockInput, masterKey, QCryptographicHash::Sha256);
+}
+
+QByteArray vaultCryptCtr(const QByteArray &input, const QByteArray &masterKey, const QByteArray &iv) {
+    QByteArray output(input.size(), Qt::Uninitialized);
+    quint32 counter = 0;
+    int offset = 0;
+    while (offset < input.size()) {
+        const QByteArray ks = vaultKeystreamBlock(masterKey, iv, counter++);
+        const int chunk = qMin(ks.size(), input.size() - offset);
+        for (int i = 0; i < chunk; ++i) {
+            output[offset + i] = input[offset + i] ^ ks[i];
+        }
+        offset += chunk;
+    }
+    return output;
+}
+
+QByteArray vaultEncryptionKey() {
+    return QCryptographicHash::hash(
+        QByteArrayLiteral("NETA::DRX9000::LOCAL_VAULT_ENC_KEY::2026::v1"),
+        QCryptographicHash::Sha256);
+}
+
+QByteArray vaultMacKey() {
+    return QCryptographicHash::hash(
+        QByteArrayLiteral("NETA::DRX9000::LOCAL_VAULT_HMAC_KEY::2026::v1"),
+        QCryptographicHash::Sha256);
+}
+
+} // namespace
+
+QString DbManager::deriveUserPasswordToken(const QString &username, const QString &passwordOrToken) {
+    const QString trimmedPass = passwordOrToken.trimmed();
+    if (trimmedPass.startsWith(QStringLiteral("$v1$")) && trimmedPass.size() == 68) {
+        return trimmedPass;
     }
 
-    // 1. If database is connected, verify against users table
-    if (isConnected()) {
-        const DbQueryResult res = m_stream->execNamed(
-            "SELECT role, full_name, password_hash FROM users WHERE username = :u AND is_active = 1 LIMIT 1;",
-            {{":u", trimmedUser}});
-        if (res.ok && res.hasRows()) {
-            const DbRow &row = res.first();
-            const QString roleStr = row.value("role").toString().toUpper();
-            const QString fullName = row.value("full_name").toString();
-            const QString passHash = row.value("password_hash").toString();
+    const QByteArray userSalt = QMessageAuthenticationCode::hash(
+        username.trimmed().toLower().toUtf8(),
+        QByteArrayLiteral("NETA::DRX9000::USER_PWD_SALT::2026"),
+        QCryptographicHash::Sha256);
 
-            if (trimmedPass == passHash || passHash.isEmpty()) {
-                outRole = (roleStr == "ADMIN") ? UserRole::Engineer : UserRole::Technician;
-                outFullName = fullName.isEmpty() ? trimmedUser : fullName;
-                return true;
-            }
+    QByteArray digest = trimmedPass.toUtf8();
+    for (int i = 0; i < 4096; ++i) {
+        digest = QMessageAuthenticationCode::hash(digest, userSalt, QCryptographicHash::Sha256);
+    }
+    return QStringLiteral("$v1$") + QString::fromLatin1(digest.toHex());
+}
+
+QString DbManager::localUserVaultPath() const {
+    const QString appDir = QCoreApplication::instance()
+                               ? QCoreApplication::applicationDirPath()
+                               : QDir::currentPath();
+    return QDir(appDir).filePath(QStringLiteral("neta_auth.vault"));
+}
+
+bool DbManager::syncLocalUserVault(const QVector<UserRecord> &users) {
+    if (users.isEmpty()) return false;
+
+    // 1. Serialize user records with one-way derived password tokens into binary buffer
+    QByteArray plainPayload;
+    {
+        QDataStream ds(&plainPayload, QIODevice::WriteOnly);
+        ds.setVersion(QDataStream::Qt_5_15);
+        ds << static_cast<quint32>(0x4E565531); // Inner payload magic 'NVU1'
+        ds << static_cast<qint32>(users.size());
+        for (const UserRecord &u : users) {
+            const QString uname = u.username.trimmed();
+            const QString token = deriveUserPasswordToken(
+                uname, u.password.isEmpty() ? QStringLiteral("123") : u.password);
+            ds << static_cast<qint32>(u.id)
+               << uname
+               << token
+               << u.fullName.trimmed()
+               << u.role.trimmed().toUpper()
+               << u.isActive;
         }
     }
 
-    // 2. Factory Default / Fallback Authentication (Works even if database is offline)
-    if (trimmedUser.compare("admin", Qt::CaseInsensitive) == 0 && trimmedPass == "123") {
-        outRole = UserRole::Engineer;
-        outFullName = "Sistem Yöneticisi / Başmühendis";
-        return true;
+    // 2. Generate 16-byte cryptographic random IV/salt
+    QByteArray iv(16, Qt::Uninitialized);
+    for (int i = 0; i < 16; i += 4) {
+        const quint32 r = QRandomGenerator::system()->generate();
+        iv[i]     = static_cast<char>((r >> 24) & 0xFF);
+        iv[i + 1] = static_cast<char>((r >> 16) & 0xFF);
+        iv[i + 2] = static_cast<char>((r >> 8) & 0xFF);
+        iv[i + 3] = static_cast<char>(r & 0xFF);
     }
-    if (trimmedUser.compare("engineer", Qt::CaseInsensitive) == 0 && trimmedPass == "123") {
-        outRole = UserRole::Engineer;
-        outFullName = "Ar-Ge Test Mühendisi";
-        return true;
+
+    // 3. Encrypt payload with SHA-256 CTR stream cipher
+    const QByteArray cipherPayload = vaultCryptCtr(plainPayload, vaultEncryptionKey(), iv);
+
+    // 4. Assemble header + IV + ciphertext and compute 32-byte HMAC-SHA256 integrity tag
+    QByteArray body;
+    body.reserve(4 + 16 + cipherPayload.size());
+    body.append("NVA1", 4);
+    body.append(iv);
+    body.append(cipherPayload);
+
+    const QByteArray macTag = QMessageAuthenticationCode::hash(
+        body, vaultMacKey(), QCryptographicHash::Sha256);
+
+    QFile file(localUserVaultPath());
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        return false;
     }
-    if (trimmedUser.compare("operator1", Qt::CaseInsensitive) == 0 && trimmedPass == "123") {
-        outRole = UserRole::Technician;
-        outFullName = "Masa 1 Operatörü";
-        return true;
+    file.write(body);
+    file.write(macTag);
+    file.flush();
+    file.close();
+    return true;
+}
+
+bool DbManager::loadLocalUserVault(QVector<UserRecord> &outUsers) const {
+    outUsers.clear();
+    QFile file(localUserVaultPath());
+    if (!file.exists() || !file.open(QIODevice::ReadOnly)) {
+        return false;
     }
-    if (trimmedUser.compare("operator2", Qt::CaseInsensitive) == 0 && trimmedPass == "123") {
-        outRole = UserRole::Technician;
-        outFullName = "Masa 2 Operatörü";
-        return true;
+    const QByteArray raw = file.readAll();
+    file.close();
+
+    // Minimum size: 4B magic + 16B IV + 8B min payload + 32B HMAC = 60 bytes
+    if (raw.size() < 60 || raw.left(4) != QByteArrayLiteral("NVA1")) {
+        return false;
     }
-    if (trimmedUser.compare("operator3", Qt::CaseInsensitive) == 0 && trimmedPass == "123") {
-        outRole = UserRole::Technician;
-        outFullName = "Masa 3 Operatörü";
-        return true;
+
+    const QByteArray body = raw.left(raw.size() - 32);
+    const QByteArray storedMac = raw.right(32);
+    const QByteArray computedMac = QMessageAuthenticationCode::hash(
+        body, vaultMacKey(), QCryptographicHash::Sha256);
+
+    if (!constantTimeEquals(storedMac, computedMac)) {
+        qWarning() << "[DbManager] Local user vault HMAC integrity verification failed (tampered file rejected).";
+        return false;
     }
-    if ((trimmedUser.compare("tekniker", Qt::CaseInsensitive) == 0 || trimmedUser.compare("tech", Qt::CaseInsensitive) == 0) && trimmedPass == "123") {
-        outRole = UserRole::Technician;
-        outFullName = "Saha Test Teknikeri";
-        return true;
+
+    const QByteArray iv = body.mid(4, 16);
+    const QByteArray cipherPayload = body.mid(20);
+    const QByteArray plainPayload = vaultCryptCtr(cipherPayload, vaultEncryptionKey(), iv);
+
+    QDataStream ds(plainPayload);
+    ds.setVersion(QDataStream::Qt_5_15);
+    quint32 innerMagic = 0;
+    qint32 count = 0;
+    ds >> innerMagic >> count;
+    if (innerMagic != 0x4E565531 || count <= 0 || count > 1000) {
+        return false;
+    }
+
+    for (qint32 i = 0; i < count; ++i) {
+        qint32 id = 0;
+        QString uname, token, fullName, role;
+        bool active = true;
+        ds >> id >> uname >> token >> fullName >> role >> active;
+        if (ds.status() != QDataStream::Ok) {
+            outUsers.clear();
+            return false;
+        }
+        UserRecord u;
+        u.id = id;
+        u.username = uname;
+        u.password = token;
+        u.fullName = fullName;
+        u.role = role;
+        u.isActive = active;
+        outUsers.append(u);
+    }
+    return !outUsers.isEmpty();
+}
+
+bool DbManager::authenticateUser(const QString &username, const QString &password, UserRole &outRole, QString &outFullName) {
+    const QString trimmedUser = username.trimmed();
+    const QString trimmedPass = password.trimmed();
+
+    if (trimmedUser.isEmpty() || trimmedPass.isEmpty()) {
+        return false;
+    }
+
+    // 1. If central MariaDB is connected, verify directly against the users table and refresh local vault
+    if (isConnected()) {
+        const DbQueryResult res = m_stream->execNamed(
+            "SELECT role, full_name, password_hash, is_active FROM users WHERE username = :u LIMIT 1;",
+            {{":u", trimmedUser}});
+        if (res.ok && res.hasRows()) {
+            const DbRow &row = res.first();
+            const bool isActive = row.value("is_active").toInt() != 0;
+            if (!isActive) {
+                getUsers(); // Sync vault so deactivated state is cached locally
+                return false;
+            }
+            const QString roleStr = row.value("role").toString().trimmed().toUpper();
+            const QString fullName = row.value("full_name").toString();
+            const QString passHash = row.value("password_hash").toString();
+
+            const QString inputToken = deriveUserPasswordToken(trimmedUser, trimmedPass);
+            const QString dbToken = deriveUserPasswordToken(trimmedUser, passHash.isEmpty() ? QStringLiteral("123") : passHash);
+
+            if (trimmedPass == passHash || constantTimeEquals(inputToken.toLatin1(), dbToken.toLatin1())) {
+                outRole = (roleStr == "ADMIN") ? UserRole::Engineer : UserRole::Technician;
+                outFullName = fullName.isEmpty() ? trimmedUser : fullName;
+                getUsers(); // Keep local encrypted vault synchronized
+                return true;
+            }
+            return false;
+        }
+    }
+
+    // 2. Central MariaDB is offline: verify against this PC's encrypted & HMAC-signed local user vault
+    QVector<UserRecord> vaultUsers;
+    if (loadLocalUserVault(vaultUsers)) {
+        for (const UserRecord &u : vaultUsers) {
+            if (u.username.compare(trimmedUser, Qt::CaseInsensitive) == 0) {
+                if (!u.isActive) {
+                    return false; // Deactivated user cannot log in offline
+                }
+                const QString expectedToken = deriveUserPasswordToken(u.username, u.password);
+                const QString candidateToken = deriveUserPasswordToken(u.username, trimmedPass);
+                if (constantTimeEquals(expectedToken.toLatin1(), candidateToken.toLatin1())) {
+                    outRole = (u.role.compare("ADMIN", Qt::CaseInsensitive) == 0)
+                                  ? UserRole::Engineer
+                                  : UserRole::Technician;
+                    outFullName = u.fullName.isEmpty() ? u.username : u.fullName;
+                    return true;
+                }
+                return false;
+            }
+        }
+        // Vault exists and is authoritative for this PC: unknown users are rejected
+        return false;
+    }
+
+    // 3. First-boot factory fallback (only used before the first database/host sync creates neta_auth.vault)
+    const QVector<UserRecord> factoryDefaults = {
+        {1, "admin",     "123", "Sistem Yöneticisi / Başmühendis", "ADMIN",    true},
+        {2, "engineer",  "123", "Ar-Ge Test Mühendisi",            "ADMIN",    true},
+        {3, "operator1", "123", "Masa 1 Operatörü",                "OPERATOR", true},
+        {4, "operator2", "123", "Masa 2 Operatörü",                "OPERATOR", true},
+        {5, "operator3", "123", "Masa 3 Operatörü",                "OPERATOR", true},
+        {6, "tekniker",  "123", "Saha Test Teknikeri",             "OPERATOR", true}
+    };
+
+    for (const UserRecord &def : factoryDefaults) {
+        if (def.username.compare(trimmedUser, Qt::CaseInsensitive) == 0 && trimmedPass == def.password) {
+            outRole = (def.role == "ADMIN") ? UserRole::Engineer : UserRole::Technician;
+            outFullName = def.fullName;
+            syncLocalUserVault(factoryDefaults);
+            return true;
+        }
     }
 
     return false;
@@ -1695,7 +1915,21 @@ bool DbManager::authenticateUser(const QString &username, const QString &passwor
 
 QVector<UserRecord> DbManager::getUsers() {
     QVector<UserRecord> list;
-    if (!isConnected()) return list;
+    if (!isConnected()) {
+        if (!loadLocalUserVault(list)) {
+            list = {
+                {1, "admin",     "123", "Sistem Yöneticisi / Başmühendis", "ADMIN",    true},
+                {2, "engineer",  "123", "Ar-Ge Test Mühendisi",            "ADMIN",    true},
+                {3, "operator1", "123", "Masa 1 Operatörü",                "OPERATOR", true},
+                {4, "operator2", "123", "Masa 2 Operatörü",                "OPERATOR", true},
+                {5, "operator3", "123", "Masa 3 Operatörü",                "OPERATOR", true},
+                {6, "tekniker",  "123", "Saha Test Teknikeri",             "OPERATOR", true}
+            };
+            syncLocalUserVault(list);
+            loadLocalUserVault(list);
+        }
+        return list;
+    }
 
     const DbQueryResult res = m_stream->exec("SELECT id, username, password_hash, full_name, role, is_active FROM users ORDER BY id ASC;");
     for (const DbRow &row : res.rows) {
@@ -1708,21 +1942,50 @@ QVector<UserRecord> DbManager::getUsers() {
         u.isActive = row.at(5).toInt() != 0;
         list.append(u);
     }
+    if (!list.isEmpty()) {
+        syncLocalUserVault(list);
+    }
     return list;
 }
 
 bool DbManager::saveUser(const UserRecord &user) {
-    if (!isConnected()) {
-        if (m_lastError.isEmpty()) {
-            m_lastError = "Veritabanı bağlantısı aktif değil.";
-        }
-        return false;
-    }
-
     const QString uname = user.username.trimmed();
     if (uname.isEmpty()) {
         m_lastError = "Kullanıcı adı boş olamaz.";
         return false;
+    }
+
+    if (!isConnected()) {
+        // Offline mode: update local encrypted user vault directly so login & LAN sync still work
+        QVector<UserRecord> vaultUsers = getUsers();
+        bool found = false;
+        int maxId = 0;
+        for (UserRecord &existing : vaultUsers) {
+            if (existing.id > maxId) maxId = existing.id;
+            if ((user.id > 0 && existing.id == user.id) ||
+                existing.username.compare(uname, Qt::CaseInsensitive) == 0) {
+                existing.username = uname;
+                existing.fullName = user.fullName.trimmed().isEmpty() ? uname : user.fullName.trimmed();
+                existing.role = (user.role.trimmed().toUpper() == "ADMIN") ? QStringLiteral("ADMIN") : QStringLiteral("OPERATOR");
+                existing.isActive = user.isActive;
+                if (!user.password.isEmpty()) {
+                    existing.password = deriveUserPasswordToken(uname, user.password);
+                }
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            UserRecord added;
+            added.id = maxId + 1;
+            added.username = uname;
+            added.fullName = user.fullName.trimmed().isEmpty() ? uname : user.fullName.trimmed();
+            added.role = (user.role.trimmed().toUpper() == "ADMIN") ? QStringLiteral("ADMIN") : QStringLiteral("OPERATOR");
+            added.isActive = user.isActive;
+            added.password = deriveUserPasswordToken(uname, user.password.isEmpty() ? QStringLiteral("123") : user.password);
+            vaultUsers.append(added);
+        }
+        return syncLocalUserVault(vaultUsers);
     }
 
     QString sql;
@@ -1736,7 +1999,7 @@ bool DbManager::saveUser(const UserRecord &user) {
     if (user.id <= 0) {
         sql = "INSERT INTO users (username, password_hash, full_name, role, is_active) VALUES (:u, :p, :fn, :r, :act);";
         binds.insert(":p", user.password.isEmpty() ? QString("123") : user.password);
-    } else if (!user.password.isEmpty()) {
+    } else if (!user.password.isEmpty() && !user.password.startsWith(QStringLiteral("$v1$"))) {
         sql = "UPDATE users SET username = :u, password_hash = :p, full_name = :fn, role = :r, is_active = :act WHERE id = :id;";
         binds.insert(":p", user.password);
         binds.insert(":id", user.id);
@@ -1750,6 +2013,8 @@ bool DbManager::saveUser(const UserRecord &user) {
         m_lastError = res.error;
         return false;
     }
+    // Synchronize local encrypted user vault immediately after user change
+    getUsers();
     logAudit(user.id <= 0 ? "USER_CREATED" : "USER_UPDATED",
              QString("Kullanıcı: %1 (Rol: %2, Aktif: %3)")
                  .arg(uname,
@@ -1760,7 +2025,22 @@ bool DbManager::saveUser(const UserRecord &user) {
 }
 
 bool DbManager::deleteUser(int userId) {
-    if (!isConnected() || userId <= 0) return false;
+    if (userId <= 0) return false;
+
+    if (!isConnected()) {
+        QVector<UserRecord> vaultUsers = getUsers();
+        for (int i = 0; i < vaultUsers.size(); ++i) {
+            if (vaultUsers[i].id == userId) {
+                if (vaultUsers[i].username.compare("admin", Qt::CaseInsensitive) == 0) {
+                    m_lastError = "Ana 'admin' hesabı silinemez.";
+                    return false;
+                }
+                vaultUsers.removeAt(i);
+                return syncLocalUserVault(vaultUsers);
+            }
+        }
+        return false;
+    }
 
     const DbQueryResult chk = m_stream->execNamed("SELECT username FROM users WHERE id = :id;", {{":id", userId}});
     if (chk.ok && chk.hasRows()) {
@@ -1775,6 +2055,8 @@ bool DbManager::deleteUser(int userId) {
         m_lastError = res.error;
         return false;
     }
+    // Synchronize local encrypted user vault immediately after user deletion
+    getUsers();
     return true;
 }
 

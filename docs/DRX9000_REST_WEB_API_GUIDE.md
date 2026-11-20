@@ -158,6 +158,41 @@ Parsed by `extractElements()` which flattens `sections[].elements[]`:
 | `st_video` | `Video`, `video` | `"tick"` / `"cross"` | `vidLock` (`bool`) |
 | `st_audio` | `Audio`, `audio`, `ses` | `"tick"` / `"cross"` | `audLock` (`bool`) |
 | `st_cn` | `C/N`, `cn` | `"14.6 dB"` / `"?"` | `cn` (`double`, dB). Parsed safely, returns `0.0` when `"?"`. |
+
+---
+
+### 3.4 Channel List & Channel Selection (`query=channelSelection` / `ResponseTo=chnsel`)
+Once a transponder frequency is locked, the receiver exposes all services on that transponder via `query=channelSelection` (`Ethernet::requestChannelList()`) and switches channels via `ResponseTo=chnsel` (`Ethernet::selectChannel(channelNo)`).
+
+**List Channels Request (`Ethernet::requestChannelList`):**
+```text
+query=channelSelection
+sessionKey=90282
+```
+
+**List Channels Response (`menuid: "chnsel"`):**
+```json
+{
+    "menuheader": "Kanal Seçimi",
+    "menuid": "chnsel",
+    "sections": [
+        {
+            "elements": [
+                { "no": 1, "name": "DMAX SD", "sid": 10112, "vpid": 1712, "apid": 1812, "ppid": 1712, "selected": false },
+                { "no": 2, "name": "NTV", "sid": 10101, "vpid": 1701, "apid": 1801, "ppid": 1701, "selected": true }
+            ],
+            "type": "channelselectiontable"
+        }
+    ]
+}
+```
+
+**Select Channel Request (`Ethernet::selectChannel`):**
+```text
+ResponseTo=chnsel
+sessionKey=90282
+sel=2
+```
 | `st_power` | `Sinyal Gücü`, `power` | `"- 39.2 dBm"` / `"?"` | `pwr` (`double`, dBm) |
 | `st_ber` | `BER`, `ber` | `"1.0E-7"` / `"?"` | `ber` (`double`) |
 | `st_ebn0` | `EbN0`, `eb/n0` | `"11.4 dB"` / `"?"` | `ebn0` (`double`) |

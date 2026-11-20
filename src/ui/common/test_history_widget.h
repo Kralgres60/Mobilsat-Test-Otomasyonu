@@ -61,6 +61,7 @@ private slots:
     void onLastPageClicked();
     void onPageSizeChanged(int index);
     void onTableContextMenuRequested(const QPoint &pos);
+    void onTableCellDoubleClicked(int row, int column);
 
 private:
     void setupUi();
@@ -70,6 +71,11 @@ private:
     void populateTable(const QVector<TestRunData> &runs);
     void updatePaginationControls();
     void rebuildBarcodeIndex();
+    /**
+     * @brief Opens a modal dialog showing channel breakdown and signal graph for a test run.
+     * @param testRunId Database ID of the selected test run.
+     */
+    void showRunDetailsDialog(qint64 testRunId);
 
     /**
      * @brief High-performance Binary Search to find a run by ID in O(log N) time.

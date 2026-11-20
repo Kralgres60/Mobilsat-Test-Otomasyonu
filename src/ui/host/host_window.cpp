@@ -85,6 +85,9 @@ HostWindow::HostWindow(QWidget *parent)
     };
     refOps.tuneFn = [this](int freq, int sr, const QString &pol) {
         if (m_refWebClient.isReachable()) {
+            if (!m_refWebClient.isLoggedIn()) {
+                m_refWebClient.testConnectionAndSync();
+            }
             m_refWebClient.sendTune(freq, sr, pol);
         }
         if (m_refSerial.isConnected()) {
@@ -101,18 +104,11 @@ HostWindow::HostWindow(QWidget *parent)
         }
     };
     m_refStream = new DataStream(refOps, this);
-    connect(&m_refWebClient, &Ethernet::statusReceived, m_refStream, &DataStream::statusReceived);
-    connect(&m_refWebClient, &Ethernet::telemetryReceived, m_refStream, &DataStream::telemetryReceived);
-    connect(&m_refSerial, &RS232::telemetryReceived, this, [this](double powDbm, double cnDb, double ber) {
-        if (m_refStream) {
-            emit m_refStream->telemetryReceived(powDbm, cnDb, ber, 0.0);
-        }
-    });
-    connect(&m_refSerial, &RS232::statusReceived, this, [this](bool sig, bool vid, bool aud) {
-        if (m_refStream) {
-            emit m_refStream->statusReceived(sig, vid, aud, QString());
-        }
-    });
+    connect(&m_refWebClient, &Ethernet::statusReceived, m_refStream, &DataStream::pushStatus);
+    connect(&m_refWebClient, &Ethernet::telemetryReceived, m_refStream, &DataStream::pushTelemetry);
+    connect(&m_refWebClient, &Ethernet::timestampReceived, m_refStream, &DataStream::pushTimestamp);
+    connect(&m_refSerial, &RS232::statusReceived, m_refStream, &DataStream::pushStatus);
+    connect(&m_refSerial, &RS232::telemetryReceived, m_refStream, &DataStream::pushTelemetry);
     m_tcpServer.setRefDataStream(m_refStream);
 
     setupMenuBar();
@@ -178,6 +174,42 @@ HostWindow::HostWindow(QWidget *parent)
         m_lblRefTelemetry->setStyleSheet(StyleHelper::getPastelBlueStyle());
     });
 
+    // Automatically pull all data whenever central MariaDB connects or reconnects later
+    connect(&DbManager::instance(), &DbManager::connectionStatusChanged, this,
+            [this](bool connected, const QString &) {
+        const AppConfig &cfg = AppConfig::instance();
+        if (m_lblDbStatus) {
+            if (connected) {
+                m_lblDbStatus->setText(QString("✔ Bağlı (%1:%2 / %3)")
+                                           .arg(cfg.dbHost()).arg(cfg.dbPort()).arg(cfg.dbName()));
+                m_lblDbStatus->setStyleSheet("color: #34D399; font-weight: bold;");
+            } else {
+                m_lblDbStatus->setText("❌ Bağlı Değil / Servis Bekleniyor");
+                m_lblDbStatus->setStyleSheet("color: #F87171; font-weight: bold;");
+            }
+        }
+        if (!connected) return;
+
+        loadWorkOrders();
+        const ReferenceMode activeMode = DbManager::instance().getReferenceMode();
+        m_tcpServer.setReferenceMode(activeMode);
+        updateRefModeBadgeUi(activeMode);
+        if (m_goldenRefWidget) {
+            m_goldenRefWidget->setActiveReferenceMode(activeMode);
+            m_goldenRefWidget->reloadFrequencies();
+        }
+        if (m_historyWidget) {
+            m_historyWidget->refreshHistory();
+        }
+        if (m_dbViewerWidget) {
+            m_dbViewerWidget->refreshHistory();
+        }
+        if (m_userManager) {
+            m_userManager->reloadUsers();
+        }
+        m_tcpServer.broadcastUserRoleUpdates();
+    });
+
     // Background 8s Ping Heartbeat for Reference DRX9000, DB Retry & Cluster Node Heartbeat
     connect(&m_refEthPingTimer, &QTimer::timeout, this, [this]() {
         m_refWebClient.pingHost(1000);
@@ -186,8 +218,8 @@ HostWindow::HostWindow(QWidget *parent)
             if (DbManager::instance().connectToDatabase(cfg.dbHost(), cfg.dbPort(),
                                                        cfg.dbName(), cfg.dbUser(),
                                                        cfg.dbPassword())) {
-                loadWorkOrders();
-                appendLog(QString("[Veritabanı] Merkezi MariaDB'ye bağlanıldı (%1:%2).").arg(cfg.dbHost()).arg(cfg.dbPort()));
+                appendLog(QString("[Veritabanı] Merkezi MariaDB'ye bağlanıldı ve veriler çekildi (%1:%2).")
+                              .arg(cfg.dbHost()).arg(cfg.dbPort()));
             }
         }
         if (!DbManager::instance().isConnected()) return;
@@ -731,7 +763,7 @@ void HostWindow::ensureStationCard(int stationId, const QString &stationName) {
 }
 
 void HostWindow::setupGoldenPage() {
-    m_goldenRefWidget = new GoldenReferenceWidget(&m_refWebClient, &m_refSerial, this);
+    m_goldenRefWidget = new GoldenReferenceWidget(m_refStream, this);
     connect(m_goldenRefWidget, &GoldenReferenceWidget::referenceModeApplyRequested,
             this, &HostWindow::onReferenceModeApplyRequested);
     connect(m_goldenRefWidget, &GoldenReferenceWidget::logMessage,
@@ -1094,8 +1126,8 @@ void HostWindow::setupSettingsPage() {
     vboxDb->addLayout(dbForm);
 
     QHBoxLayout *dbActionRow = new QHBoxLayout();
-    QPushButton *btnInstallMysql = new QPushButton("⚡ MariaDB Servisini Başlat / Kur", grpDbSettings);
-    btnInstallMysql->setStyleSheet("background-color: #D97706; color: #FFFFFF; border: none; border-radius: 4px; padding: 8px 14px; font-weight: bold;");
+    QPushButton *btnInstallMysql = new QPushButton("🔌 Veritabanına Bağlan", grpDbSettings);
+    btnInstallMysql->setStyleSheet("background-color: #0284C7; color: #FFFFFF; border: none; border-radius: 4px; padding: 8px 14px; font-weight: bold;");
     connect(btnInstallMysql, &QPushButton::clicked, this, &HostWindow::onInstallMysqlClicked);
 
     QPushButton *btnResetDb = new QPushButton("📦 Şemayı / Veriyi Yenile", grpDbSettings);
@@ -1458,29 +1490,20 @@ void HostWindow::onLockExpired(int stationId) {
 }
 
 void HostWindow::onRefreshHistoryClicked() {
-    if (m_historyWidget) {
-        m_historyWidget->refreshHistory();
-    }
-
     DbManager &db = DbManager::instance();
-    if (!db.isConnected()) {
+    if (!db.isConnected() && sender() != nullptr) {
         db.connectToDatabase(AppConfig::instance().dbHost(), AppConfig::instance().dbPort(),
                              AppConfig::instance().dbName(), AppConfig::instance().dbUser(),
                              AppConfig::instance().dbPassword());
     }
 
-    auto orders = db.getActiveWorkOrders();
-    m_tableOrders->setRowCount(orders.size());
-    for (int i = 0; i < orders.size(); ++i) {
-        const auto &o = orders[i];
-        m_tableOrders->setItem(i, 0, new QTableWidgetItem(o.orderNo));
-        m_tableOrders->setItem(i, 1, new QTableWidgetItem(o.customerName));
-        m_tableOrders->setItem(i, 2, new QTableWidgetItem(o.productCode));
-        m_tableOrders->setItem(i, 3, new QTableWidgetItem(QString::number(o.targetQuantity)));
-        m_tableOrders->setItem(i, 4, new QTableWidgetItem(QString::number(o.completedQuantity)));
-        m_tableOrders->setItem(i, 5, new QTableWidgetItem(QString::number(o.passedQuantity)));
-        m_tableOrders->setItem(i, 6, new QTableWidgetItem(o.status));
+    if (m_historyWidget) {
+        m_historyWidget->refreshHistory();
     }
+    if (m_dbViewerWidget) {
+        m_dbViewerWidget->refreshHistory();
+    }
+    loadWorkOrders();
 }
 
 void HostWindow::onSaveSettingsClicked() {
@@ -1515,27 +1538,86 @@ void HostWindow::onSaveSettingsClicked() {
 }
 
 void HostWindow::onInstallMysqlClicked() {
-    DependencyInstaller::autoSetupHostEnvironment(this);
+    AppConfig &cfg = AppConfig::instance();
+    if (m_txtDbHost) cfg.setDbHost(m_txtDbHost->text().trimmed());
+    if (m_spinDbPort) cfg.setDbPort(m_spinDbPort->value());
+    if (m_txtDbName) cfg.setDbName(m_txtDbName->text().trimmed());
+    cfg.save();
+
+    const bool ok = DbManager::instance().connectToDatabase(
+        cfg.dbHost(), cfg.dbPort(), cfg.dbName(), cfg.dbUser(), cfg.dbPassword());
     onCheckDbClicked();
-    onRefreshHistoryClicked();
+
+    if (ok) {
+        appendLog(QString("[Veritabanı] Merkezi MariaDB'ye bağlanıldı ve veriler yüklendi: %1:%2 (%3)")
+                      .arg(cfg.dbHost()).arg(cfg.dbPort()).arg(cfg.dbName()));
+        QMessageBox::information(this, "Veritabanı Bağlandı",
+                                 QString("Merkezi MariaDB veritabanına başarıyla bağlanıldı ve veriler çekildi:\n%1:%2 (%3)")
+                                     .arg(cfg.dbHost()).arg(cfg.dbPort()).arg(cfg.dbName()));
+    } else {
+        appendLog(QString("[Veritabanı HATA] Bağlanılamadı (%1:%2): %3")
+                      .arg(cfg.dbHost()).arg(cfg.dbPort()).arg(DbManager::instance().lastError()));
+        QMessageBox::warning(this, "Veritabanı Bağlantı Hatası",
+                             QString("Merkezi MariaDB veritabanına bağlanılamadı (%1:%2):\n%3")
+                                 .arg(cfg.dbHost()).arg(cfg.dbPort())
+                                 .arg(DbManager::instance().lastError()));
+    }
 }
 
 void HostWindow::onResetDbClicked() {
-    DependencyInstaller::runResetWithElevation(this);
-    DbManager::instance().ensureDefaultDataIfMissing();
-    if (m_goldenRefWidget) m_goldenRefWidget->reloadFrequencies();
+    AppConfig &cfg = AppConfig::instance();
+    if (m_txtDbHost) cfg.setDbHost(m_txtDbHost->text().trimmed());
+    if (m_spinDbPort) cfg.setDbPort(m_spinDbPort->value());
+    if (m_txtDbName) cfg.setDbName(m_txtDbName->text().trimmed());
+    cfg.save();
+
+    if (!DbManager::instance().isConnected()) {
+        DbManager::instance().connectToDatabase(
+            cfg.dbHost(), cfg.dbPort(), cfg.dbName(), cfg.dbUser(), cfg.dbPassword());
+    }
+    if (DbManager::instance().isConnected()) {
+        DbManager::instance().ensureDefaultDataIfMissing();
+        loadWorkOrders();
+        const ReferenceMode activeMode = DbManager::instance().getReferenceMode();
+        m_tcpServer.setReferenceMode(activeMode);
+        updateRefModeBadgeUi(activeMode);
+        if (m_goldenRefWidget) {
+            m_goldenRefWidget->setActiveReferenceMode(activeMode);
+            m_goldenRefWidget->reloadFrequencies();
+        }
+        if (m_historyWidget) m_historyWidget->refreshHistory();
+        if (m_dbViewerWidget) m_dbViewerWidget->refreshHistory();
+        if (m_userManager) m_userManager->reloadUsers();
+        m_tcpServer.broadcastUserRoleUpdates();
+        appendLog("[Veritabanı] Şema ve tüm veritabanı verileri yenilendi.");
+    }
     onCheckDbClicked();
-    onRefreshHistoryClicked();
 }
 
 void HostWindow::onCheckDbClicked() {
-    bool listening = DependencyInstaller::isMySqlListening();
+    AppConfig &cfg = AppConfig::instance();
+    if (m_txtDbHost && !m_txtDbHost->text().trimmed().isEmpty()) {
+        cfg.setDbHost(m_txtDbHost->text().trimmed());
+    }
+    if (m_spinDbPort) cfg.setDbPort(m_spinDbPort->value());
+    if (m_txtDbName && !m_txtDbName->text().trimmed().isEmpty()) {
+        cfg.setDbName(m_txtDbName->text().trimmed());
+    }
+
+    if (sender() != nullptr && !DbManager::instance().isConnected()) {
+        cfg.save();
+        DbManager::instance().connectToDatabase(
+            cfg.dbHost(), cfg.dbPort(), cfg.dbName(), cfg.dbUser(), cfg.dbPassword());
+    }
+
+    const bool connected = DbManager::instance().isConnected();
     if (m_lblDbStatus) {
-        if (listening) {
-            m_lblDbStatus->setText("✔ MySQL / MariaDB Aktif (Port 3306)");
+        if (connected) {
+            m_lblDbStatus->setText(QString("✔ Bağlı (%1:%2 / %3)")
+                                       .arg(cfg.dbHost()).arg(cfg.dbPort()).arg(cfg.dbName()));
             m_lblDbStatus->setStyleSheet("color: #34D399; font-weight: bold;");
         } else {
-            m_lblDbStatus->setText("❌ Servis Kapalı / Dinlenmiyor");
+            m_lblDbStatus->setText("❌ Bağlı Değil / Servis Bekleniyor");
             m_lblDbStatus->setStyleSheet("color: #F87171; font-weight: bold;");
         }
     }

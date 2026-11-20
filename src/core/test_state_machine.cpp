@@ -506,11 +506,57 @@ void TestStateMachine::finishCurrentChannel() {
     res.drxDeviceTime = m_lastDutRawTimeStr;
     res.sampleHostTime = m_lastDutHostTime.isValid() ? m_lastDutHostTime : QDateTime::currentDateTime();
 
+    // Evaluate cumulative sample-to-sample variation and instantaneous stability on this channel's
+    // samples so oscillating / sine-wave DUT signals cannot pass by arithmetic mean cancellation.
+    double maxSampleDelta = qAbs(res.deltaDb);
+    double meanAbsDelta = qAbs(res.deltaDb);
+    double cumulativeStepDelta = 0.0;
+    double dutSwing = 0.0;
+    int outOfTolSamples = 0;
+
+    if (!m_dutCnSamples.isEmpty()) {
+        double minDut = m_dutCnSamples.first();
+        double maxDut = m_dutCnSamples.first();
+        double sumAbsDelta = 0.0;
+        double prevSignedDelta = 0.0;
+        maxSampleDelta = 0.0;
+
+        for (int i = 0; i < m_dutCnSamples.size(); ++i) {
+            const double dutVal = m_dutCnSamples[i];
+            if (dutVal < minDut) minDut = dutVal;
+            if (dutVal > maxDut) maxDut = dutVal;
+
+            const double refVal = (i < m_refCnSamples.size()) ? m_refCnSamples[i] : res.refCn;
+            const double signedDelta = dutVal - refVal;
+            const double instAbsDelta = qAbs(signedDelta);
+            sumAbsDelta += instAbsDelta;
+            if (i > 0) {
+                cumulativeStepDelta += qAbs(signedDelta - prevSignedDelta);
+            }
+            prevSignedDelta = signedDelta;
+
+            if (instAbsDelta > maxSampleDelta) {
+                maxSampleDelta = instAbsDelta;
+            }
+            if (instAbsDelta > res.toleranceDb) {
+                ++outOfTolSamples;
+            }
+        }
+        meanAbsDelta = sumAbsDelta / m_dutCnSamples.size();
+        dutSwing = maxDut - minDut;
+    }
+
+    const bool unstableOscillation =
+        (cumulativeStepDelta > res.toleranceDb) ||
+        (meanAbsDelta > res.toleranceDb) ||
+        (dutSwing > (res.toleranceDb * 2.0 + 0.5)) ||
+        (m_dutCnSamples.size() >= 3 && maxSampleDelta > (res.toleranceDb * 1.25) && outOfTolSamples >= 2);
+
     // Tolerance Pass/Fail check
     if (!res.carrierLocked) {
         res.status = "FAIL";    // Carrier signal unlock failure
-    } else if (qAbs(res.deltaDb) > res.toleranceDb) {
-        res.status = "FAIL";    // Exceeded attenuation tolerance
+    } else if (qAbs(res.deltaDb) > res.toleranceDb || unstableOscillation) {
+        res.status = "FAIL";    // Exceeded attenuation tolerance or unstable oscillation
     } else if (!res.videoLocked) {
         res.status = "WARNING"; // Delta OK, but video locked flag missing
     } else {
@@ -523,13 +569,16 @@ void TestStateMachine::finishCurrentChannel() {
     AppLogger::instance().logProcess(
         QString("ST-%1").arg(m_testRun.stationId),
         "CHANNEL_RESULT",
-        QString("Ch=%1 (%2 MHz %3) | DUT=%4 dB | REF=%5 dB | Delta=%6 dB | Status=%7 | SistemZamanı=%8 | DRXSaati=%9")
+        QString("Ch=%1 (%2 MHz %3) | DUT=%4 dB | REF=%5 dB | Delta=%6 dB | CumStepDelta=%7 dB | MaxInstDelta=%8 dB | Swing=%9 dB | Status=%10 | SistemZamanı=%11 | DRXSaati=%12")
             .arg(res.channelName)
             .arg(res.frequencyMhz)
             .arg(res.polarization)
             .arg(res.dutCn, 0, 'f', 2)
             .arg(res.refCn, 0, 'f', 2)
             .arg(res.deltaDb, 0, 'f', 2)
+            .arg(cumulativeStepDelta, 0, 'f', 2)
+            .arg(maxSampleDelta, 0, 'f', 2)
+            .arg(dutSwing, 0, 'f', 2)
             .arg(res.status)
             .arg(res.sampleHostTime.toString("yyyy-MM-dd hh:mm:ss.zzz"))
             .arg(res.drxDeviceTime.isEmpty() ? "--" : res.drxDeviceTime));

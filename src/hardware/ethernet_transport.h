@@ -32,6 +32,19 @@ struct TimestampPair {
 };
 
 /**
+ * @struct DrxChannelItem
+ * @brief Channel entry returned by DRX9000 `query=channelSelection` (`menuid: "chnsel"`).
+ */
+struct DrxChannelItem {
+    int no = 0;                 ///< Channel index used as `sel=<no>` in `ResponseTo=chnsel`
+    QString name;               ///< Channel / service name (e.g., "NTV", "DMAX HD")
+    int sid = 0;                ///< MPEG Service ID
+    int vpid = 0;               ///< Video PID
+    int apid = 0;               ///< Audio PID
+    bool selected = false;      ///< True if currently active on the receiver
+};
+
+/**
  * @class Ethernet
  * @brief Physical CAT6 Ethernet Web CGI (/cgi-bin/drx.cgi) and ICMP Ping driver.
  */
@@ -53,6 +66,11 @@ public:
     void sendTune(int freqMhz, int symbolRate, const QString &polarity);
     void requestStatus();
     void requestDeviceInfo();
+    /** @brief Queries the channel list (`query=channelSelection`) on the currently locked transponder. */
+    void requestChannelList();
+    /** @brief Selects a channel by index (`ResponseTo=chnsel`, `sel=<channelNo>`) on the locked transponder.
+     *  @param channelNo Channel `no` from `channelSelection` response. */
+    void selectChannel(int channelNo);
     void sendRaw(const QString &command);
 
     void setHost(const QString &hostIp, int port = 80);
@@ -112,6 +130,10 @@ signals:
     void loginSucceeded(int sessionKey);
     void loginFailed(const QString &reason);
     void tuneCompleted(bool isOk, const QString &details);
+    /** @brief Emitted when `query=channelSelection` returns parsed channels. */
+    void channelListReceived(const QVector<DrxChannelItem> &channels);
+    /** @brief Emitted when `ResponseTo=chnsel` completes. */
+    void channelSelected(bool isOk, const QString &details);
     void rawResponseReceived(const QString &actionName, const QByteArray &rawJson);
 
     // Extended signals for DrxWebClient compatibility
@@ -131,6 +153,8 @@ private:
     void handleAlarmStatusResponse(const QJsonObject &root);
     void handleDeviceInfoResponse(const QJsonObject &root);
     void handleTuneResponse(const QJsonObject &root);
+    void handleChannelListResponse(const QJsonObject &root);
+    void handleChannelSelectResponse(const QJsonObject &root);
 
     QNetworkAccessManager m_netManager;
     QString m_hostIp = "192.168.0.167";

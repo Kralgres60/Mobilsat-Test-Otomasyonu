@@ -367,7 +367,9 @@ void LobbyWindow::launchHostMode() {
         cfg.setServerName(m_txtServerName->text().trimmed());
     }
     cfg.setTcpPort(static_cast<quint16>(m_spinHostPort->value()));
-    cfg.setDbHost("127.0.0.1");
+    if (cfg.dbHost().trimmed().isEmpty()) {
+        cfg.setDbHost("127.0.0.1");
+    }
     cfg.save();
 
     DbManager::instance().connectToDatabase(cfg.dbHost(), cfg.dbPort(),

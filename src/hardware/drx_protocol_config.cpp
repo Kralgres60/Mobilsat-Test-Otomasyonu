@@ -78,6 +78,10 @@ void DrxProtocolConfig::load() {
         "query=deviceInfo\nsessionKey={sessionKey}\n").toString();
     m_cgiTuneFormat = settings.value("TunePayloadFormat",
         "ResponseTo=freq\nsessionKey={sessionKey}\nfr_frequency={freqKhz}\nfr_srate={srate}\nfr_pol={pol}\n").toString();
+    m_cgiChannelListFormat = settings.value("ChannelListPayloadFormat",
+        "query=channelSelection\nsessionKey={sessionKey}\n").toString();
+    m_cgiChannelSelectFormat = settings.value("ChannelSelectPayloadFormat",
+        "ResponseTo=chnsel\nsessionKey={sessionKey}\nsel={channelNo}\n").toString();
     m_cgiRawQueryFormat = settings.value("RawQueryFormat",
         "query={query}\nsessionKey={sessionKey}\n").toString();
 
@@ -161,6 +165,8 @@ void DrxProtocolConfig::ensureDefaultsFile(const QString &path) {
     out << "StatusPayloadFormat=query=alarmStatus\\nsessionKey={sessionKey}\\n\n";
     out << "DeviceInfoPayloadFormat=query=deviceInfo\\nsessionKey={sessionKey}\\n\n";
     out << "TunePayloadFormat=ResponseTo=freq\\nsessionKey={sessionKey}\\nfr_frequency={freqKhz}\\nfr_srate={srate}\\nfr_pol={pol}\\n\n";
+    out << "ChannelListPayloadFormat=query=channelSelection\\nsessionKey={sessionKey}\\n\n";
+    out << "ChannelSelectPayloadFormat=ResponseTo=chnsel\\nsessionKey={sessionKey}\\nsel={channelNo}\\n\n";
     out << "RawQueryFormat=query={query}\\nsessionKey={sessionKey}\\n\n";
     out << "# Gelen JSON Anahtar İsimleri (virgülle ayrılmış alternatif alan adları)\n";
     out << "SessionKeyFields=sessionkey,sessionKey,key\n";
@@ -242,6 +248,19 @@ QByteArray DrxProtocolConfig::formatCgiTune(int sessionKey, int freqKhz, int sym
     return replaceTokens(m_cgiTuneFormat, t).toUtf8();
 }
 
+QByteArray DrxProtocolConfig::formatCgiChannelList(int sessionKey) const {
+    QMap<QString, QString> t;
+    t["sessionKey"] = (sessionKey > 0) ? QString::number(sessionKey) : "";
+    return replaceTokens(m_cgiChannelListFormat, t).toUtf8();
+}
+
+QByteArray DrxProtocolConfig::formatCgiChannelSelect(int sessionKey, int channelNo) const {
+    QMap<QString, QString> t;
+    t["sessionKey"] = (sessionKey > 0) ? QString::number(sessionKey) : "";
+    t["channelNo"] = QString::number(channelNo);
+    return replaceTokens(m_cgiChannelSelectFormat, t).toUtf8();
+}
+
 QByteArray DrxProtocolConfig::formatCgiRawQuery(const QString &query, int sessionKey) const {
     QString q = query.trimmed();
 
@@ -260,6 +279,9 @@ QByteArray DrxProtocolConfig::formatCgiRawQuery(const QString &query, int sessio
                 if (!result.endsWith('\n')) result.append('\n');
                 result.append(QString("sessionKey=%1\n").arg(sessionKey));
             }
+        }
+        if (!result.endsWith('\n')) {
+            result.append('\n');
         }
         return result.toUtf8();
     }

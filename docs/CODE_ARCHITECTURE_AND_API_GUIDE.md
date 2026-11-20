@@ -65,12 +65,12 @@ graph TD
     end
     
     subgraph Transports["Donanım & Ağ Katmanları"]
-        HW["Donanım Katmanı (src/hardware/)<br/>DataTransfer | EthernetTransfer | RS232Transfer"]
-        NET["Ağ Katmanı (src/network/)<br/>TcpServer | TcpClient | UdpBeacon"]
+        HW["Donanım Katmanı (src/hardware/)<br/>DataStream | Ethernet | RS232 | DrxProtocolConfig"]
+        NET["Ağ Katmanı (src/network/)<br/>NetStream | TcpServer | TcpClient | UdpBeacon"]
     end
     
     subgraph Data["Veri Katmanı (src/database/)"]
-        DB["DbManager (MariaDB / SQLite)"]
+        DB["DbManager | DbStream (MariaDbDriver / SqliteDriver)"]
         Models["Data Models (src/core/data_models.h)"]
     end
 
@@ -143,7 +143,13 @@ Tüm sistemde paylaşılan ana veri yapılarını ve JSON serileştirme fonksiyo
   3. `TuningChannel` ➔ DUT almacı hedef frekansa ayarlama (`sendTune()`).
   4. `WaitingCarrierLock` ➔ Taşıyıcı kilit (S:+) bekleme (6s zaman aşımı).
   5. `SamplingTelemetry` ➔ Telemetri toplama (Kayıtlı canlı süresi veya varsayılan süre boyunca 250ms periyotla).
-  6. `EvaluatingChannel` ➔ Delta hesaplama ($\Delta = \text{DUT}_{\text{C/N}} - \text{Ref}_{\text{C/N}}$) ve tolerans denetimi.
+  6. `EvaluatingChannel` ➔ Kanal Geçti/Kaldı (`PASS/FAIL`) kararı yalnızca basit ortalamaya bakılarak verilmez; **4 katmanlı kararlılık denetimi** uygulanır (`finishCurrentChannel()`):
+     - **Aritmetik Ortalama Farkı:** $|\overline{\text{DUT}} - \overline{\text{Ref}}| \le \text{Tolerans}$ (ör. $\pm 1.50\text{ dB}$).
+     - **Kümülatif Örneklem Değişimi (`CumStepDelta`):** Aynı frekansın ardışık örnekleri ($i=1 \dots N-1$) arasındaki farkların toplamı $\sum |(\text{dut}_i - \text{ref}_i) - (\text{dut}_{i-1} - \text{ref}_{i-1})| \le \text{Tolerans}$ olmalıdır.
+     - **Anlık Sapma ve Salınım Koruması:** Örnek bazlı mutlak sapma ortalaması (`meanAbsDelta`) ve tepe-tepe salınım (`Swing`) birlikte kontrol edilir.
+     - *Gerçek Test Örnekleri (Tolerans $\pm 1.50\text{ dB}$):*
+       - **Sağlam Anten (`SER0003` / `SER0006`):** Sinyal sabit veya küçük gürültülüdür (`Delta ≈ -0.03..+0.42 dB`, `CumStepDelta = 0.72..1.31 dB <= 1.50 dB`, `Swing <= 0.30 dB`) ➔ **`PASS`**.
+       - **Sinüs / Salınımlı Arızalı Anten (`SER0004`):** Artı ve eksi tepeler ortalamada birbirini götürdüğü için ortalama farkı yanıltıcı biçimde küçük kalır (`TRT SPOR HD: Delta = -0.08 dB`), ancak kümülatif değişim ve salınım çok yüksektir (`CumStepDelta = 21.86 dB`, `Swing = 9.80 dB`) ➔ **`FAIL`** yakalanır.
   7. `ReleasingLock` ➔ Canlı testte kilidi iade etme.
   8. `Completed` / `Aborted` ➔ Sonuçları MariaDB'ye kaydetme (`DbManager::insertTestRun()`) ve raporlama.
 - **Sinyaller:**
@@ -205,12 +211,16 @@ Tüm sistemde paylaşılan ana veri yapılarını ve JSON serileştirme fonksiyo
 
 ## 3. Veritabanı Katmanı (`src/database/`)
 
+Veritabanı katmanı fiziksel SQL sürücülerinden fonksiyon-işaretçisi tabanlı `DbStream` soyutlamasıyla ayrılmıştır:
+- **Fiziksel Sürücüler:** `MariaDbDriver` (`mariadb_driver.h/.cpp` — `QMYSQL`/`QODBC` ve Portable `mysqld` yönetimi) ve `SqliteDriver` (`sqlite_driver.h/.cpp` — `QSQLITE` yerel fallback).
+- **Soyutlama Katmanı:** `DbStream` (`db_stream.h/.cpp` — `DbDriverOps`, `DbRow`, `DbQueryResult`). Üst iş mantığı (`DbManager`, `BackupManager`) doğrudan `QSqlDatabase` / `QSqlQuery` bilmez; tüm sorgular `DbStream` üzerinden yürütülür.
+
 ### `DbManager` (`db_manager.h` / `db_manager.cpp`)
-- **Tasarım Deseni:** Singleton (`DbManager::instance()`).
-- **Görevi:** MariaDB 10.11 / MySQL ve yedek SQLite veritabanı sürücülerine (`QMYSQL`, `QSQLITE`) şeffaf erişim sağlar.
+- **Tasarım Deseni:** Singleton (`DbManager::instance()`) + `setStream(DbStream*)` ile değiştirilebilir arka uç desteği.
+- **Görevi:** `DbStream` üzerinden MariaDB 10.11 / MySQL ve yedek SQLite veritabanı sürücülerine şeffaf erişim sağlar.
 - **Taşınabilir Veritabanı Desteği:**
-  - `startPortableMariaDbIfPresent()`: `tools/mariadb_portable/bin/mysqld.exe` dosyasını tespit ettiğinde bağımsız yerel veritabanı motorunu arka planda ayağa kaldırır.
-  - `stopPortableMariaDbIfRunning()`: Uygulama kapandığında açtığı yerel `mysqld` sürecini güvenli şekilde sonlandırır.
+  - `startPortableMariaDbIfPresent()`: `DbStream::startLocalService()` üzerinden `MariaDbDriver`'daki `tools/mariadb_portable/bin/mysqld.exe` sürecini başlatır.
+  - `stopPortableMariaDbIfRunning()`: `DbStream::stopLocalService()` üzerinden yerel `mysqld` sürecini güvenli şekilde sonlandırır.
 - **Ana Tablolar ve Veri Yönetimi:**
   - `test_runs` & `test_run_channels`: Test sonuçlarının ve frekans telemetrilerinin kaydedilmesi (`insertTestRun()`, `getTestRuns()`).
   - `satellite_profiles` & `profile_channels`: 10 transponderlık uydu test profilleri (`getProfiles()`, `saveProfile()`).
@@ -230,86 +240,62 @@ Tüm sistemde paylaşılan ana veri yapılarını ve JSON serileştirme fonksiyo
 
 ## 4. Donanım ve Haberleşme Katmanı (`src/hardware/`)
 
-Tüm donanım sürücüleri tek ve tutarlı bir nesne yönelimli soyutlama altında toplanmıştır:
+Donanım katmanı, fiziksel taşıyıcıları (`Ethernet`, `RS232`) üst test akışından tamamen ayırmak için fonksiyon-işaretçisi tabanlı `DataStream` (`DrxTransportOps`) soyutlamasını ve merkezi `DrxProtocolConfig` ayrıştırıcısını kullanır:
 
 ```mermaid
-classDiagram
-    class DataTransfer {
-        <<abstract>>
-        +connectDevice(target, param)*
-        +disconnectDevice()*
-        +setFrequency(freqMhz, sr, pol, lnb)*
-        +queryStatus()*
-        +queryTelemetry()*
-        +requestSession(user, pass)*
-        +abortOperation()*
-        #statusReceived(locked, video, audio)
-        #telemetryReceived(cn, power, ber)
-        #operationFinished(success, message)
-        #errorOccurred(errorStr)
-    }
-
-    class EthernetTransfer {
-        -QNetworkAccessManager m_http
-        -QString m_sessionKey
-        +postDrxCommand(params)
-    }
-
-    class RS232Transfer {
-        -QSerialPort m_serial
-        -QByteArray m_rxBuffer
-        +sendFrame(cmd, payload)
-    }
-
-    DataTransfer <|-- EthernetTransfer
-    DataTransfer <|-- RS232Transfer
+flowchart LR
+    Core["TestStateMachine / TcpServer / UI"] --> Stream["DataStream (DrxTransportOps)"]
+    Stream --> Eth["Ethernet / DrxWebClient (ethernet_transport.h/.cpp)"]
+    Stream --> Ser["RS232 / SerialWorker (serial_transport.h/.cpp)"]
+    Eth -.-> Proto["DrxProtocolConfig (drx_protocol_config.h/.cpp)"]
+    Ser -.-> Proto
 ```
 
-### `DataTransfer` (Soyut Taban Sınıf)
-Cihazla iletişim türünden bağımsız olarak test durum makinesine ve arayüze standart bir C++ API'si sunar.
-- **Sanal Slotlar:**
-  - `virtual void connectDevice(const QString &target, int param = 0) = 0;`
-  - `virtual void disconnectDevice() = 0;`
-  - `virtual void setFrequency(int freqMhz, int symbolRate, const QString &pol, int lnb = 0) = 0;`
-  - `virtual void queryStatus() = 0;`
-  - `virtual void queryTelemetry() = 0;`
-  - `virtual void requestSession(const QString &user = "admin", const QString &pass = "1234") = 0;`
-  - `virtual void abortOperation() = 0;`
+### `DataStream` (`data_stream.h` / `data_stream.cpp`)
+Cihazla iletişim türünden (`Ethernet`, `RS232` veya Mock/Simülatör) tamamen bağımsız olarak `TestStateMachine`, `TcpServer` ve arayüz bileşenlerine (`GoldenReferenceWidget`, `ProfileManagerWidget`) ortak bir C++ akış arayüzü sunar.
+- **Gönderim / Kontrol Tablosu (`DrxTransportOps`):** `connectFn`, `disconnectFn`, `isConnectedFn`, `isReadyFn`, `sendFn`, `tuneFn`, `statusFn`, `deviceInfoFn`.
 - **Sinyaller:**
   - `statusReceived(bool carrierLocked, bool videoLocked, bool audioLocked, const QString &channelName)`
-  - `telemetryReceived(double cnDb, double powerDbm, double ber, double ebno)`
-  - `frequencySetCompleted(bool success, const QString &message)`
-  - `sessionKeyReceived(const QString &key)`
+  - `telemetryReceived(double powDbm, double cnDb, double ber, double ebno)`
+  - `timestampReceived(const QDateTime &devTime, const QDateTime &hostTime, const QString &rawStr)`
   - `connectionStateChanged(bool connected, const QString &info)`
-  - `errorOccurred(const QString &errorStr)`
 
-### `EthernetTransfer` (Web CGI / HTTP Taşıyıcı)
+### `Ethernet` / `DrxWebClient` (`ethernet_transport.h` / `ethernet_transport.cpp`)
 - DRX9000 cihazlarıyla CAT6 Ethernet kablosu üzerinden haberleşir.
 - Cihazın dahili HTTP Web Server'ına `POST /cgi-bin/drx.cgi` çağrıları yapar.
-- `admin / 1234` kimlik doğrulamasıyla dinamik bir `sessionkey` alır ve tüm komutları bu anahtarla gönderir:
-  - Frekans Ayarı: `ResponseTo=freq&freq=12380&sr=27500&pol=V&sessionkey=...`
-  - Durum & Telemetri: `query=alarmStatus&sessionkey=...`
+- `admin / 1234` kimlik doğrulamasıyla dinamik bir `sessionkey` alır ve tüm komutları bu anahtarla gönderir (`ResponseTo=freq`, `query=alarmStatus`).
 
-### `RS232Transfer` (Seri Port / COM Taşıyıcı)
+### `RS232` / `SerialWorker` (`serial_transport.h` / `serial_transport.cpp`)
 - DRX9000 cihazlarıyla DB9 / USB-Seri kablo üzerinden haberleşir.
-- `QSerialPort` kullanarak standart baudrate (115200 8N1) ile binary çerçeveleme ve yanıt çözümleme gerçekleştirir.
+- `QSerialPort` kullanarak standart baudrate (115200 8N1) ile çerçeveleme ve yanıt çözümleme gerçekleştirir.
+
+### `DrxProtocolConfig` (`drx_protocol_config.h` / `drx_protocol_config.cpp`)
+- DRX9000 Web CGI ve seri port komut/yanıt biçimlerini, telemetri çözümleme (parser) kurallarını merkezi olarak yönetir.
 
 ---
 
 ## 5. Ağ ve Dağıtık İletişim Katmanı (`src/network/`)
 
+Ağ katmanı da fiziksel soketlerden (`TcpSocketTransport`, `TcpServerTransport`, `UdpTransport`) fonksiyon-işaretçisi tabanlı `Net*Stream` soyutlamasıyla ayrılmıştır:
+
+### `NetClientStream`, `NetServerStream`, `NetDatagramStream` (`net_stream.h` / `net_stream.cpp`)
+- `NetClientOps`, `NetServerOps` ve `NetDatagramOps` tabloları üzerinden protokol sınıflarını `QTcpSocket`, `QTcpServer` ve `QUdpSocket` bağımlılığından arındırır.
+
+### Fiziksel Taşıyıcılar (`tcp_transport.h/.cpp`, `udp_transport.h/.cpp`)
+- `TcpSocketTransport` (`QTcpSocket`), `TcpServerTransport` (`QTcpServer` + `peerId` eşlemesi) ve `UdpTransport` (`QUdpSocket`) sınıflarını içerir.
+
 ### `network_messages.h`
-Host ve Client istasyonları arasındaki TCP paketlerinin JSON serileştirme sözleşmelerini tanımlar (`LockRequestMessage`, `LockResponseMessage`, `TelemetryMessage`, `CommandMessage`).
+Host ve Client istasyonları arasındaki TCP/UDP paketlerinin JSON serileştirme sözleşmelerini (`NetMsg`) tanımlar.
 
 ### `UdpBeacon` (`udp_beacon.h` / `udp_beacon.cpp`)
-- **Host Modu (Broadcaster):** Her saniye UDP `:9101` portundan JSON formatında yayın yapar (`{"type":"BEACON","host_ip":"192.168.1.100","port":9100,"name":"NETA_HOST"}`).
-- **Client Modu (Listener):** Yayını dinler ve sunucu IP'sini kullanıcı müdahalesi olmadan otomatik olarak keşfeder.
+- **Host Modu (`UdpBeaconBroadcaster`):** `NetDatagramStream` üzerinden periyodik keşif yayını (`NETA_BEACON`) ve kapanışta `BEACON_BYE` gönderir.
+- **Client Modu (`UdpBeaconListener`):** Yayını dinler ve sunucu IP'sini otomatik olarak keşfeder.
 
 ### `TcpServer` (`tcp_server.h` / `tcp_server.cpp`)
-Host PC üzerinde `:9100` portundan dinleme yapar. İstasyonların bağlantılarını yönetir, kilit taleplerini `LockArbiter` sınıfına aktarır ve referans ölçüm sonuçlarını istemcilere dağıtır.
+Host PC üzerinde `NetServerStream` üzerinden `:9100` portunu yönetir. İstasyonların bağlantılarını takip eder, kilit taleplerini `LockArbiter` sınıfına aktarır ve Referans DRX telemetrisini `DataStream` (`setRefDataStream`) üzerinden okuyarak istemcilere dağıtır.
 
 ### `TcpClient` (`tcp_client.h` / `tcp_client.cpp`)
-İstasyonların Host TCP sunucusuyla iletişimini sağlar. Kilit alma/bırakma taleplerini gönderir ve yanıtları sinyallerle üst katmana iletir.
+İstasyonların Host sunucusuyla `NetClientStream` üzerinden iletişimini sağlar. Kilit alma/bırakma taleplerini gönderir ve yanıtları sinyallerle üst katmana iletir.
 
 ---
 
@@ -379,11 +365,11 @@ Projedeki tüm C++ sınıfları, fonksiyonları ve sinyal/slot yapıları Doxyge
 
 ---
 
-## 9. Tek Bilgisayarda Küme ve Simülasyon Doğrulama (`test_cluster.bat`)
+## 9. Tek Bilgisayarda Küme ve Simülasyon Doğrulama (`fabrika_test.bat`)
 
 Fabrika sahasına çıkmadan veya çoklu fiziksel bilgisayara ihtiyaç duymadan, tüm küme mimarisi (1 Yönetici Host + 3 İstasyon) ve sanal DRX donanımı tek bir geliştirici/test makinesinde doğrulanabilir:
 
-* **Sanal Küme Başlatıcı:** Kök dizindeki `test_cluster.bat` (veya `tools/test_single_pc_cluster.bat`) aracı çalıştırılır.
+* **Sanal Küme Başlatıcı:** Kök dizindeki `fabrika_test.bat` (veya `tools/fabrika_test_panel.bat`) aracı çalıştırılır.
 * **Ağ Ayrımı:** Windows loopback arayüzü (`127.0.0.1` veya `127.0.0.x`) üzerinden her istasyon bağımsız bir TCP soket oturumu açar.
 * **Kilit Hakemi Doğrulaması:** İstasyon 1 test başlatıp referansı kilitlediğinde, İstasyon 2 ve 3 aynı anda test talep ederse `LockArbiter` FIFO kuyruğuna alınır ve kilit İstasyon 1 bittiğinde sırayla aktarılır.
 * **Konsol Log Standardı:** Konsol çıktılarında karakter seti uyumsuzluklarını önlemek ve uluslararası mühendislik standartlarına uymak amacıyla arka plan logları (`AppLogger`, `qInfo`, `qWarning`) yalın İngilizce (A1–A2) olarak üretilir.

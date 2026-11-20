@@ -57,6 +57,12 @@ public:
     /** @brief Formats frequency tuning request payload using template. */
     QByteArray formatCgiTune(int sessionKey, int freqKhz, int symbolRate, int polEnum) const;
 
+    /** @brief Formats channel list query (`channelSelection`) payload using template. */
+    QByteArray formatCgiChannelList(int sessionKey) const;
+
+    /** @brief Formats channel selection (`ResponseTo=chnsel`) payload using template. */
+    QByteArray formatCgiChannelSelect(int sessionKey, int channelNo) const;
+
     /** @brief Formats raw query request payload using template. */
     QByteArray formatCgiRawQuery(const QString &query, int sessionKey) const;
 
@@ -125,6 +131,8 @@ private:
     QString m_cgiStatusFormat;
     QString m_cgiDeviceInfoFormat;
     QString m_cgiTuneFormat;
+    QString m_cgiChannelListFormat;
+    QString m_cgiChannelSelectFormat;
     QString m_cgiRawQueryFormat;
 
     QStringList m_cgiSessionKeyFields;

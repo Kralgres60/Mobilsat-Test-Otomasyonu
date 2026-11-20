@@ -20,25 +20,18 @@
 #include <QAction>
 #include <numeric>
 
-GoldenReferenceWidget::GoldenReferenceWidget(DrxWebClient *refWeb, SerialWorker *refSerial, QWidget *parent)
+GoldenReferenceWidget::GoldenReferenceWidget(DataStream *refStream, QWidget *parent)
     : QWidget(parent),
-      m_refWebClient(refWeb),
-      m_refSerial(refSerial)
+      m_refStream(refStream)
 {
     setupUi();
 
     m_recordTimer.setInterval(1000);
     connect(&m_recordTimer, &QTimer::timeout, this, &GoldenReferenceWidget::onRecordTick);
 
-    if (m_refWebClient) {
-        connect(m_refWebClient, &DrxWebClient::telemetryReceived, this,
+    if (m_refStream) {
+        connect(m_refStream, &DataStream::telemetryReceived, this,
                 [this](double powDbm, double cnDb, double, double) {
-            onReferenceTelemetryReceived(powDbm, cnDb);
-        });
-    }
-    if (m_refSerial) {
-        connect(m_refSerial, &SerialWorker::telemetryReceived, this,
-                [this](double powDbm, double cnDb, double) {
             onReferenceTelemetryReceived(powDbm, cnDb);
         });
     }
@@ -398,8 +391,7 @@ void GoldenReferenceWidget::onReferenceTelemetryReceived(double powDbm, double c
 void GoldenReferenceWidget::onToggleLiveRecordClicked() {
     if (!m_isRecording) {
         // Start Audio-Style Live Recording
-        bool refReady = (m_refWebClient && m_refWebClient->isReachable()) ||
-                        (m_refSerial && m_refSerial->isConnected());
+        const bool refReady = (m_refStream && m_refStream->isConnected());
         if (!refReady) {
             QMessageBox::warning(this, "Referans Alıcı Bağlı Değil",
                                  "Canlı referans kaydı yapabilmek için Referans DRX9000 alıcısının bağlı olması gerekir.\n\n"
@@ -411,17 +403,9 @@ void GoldenReferenceWidget::onToggleLiveRecordClicked() {
         int targetSr = m_spinTargetSr ? m_spinTargetSr->value() : 30000;
         QString targetPol = m_comboTargetPol ? m_comboTargetPol->currentText() : "H";
 
-        // Ensure Web session is active, tune reference DRX, and trigger immediate status poll
-        if (m_refWebClient && m_refWebClient->isReachable()) {
-            if (!m_refWebClient->isLoggedIn()) {
-                m_refWebClient->testConnectionAndSync();
-            }
-            m_refWebClient->sendTune(targetFreq, targetSr, targetPol);
-            m_refWebClient->requestStatus();
-        } else if (m_refSerial && m_refSerial->isConnected()) {
-            m_refSerial->sendTune(targetFreq, targetSr, targetPol);
-            m_refSerial->requestStatus();
-        }
+        // Tune reference DRX and trigger immediate status poll via DataStream
+        m_refStream->sendTune(targetFreq, targetSr, targetPol);
+        m_refStream->requestStatus();
 
         m_isRecording = true;
         m_recordingElapsedSec = 0;
@@ -533,10 +517,8 @@ void GoldenReferenceWidget::onRecordTick() {
             .arg(m_currentRecCn.size()));
 
     // Poll receiver actively during recording
-    if (m_refWebClient && m_refWebClient->isReachable()) {
-        m_refWebClient->requestStatus();
-    } else if (m_refSerial && m_refSerial->isConnected()) {
-        m_refSerial->requestStatus();
+    if (m_refStream && m_refStream->isConnected()) {
+        m_refStream->requestStatus();
     }
 }
 

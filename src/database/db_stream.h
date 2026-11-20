@@ -14,6 +14,7 @@
 #include <QVariantList>
 #include <QVariantMap>
 #include <QVector>
+#include <QStringList>
 
 /**
  * @struct DbRow
@@ -48,6 +49,7 @@ struct DbQueryResult {
     QString error;
     qint64 lastInsertId = 0;
     int rowsAffected = 0;
+    QStringList columnNames;
     QVector<DbRow> rows;
 
     /** @brief Returns true if at least one row was returned. */

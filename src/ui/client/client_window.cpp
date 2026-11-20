@@ -269,6 +269,26 @@ ClientWindow::ClientWindow(QWidget *parent)
     connect(m_stateMachine, &TestStateMachine::waitingForLockUpdate, this, &ClientWindow::onWaitingForLockUpdate);
     connect(m_stateMachine, &TestStateMachine::logMessage, this, &ClientWindow::appendLog);
 
+    // Automatically pull all data whenever central MariaDB connects or reconnects later
+    connect(&DbManager::instance(), &DbManager::connectionStatusChanged, this,
+            [this](bool connected, const QString &) {
+        updateDbStatusBadge();
+        if (!connected) return;
+
+        DbManager::instance().getUsers(); // Synchronize local encrypted user vault (neta_auth.vault)
+        loadWorkOrdersAndProfiles();
+        if (m_profileManager) {
+            m_profileManager->reloadProfiles();
+        }
+        if (m_historyWidget) {
+            m_historyWidget->refreshHistory();
+        }
+        if (!m_netClient.isConnected()) {
+            const ReferenceMode dbMode = DbManager::instance().getReferenceMode();
+            onReferenceModeChanged(dbMode);
+        }
+    });
+
     // Background Ethernet Ping Heartbeat (8 seconds, silent; also retries central MariaDB if waiting)
     connect(&m_ethPingTimer, &QTimer::timeout, this, [this]() {
         m_dutWebClient.pingHost(1000);
@@ -277,10 +297,8 @@ ClientWindow::ClientWindow(QWidget *parent)
             if (DbManager::instance().connectToDatabase(cfg.dbHost(), cfg.dbPort(),
                                                        cfg.dbName(), cfg.dbUser(),
                                                        cfg.dbPassword())) {
-                loadWorkOrdersAndProfiles();
-                if (m_profileManager) m_profileManager->reloadProfiles();
-                updateDbStatusBadge();
-                appendLog(QString("[Veritabanı] Merkezi MariaDB'ye bağlanıldı (%1:%2).").arg(cfg.dbHost()).arg(cfg.dbPort()));
+                appendLog(QString("[Veritabanı] Merkezi MariaDB'ye bağlanıldı ve veriler çekildi (%1:%2).")
+                              .arg(cfg.dbHost()).arg(cfg.dbPort()));
             }
         }
         if (!DbManager::instance().isConnected()) return;
@@ -534,7 +552,10 @@ void ClientWindow::setupProductionPage() {
     // =========================================================================
     // LEFT COLUMN: Ethernet Connection Card + Test Launch + 3x3 Live RF Pastel Grid
     // =========================================================================
-    QVBoxLayout *leftCol = new QVBoxLayout();
+    QWidget *leftPane = new QWidget(m_pageProduction);
+    leftPane->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    QVBoxLayout *leftCol = new QVBoxLayout(leftPane);
+    leftCol->setContentsMargins(0, 0, 0, 0);
     leftCol->setSpacing(8);
 
     // 1. Station & CAT6 Ethernet Info Group (NO serial port controls here!)
@@ -743,6 +764,9 @@ void ClientWindow::setupProductionPage() {
     m_txtAntennaSn = new QLineEdit(grpLaunch);
     m_txtAntennaSn->setPlaceholderText("Anten barkodunu okutunuz ve Enter'a basınız...");
     m_txtAntennaSn->setStyleSheet("font-size: 11pt; font-weight: bold; padding: 6px 10px;");
+    if (!AppConfig::instance().lastAntennaSn().isEmpty()) {
+        m_txtAntennaSn->setText(AppConfig::instance().lastAntennaSn());
+    }
     connect(m_txtAntennaSn, &QLineEdit::returnPressed, this, &ClientWindow::onStartTestClicked);
 
     launchForm->addRow(new QLabel("İş Emri:", grpLaunch), m_comboOrders);
@@ -818,16 +842,22 @@ void ClientWindow::setupProductionPage() {
     // =========================================================================
     // RIGHT COLUMN: Overall Verdict Card + Progress + Clean 10-Row Table + Telemetry Pills
     // =========================================================================
-    QVBoxLayout *rightCol = new QVBoxLayout();
+    QWidget *rightPane = new QWidget(m_pageProduction);
+    rightPane->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    QVBoxLayout *rightCol = new QVBoxLayout(rightPane);
+    rightCol->setContentsMargins(0, 0, 0, 0);
     rightCol->setSpacing(8);
 
-    QGroupBox *grpOutcome = new QGroupBox("🏁 Test Sonuç Özeti", m_pageProduction);
+    QGroupBox *grpOutcome = new QGroupBox("🏁 Test Sonuç Özeti", rightPane);
+    grpOutcome->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
     QVBoxLayout *outVBox = new QVBoxLayout(grpOutcome);
     outVBox->setSpacing(6);
 
     m_resultBannerFrame = new QFrame(grpOutcome);
-    m_resultBannerFrame->setStyleSheet("background-color: #112D21; border: 1px solid #1A3D2B; border-radius: 6px; padding: 10px;");
+    m_resultBannerFrame->setFixedHeight(86);
+    m_resultBannerFrame->setStyleSheet("background-color: #112D21; border: 1px solid #1A3D2B; border-radius: 6px; padding: 8px;");
     QVBoxLayout *bannerVBox = new QVBoxLayout(m_resultBannerFrame);
+    bannerVBox->setContentsMargins(8, 6, 8, 6);
     bannerVBox->setSpacing(2);
 
     m_lblOverallResult = new QLabel("BEKLEMEDE", m_resultBannerFrame);
@@ -837,6 +867,7 @@ void ClientWindow::setupProductionPage() {
 
     m_lblOverallDetails = new QLabel("Hazır: Anten barkodunu okutunuz", m_resultBannerFrame);
     m_lblOverallDetails->setAlignment(Qt::AlignCenter);
+    m_lblOverallDetails->setWordWrap(true);
     m_lblOverallDetails->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     m_lblOverallDetails->setStyleSheet("font-size: 9.5pt; color: #E6F4EE;");
 
@@ -870,8 +901,9 @@ void ClientWindow::setupProductionPage() {
     m_tableChannels->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_tableChannels->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_tableChannels->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_tableChannels->setAlternatingRowColors(true);
+    m_tableChannels->setAlternatingRowColors(false);
     m_tableChannels->setShowGrid(true);
+    m_tableChannels->setStyleSheet("QTableWidget::item { padding: 0px 4px; border: none; }");
 
     QHeaderView *hdr = m_tableChannels->horizontalHeader();
     hdr->setSectionResizeMode(0, QHeaderView::Fixed);
@@ -926,13 +958,13 @@ void ClientWindow::setupProductionPage() {
 
     rightCol->addWidget(grpTelemetry);
 
-    mainCols->addLayout(leftCol, 50);
-    mainCols->addLayout(rightCol, 50);
+    mainCols->addWidget(leftPane, 50);
+    mainCols->addWidget(rightPane, 50);
 }
 
 void ClientWindow::setupProfilesPage() {
-    m_profileManager = new ProfileManagerWidget(false, &m_refWebClient, nullptr, this);
-    m_profileManager->setReceiverClients(&m_dutWebClient, &m_refWebClient, nullptr);
+    m_profileManager = new ProfileManagerWidget(false, m_refStream, this);
+    m_profileManager->setDataStreams(m_dutStream, m_refStream);
     connect(m_profileManager, &ProfileManagerWidget::profilesChanged,
             this, &ClientWindow::loadWorkOrdersAndProfiles);
     connect(m_profileManager, &ProfileManagerWidget::logMessage,
@@ -1435,12 +1467,14 @@ void ClientWindow::resetLiveTelemetryPills() {
 void ClientWindow::loadWorkOrdersAndProfiles() {
     DbManager &db = DbManager::instance();
     if (!db.isConnected()) {
-        db.connectToDatabase(AppConfig::instance().dbHost(), AppConfig::instance().dbPort(),
-                             AppConfig::instance().dbName(), AppConfig::instance().dbUser(),
-                             AppConfig::instance().dbPassword());
-    }
-    if (db.isConnected()) {
-        db.ensureDefaultDataIfMissing();
+        if (sender() != nullptr && sender() != &db) {
+            db.connectToDatabase(AppConfig::instance().dbHost(), AppConfig::instance().dbPort(),
+                                 AppConfig::instance().dbName(), AppConfig::instance().dbUser(),
+                                 AppConfig::instance().dbPassword());
+        }
+        if (!db.isConnected()) {
+            return;
+        }
     }
 
     m_workOrders = db.getActiveWorkOrders();
@@ -1512,6 +1546,7 @@ void ClientWindow::onWorkOrderComboChanged(int index) {
 
 void ClientWindow::onProfileComboChanged(int index) {
     if (index < 0 || index >= m_profiles.size()) return;
+    const bool keepFinishedResults = m_hasFinishedTestResults && (m_profiles[index].id == m_currentProfile.id);
     m_currentProfile = m_profiles[index];
     AppConfig::instance().setLastProfileId(m_currentProfile.id);
 
@@ -1523,7 +1558,10 @@ void ClientWindow::onProfileComboChanged(int index) {
     if (m_lblLiveTolerance) {
         m_lblLiveTolerance->setText(QString("⚖️ Tolerans: ±%1 dB").arg(m_currentProfile.defaultToleranceDb, 0, 'f', 2));
     }
-    populateChannelTable();
+    if (!keepFinishedResults) {
+        m_hasFinishedTestResults = false;
+        populateChannelTable();
+    }
 }
 
 void ClientWindow::onReferenceModeChanged(ReferenceMode mode) {
@@ -2056,6 +2094,8 @@ void ClientWindow::onStartTestClicked() {
 
     int woId = m_comboOrders->currentData().toInt();
     m_activeAntennaSn = sn;
+    AppConfig::instance().setLastAntennaSn(sn);
+    m_hasFinishedTestResults = false;
 
     populateChannelTable();
     resetLiveTelemetryPills();
@@ -2247,20 +2287,24 @@ void ClientWindow::onChannelCompleted(const ChannelSampleResult &result) {
         m_tableChannels->item(row, 5)->setText(lockStr);
 
         QColor rowBg("#0A1F17");
+        QColor statBg("#0F2D22");
         QColor statFg("#A7C4B5");
         QString statText = result.status;
 
         if (result.status == "PASS") {
             rowBg = QColor("#063829");
+            statBg = QColor("#065F46");
             statFg = QColor("#34D399");
             statText = "✔ GEÇTİ";
         } else if (result.status == "WARNING") {
             rowBg = QColor("#3B2809");
-            statFg = QColor("#FBBF24");
+            statBg = QColor("#78350F");
+            statFg = QColor("#FDE68A");
             statText = "⚠ UYARI";
         } else {
             rowBg = QColor("#3F1219");
-            statFg = QColor("#F87171");
+            statBg = QColor("#7F1D1D");
+            statFg = QColor("#FCA5A5");
             statText = "✖ KALDI";
         }
 
@@ -2271,6 +2315,7 @@ void ClientWindow::onChannelCompleted(const ChannelSampleResult &result) {
         }
         auto *itStat = m_tableChannels->item(row, 6);
         itStat->setText(statText);
+        itStat->setBackground(QBrush(statBg));
         itStat->setForeground(QBrush(statFg));
         QFont f = itStat->font();
         f.setBold(true);
@@ -2286,6 +2331,7 @@ void ClientWindow::onWaitingForLockUpdate(int queuePos, int activeStation) {
 void ClientWindow::onTestFinished(const TestRunData &finalResult) {
     m_btnStartTest->setEnabled(true);
     m_btnAbortTest->setEnabled(false);
+    m_hasFinishedTestResults = true;
 
     if (finalResult.overallResult == "PASS") {
         m_resultBannerFrame->setStyleSheet("background-color: #064E3B; border: 2px solid #10B981; border-radius: 6px; padding: 10px;");
@@ -2345,11 +2391,15 @@ void ClientWindow::onTestFinished(const TestRunData &finalResult) {
     }
 
     if (m_txtTesterName) m_txtTesterName->clear();
-    m_txtAntennaSn->clear();
+    if (!finalResult.antennaSn.isEmpty()) {
+        m_txtAntennaSn->setText(finalResult.antennaSn);
+        AppConfig::instance().setLastAntennaSn(finalResult.antennaSn);
+    }
     if (m_txtTesterName) {
         m_txtTesterName->setFocus();
     } else {
         m_txtAntennaSn->setFocus();
+        m_txtAntennaSn->selectAll();
     }
 }
 

@@ -17,9 +17,6 @@
 #include <QHeaderView>
 #include <QDateTime>
 #include <QProcess>
-#include <QSqlQuery>
-#include <QSqlError>
-#include <QSqlRecord>
 
 DbDebugWindow::DbDebugWindow(QWidget *parent)
     : QMainWindow(parent) {
@@ -385,17 +382,16 @@ void DbDebugWindow::onRefreshTablesClicked() {
         "system_settings", "audit_logs", "reference_lock", "users"
     };
 
-    QSqlDatabase db = QSqlDatabase::database(DbManager::instance().connectionName());
+    DbStream *stream = DbManager::instance().stream();
     int row = 0;
     int selectedIdx = -1;
     for (const QString &tbl : tables) {
         m_tableListWidget->insertRow(row);
         m_tableListWidget->setItem(row, 0, new QTableWidgetItem(tbl));
 
-        QSqlQuery q(db);
-        q.prepare(QString("SELECT COUNT(*) FROM `%1`").arg(tbl));
-        if (q.exec() && q.next()) {
-            int cnt = q.value(0).toInt();
+        const DbQueryResult res = stream ? stream->exec(QString("SELECT COUNT(*) FROM `%1`").arg(tbl)) : DbQueryResult{};
+        if (res.ok && res.hasRows()) {
+            const int cnt = res.first().at(0).toInt();
             auto *itCnt = new QTableWidgetItem(QString::number(cnt));
             itCnt->setTextAlignment(Qt::AlignCenter);
             m_tableListWidget->setItem(row, 1, itCnt);
@@ -453,35 +449,30 @@ void DbDebugWindow::loadTableData(const QString &tableName) {
     }
     if (tableName.isEmpty()) return;
 
-    QSqlDatabase db = QSqlDatabase::database(DbManager::instance().connectionName());
+    DbStream *stream = DbManager::instance().stream();
+    if (!stream) return;
     int limit = m_spinRowLimit ? m_spinRowLimit->value() : 100;
 
-    QSqlQuery q(db);
-    QString sql = QString("SELECT * FROM `%1` LIMIT %2").arg(tableName).arg(limit);
-    if (!q.exec(sql)) {
-        appendLog(QString("❌ Tablo sorgu hatası (%1): %2").arg(tableName, q.lastError().text()), "#EF4444");
+    const QString sql = QString("SELECT * FROM `%1` LIMIT %2").arg(tableName).arg(limit);
+    const DbQueryResult res = stream->exec(sql);
+    if (!res.ok) {
+        appendLog(QString("❌ Tablo sorgu hatası (%1): %2").arg(tableName, res.error), "#EF4444");
         m_lblSelectedTable->setText(QString("❌ Hata: %1 tablosu okunamadı").arg(tableName));
         return;
     }
 
-    QSqlRecord rec = q.record();
-    int colCount = rec.count();
+    const int colCount = res.columnNames.size();
 
     m_tableDataWidget->clear();
     m_tableDataWidget->setColumnCount(colCount);
     m_tableDataWidget->setRowCount(0);
-
-    QStringList headers;
-    for (int c = 0; c < colCount; ++c) {
-        headers << rec.fieldName(c);
-    }
-    m_tableDataWidget->setHorizontalHeaderLabels(headers);
+    m_tableDataWidget->setHorizontalHeaderLabels(res.columnNames);
 
     int rowIdx = 0;
-    while (q.next()) {
+    for (const DbRow &row : res.rows) {
         m_tableDataWidget->insertRow(rowIdx);
         for (int c = 0; c < colCount; ++c) {
-            QString valStr = q.value(c).toString();
+            const QString valStr = row.at(c).toString();
             QTableWidgetItem *cell = new QTableWidgetItem(valStr);
             m_tableDataWidget->setItem(rowIdx, c, cell);
         }
@@ -591,11 +582,12 @@ void DbDebugWindow::onQueryLockClicked() {
     if (!DbManager::instance().isConnected()) return;
 
     int lockedBy = 0, curCh = 0;
-    QSqlDatabase db = QSqlDatabase::database(DbManager::instance().connectionName());
-    QSqlQuery q("SELECT locked_by_station, current_channel_no FROM reference_lock WHERE id = 1 LIMIT 1", db);
-    if (q.next()) {
-        lockedBy = q.value(0).toInt();
-        curCh = q.value(1).toInt();
+    if (DbStream *stream = DbManager::instance().stream()) {
+        const DbQueryResult res = stream->exec("SELECT locked_by_station, current_channel_no FROM reference_lock WHERE id = 1 LIMIT 1");
+        if (res.ok && res.hasRows()) {
+            lockedBy = res.first().at(0).toInt();
+            curCh = res.first().at(1).toInt();
+        }
     }
     updateLockBadge(lockedBy, curCh);
 }

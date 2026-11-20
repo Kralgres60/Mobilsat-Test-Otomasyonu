@@ -20,4 +20,4 @@ if %errorlevel% equ 0 (
 
 echo [BASARILI] MariaDB sunucusu tamamen durduruldu.
 echo =====================================================================
-pause
+if /i not "%~1"=="nopause" pause

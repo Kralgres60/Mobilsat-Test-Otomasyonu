@@ -22,11 +22,8 @@
 #include "ui/common/lobby_window.h"
 #include "ui/client/client_window.h"
 #include "ui/host/host_window.h"
-#if defined(NETA_DEBUG_MODE)
 #include "ui/debug/debug_runner_window.h"
-#endif
 #if defined(NETA_DEBUG_DB_MODE)
-#include "ui/debug/debug_runner_window.h"
 #include <QMainWindow>
 #endif
 #ifdef Q_OS_WIN
@@ -47,41 +44,6 @@ int main(int argc, char *argv[]) {
     QTextCodec::setCodecForLocale(QTextCodec::codecForName("UTF-8"));
     AppLogger::instance().init();
     AppLogger::instance().logEvent("APP", QString("NETA DRX9000 v%1 started.").arg(NETA_APP_VERSION));
-
-#if defined(NETA_DEBUG_MODE)
-    qInfo() << "==========================================================";
-    qInfo() << " NETA DRX9000 ENGINE: [DEVELOPER & DEBUG TEST MODE ACTIVE]";
-    qInfo() << "==========================================================";
-    app.setApplicationName(NETA_APP_NAME);
-    app.setApplicationVersion(NETA_APP_VERSION);
-    app.setOrganizationName(NETA_APP_ORGANIZATION);
-    app.setWindowIcon(QIcon(":/resources/images/neta_app.ico"));
-    StyleHelper::applyAppPalette(&app);
-    app.setStyleSheet(StyleHelper::getAppStyle());
-
-    DebugRunnerWindow *debugWin = new DebugRunnerWindow();
-    debugWin->show();
-    return app.exec();
-#endif
-
-#if defined(NETA_DEBUG_DB_MODE)
-    qInfo() << "==========================================================";
-    qInfo() << " NETA DRX9000 ENGINE: [MARIADB & DISTRIBUTED LOCK DEBUG ACTIVE]";
-    qInfo() << "==========================================================";
-    app.setApplicationName(NETA_APP_NAME);
-    app.setApplicationVersion(NETA_APP_VERSION);
-    app.setOrganizationName(NETA_APP_ORGANIZATION);
-    app.setWindowIcon(QIcon(":/resources/images/neta_app.ico"));
-    StyleHelper::applyAppPalette(&app);
-    app.setStyleSheet(StyleHelper::getAppStyle());
-
-    QMainWindow *dbWin = new QMainWindow();
-    dbWin->setWindowTitle("NETA DRX9000 - MariaDB & Dağıtık Kilit (Algoritma 2) Test Konsolu");
-    dbWin->resize(1100, 720);
-    dbWin->setCentralWidget(new DbDebugWidget(dbWin));
-    dbWin->show();
-    return app.exec();
-#endif
 
 #if defined(NETA_ALGORITMA_1_FOUR_PC)
     qInfo() << "==========================================================";
@@ -110,12 +72,14 @@ int main(int argc, char *argv[]) {
     QCommandLineOption stationOption(QStringList() << "s" << "station", "Test Workstation Number (1, 2, or 3).", "station_id");
     QCommandLineOption serverOption(QStringList() << "H" << "server" << "host-ip", "Central Host Server IP address (default: 127.0.0.1).", "host_ip");
     QCommandLineOption drxOption(QStringList() << "d" << "drx" << "drx-endpoint", "DRX9000 IP:Port endpoint (e.g. 127.0.0.1:8081).", "endpoint");
+    QCommandLineOption debugRestOption(QStringList() << "debug-rest", "Launch DRX REST API Discovery & Debug Console.");
 
     parser.addOption(hostOption);
     parser.addOption(clientOption);
     parser.addOption(stationOption);
     parser.addOption(serverOption);
     parser.addOption(drxOption);
+    parser.addOption(debugRestOption);
     parser.process(app);
 
     AppConfig &config = AppConfig::instance();
@@ -150,7 +114,10 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    if (parser.isSet(hostOption)) {
+    if (parser.isSet(debugRestOption)) {
+        DebugRunnerWindow *debugWin = new DebugRunnerWindow();
+        debugWin->show();
+    } else if (parser.isSet(hostOption)) {
         config.setRole(AppRole::Host);
         DbManager::instance().connectToDatabase(config.dbHost(), config.dbPort(),
                                                 config.dbName(), config.dbUser(),

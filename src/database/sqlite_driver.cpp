@@ -187,9 +187,13 @@ bool SqliteDriver::exec(const QString &sql,
     const QVariant insertIdVar = q.lastInsertId();
     res->lastInsertId = insertIdVar.isValid() ? insertIdVar.toLongLong() : 0;
 
-    if (q.isSelect()) {
-        const QSqlRecord rec = q.record();
-        const int colCount = rec.count();
+    const QSqlRecord rec = q.record();
+    const int colCount = rec.count();
+    if (q.isSelect() || colCount > 0) {
+        res->columnNames.reserve(colCount);
+        for (int i = 0; i < colCount; ++i) {
+            res->columnNames.append(rec.fieldName(i));
+        }
         while (q.next()) {
             DbRow row;
             row.columns.reserve(colCount);

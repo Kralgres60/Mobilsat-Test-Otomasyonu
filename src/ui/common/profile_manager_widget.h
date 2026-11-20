@@ -20,8 +20,7 @@
 #include <QVector>
 #include <QSpinBox>
 #include "core/data_models.h"
-#include "hardware/ethernet_transport.h"
-#include "hardware/serial_transport.h"
+#include "hardware/data_stream.h"
 
 /**
  * @class ProfileManagerWidget
@@ -34,13 +33,11 @@ public:
     /**
      * @brief Constructs the profile and frequency manager widget.
      * @param isHostMode Enables Administrator Reference Mode switch
-     * @param refWeb Optional Reference DRX Web CGI client
-     * @param refSerial Optional Reference DRX RS232 worker
+     * @param refStream Optional Reference DRX DataStream
      * @param parent Parent widget
      */
     explicit ProfileManagerWidget(bool isHostMode = false,
-                                  DrxWebClient *refWeb = nullptr,
-                                  SerialWorker *refSerial = nullptr,
+                                  DataStream *refStream = nullptr,
                                   QWidget *parent = nullptr);
 
     /** @brief Reloads all active satellite profiles and channels from the database. */
@@ -49,8 +46,8 @@ public:
     /** @brief Syncs the Reference Mode selector UI (Host mode only). */
     void setActiveReferenceMode(ReferenceMode mode);
 
-    /** @brief Sets DRX client sources for Golden Sample sampling on Station or Host. */
-    void setReceiverClients(DrxWebClient *dutWeb, DrxWebClient *refWeb = nullptr, SerialWorker *refSerial = nullptr);
+    /** @brief Sets hardware-agnostic DRX DataStreams for Golden Sample sampling on Station or Host. */
+    void setDataStreams(DataStream *dutStream, DataStream *refStream = nullptr);
 
 public slots:
     /** @brief Feeds incoming live Reference DRX telemetry samples during Golden Sample capture. */
@@ -89,12 +86,11 @@ private:
     ChannelConfig readChannelFromRow(int row, double fallbackTol) const;
     void setGoldenCellsOnRow(int row, double cnDb, double powDbm, const QString &statusText, const QColor &statusColor);
     void triggerGoldenCaptureCurrentRow();
-    DrxWebClient* activeCaptureClient() const;
+    DataStream* activeCaptureStream() const;
 
     bool m_isHostMode = false;
-    DrxWebClient *m_dutWebClient = nullptr;
-    DrxWebClient *m_refWebClient = nullptr;
-    SerialWorker *m_refSerial = nullptr;
+    DataStream *m_dutStream = nullptr;
+    DataStream *m_refStream = nullptr;
 
     QComboBox      *m_comboRefMode          = nullptr;
     QListWidget    *m_listProfiles          = nullptr;

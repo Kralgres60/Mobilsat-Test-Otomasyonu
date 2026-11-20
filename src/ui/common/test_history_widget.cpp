@@ -10,8 +10,11 @@
 #include "core/xlsxutil.h"
 #include "core/pdf_report_generator.h"
 #include "ui/common/spc_analysis_widget.h"
+#include "ui/common/qcustomplot.h"
 #include "database/db_manager.h"
 #include <QDesktopServices>
+#include <QDialog>
+#include <QSplitter>
 #include <QUrl>
 
 #include <QVBoxLayout>
@@ -26,10 +29,6 @@
 #include <QColor>
 #include <QAbstractItemView>
 #include <QRegularExpression>
-#include <QSqlDatabase>
-#include <QSqlQuery>
-#include <QSqlRecord>
-#include <QSqlError>
 
 TestHistoryWidget::TestHistoryWidget(QWidget *parent)
     : TestHistoryWidget(ViewMode::HistoryAndSpc, parent) {
@@ -160,6 +159,7 @@ void TestHistoryWidget::setupHistoryTab(QWidget *tab) {
     m_table->verticalHeader()->setDefaultSectionSize(26);
     m_table->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(m_table, &QTableWidget::customContextMenuRequested, this, &TestHistoryWidget::onTableContextMenuRequested);
+    connect(m_table, &QTableWidget::cellDoubleClicked, this, &TestHistoryWidget::onTableCellDoubleClicked);
     vbox->addWidget(m_table, 1);
 
     // Pagination toolbar
@@ -267,16 +267,24 @@ void TestHistoryWidget::setupDbViewerTab(QWidget *tab) {
 }
 
 void TestHistoryWidget::refreshHistory() {
+    if (m_viewMode == ViewMode::DatabaseOnly) {
+        refreshDbTables();
+        return;
+    }
+    if (!m_table) return;
     m_currentPage = 1;
     applyFilters();
 }
 
 void TestHistoryWidget::applyFilters() {
+    if (!m_table) return;
     DbManager &db = DbManager::instance();
     if (!db.isConnected()) {
         m_cachedRuns.clear();
         m_table->setRowCount(0);
-        m_lblSummary->setText("⚠️ Veritabanı bağlantısı yok (Çevrimdışı)");
+        if (m_lblSummary) {
+            m_lblSummary->setText("⚠️ Veritabanı bağlantısı yok (Çevrimdışı)");
+        }
         m_totalRecords = 0;
         m_totalPages = 1;
         updatePaginationControls();
@@ -594,17 +602,18 @@ void TestHistoryWidget::refreshDbTables() {
     }
 
     const QString prevSelection = m_comboTables->currentText();
-    QSqlDatabase db = QSqlDatabase::database(mgr.connectionName());
-    QSqlQuery q(db);
+    DbStream *stream = mgr.stream();
 
     QStringList tables;
-    if (mgr.activeDriver() == "QSQLITE") {
-        if (q.exec("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name;")) {
-            while (q.next()) tables << q.value(0).toString();
-        }
-    } else {
-        if (q.exec("SHOW TABLES;")) {
-            while (q.next()) tables << q.value(0).toString();
+    if (stream) {
+        const QString listSql = (mgr.activeDriver() == "QSQLITE")
+            ? QStringLiteral("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name;")
+            : QStringLiteral("SHOW TABLES;");
+        const DbQueryResult res = stream->exec(listSql);
+        if (res.ok) {
+            for (const DbRow &r : res.rows) {
+                tables << r.at(0).toString();
+            }
         }
     }
 
@@ -630,38 +639,32 @@ void TestHistoryWidget::loadSelectedDbTable() {
     }
 
     const int limit = m_comboLimit->currentData().toInt();
-    QSqlDatabase db = QSqlDatabase::database(mgr.connectionName());
-    QSqlQuery q(db);
+    DbStream *stream = mgr.stream();
+    if (!stream) return;
 
     const QString sql = (mgr.activeDriver() == "QSQLITE")
                             ? QString("SELECT * FROM \"%1\" LIMIT %2;").arg(tableName).arg(limit)
                             : QString("SELECT * FROM `%1` LIMIT %2;").arg(tableName).arg(limit);
 
-    if (!q.exec(sql)) {
-        m_lblDbInfo->setText(QString("🔴 Sorgu hatası (%1): %2").arg(tableName, q.lastError().text()));
+    const DbQueryResult res = stream->exec(sql);
+    if (!res.ok) {
+        m_lblDbInfo->setText(QString("🔴 Sorgu hatası (%1): %2").arg(tableName, res.error));
         m_lblDbInfo->setStyleSheet("color: #F87171; font-weight: bold;");
         return;
     }
 
-    const QSqlRecord rec = q.record();
-    const int colCount = rec.count();
+    const int colCount = res.columnNames.size();
 
     m_tableDb->setUpdatesEnabled(false);
     m_tableDb->clear();
     m_tableDb->setColumnCount(colCount);
-
-    QStringList headerLabels;
-    headerLabels.reserve(colCount);
-    for (int c = 0; c < colCount; ++c) {
-        headerLabels << rec.fieldName(c);
-    }
-    m_tableDb->setHorizontalHeaderLabels(headerLabels);
+    m_tableDb->setHorizontalHeaderLabels(res.columnNames);
 
     int rowIdx = 0;
-    while (q.next()) {
+    for (const DbRow &row : res.rows) {
         m_tableDb->insertRow(rowIdx);
         for (int c = 0; c < colCount; ++c) {
-            const QVariant v = q.value(c);
+            const QVariant &v = row.at(c);
             QString displayStr = v.isNull() ? "NULL" : v.toString();
             auto *item = new QTableWidgetItem(displayStr);
             if (v.isNull()) item->setForeground(QColor("#9CA3AF"));
@@ -823,7 +826,228 @@ void TestHistoryWidget::onTableContextMenuRequested(const QPoint &pos) {
     if (targets.isEmpty()) return;
 
     QMenu menu(this);
+    QAction *actInspect = menu.addAction("🔍 Test İçeriğini ve Grafiğini Görüntüle");
     QAction *actInfo = menu.addAction("🔒 Test Kayıtları Yalnızca Web Admin Üzerinden Silinebilir");
     actInfo->setEnabled(false);
-    menu.exec(m_table->viewport()->mapToGlobal(pos));
+    QAction *chosen = menu.exec(m_table->viewport()->mapToGlobal(pos));
+    if (chosen == actInspect && targets.size() >= 1) {
+        showRunDetailsDialog(targets.first().first);
+    }
+}
+
+void TestHistoryWidget::onTableCellDoubleClicked(int row, int /*column*/) {
+    if (!m_table || row < 0) return;
+    QTableWidgetItem *idItem = m_table->item(row, 0);
+    if (!idItem) return;
+    bool ok = false;
+    qint64 runId = idItem->text().toLongLong(&ok);
+    if (ok && runId > 0) {
+        showRunDetailsDialog(runId);
+    }
+}
+
+void TestHistoryWidget::showRunDetailsDialog(qint64 testRunId) {
+    TestRunData runInfo;
+    runInfo.id = testRunId;
+    int idx = binarySearchRunById(m_cachedRuns, testRunId);
+    if (idx < 0) {
+        for (int i = 0; i < m_cachedRuns.size(); ++i) {
+            if (m_cachedRuns[i].id == testRunId) {
+                idx = i;
+                break;
+            }
+        }
+    }
+    if (idx >= 0) {
+        runInfo = m_cachedRuns[idx];
+    }
+
+    const QVector<ChannelSampleResult> channels = DbManager::instance().getTestRunChannels(testRunId);
+    if (channels.isEmpty()) {
+        QMessageBox::information(this, "Kanal Detayı Bulunamadı",
+                                 QString("#%1 numaralı test kaydına ait kanal ölçüm detayı bulunamadı.").arg(testRunId));
+        return;
+    }
+
+    QDialog dlg(this);
+    dlg.setWindowTitle(QString("Test Detayı ve Sinyal Grafiği — #%1 | Seri No: %2")
+                           .arg(testRunId)
+                           .arg(runInfo.antennaSn.isEmpty() ? "-" : runInfo.antennaSn));
+    dlg.resize(1100, 740);
+    dlg.setStyleSheet("QDialog { background-color: #0B1120; color: #E2E8F0; }");
+
+    auto *layout = new QVBoxLayout(&dlg);
+    layout->setContentsMargins(12, 12, 12, 12);
+    layout->setSpacing(10);
+
+    // Top metadata summary banner
+    const QString resUpper = runInfo.overallResult.trimmed().toUpper();
+    const QString resColor = (resUpper == "PASS") ? "#34D399"
+                           : (resUpper == "FAIL") ? "#F87171" : "#FBBF24";
+    const QString stationText = (runInfo.stationId == 0)
+                                    ? QStringLiteral("Yönetici (Host)")
+                                    : QString("İstasyon %1").arg(runInfo.stationId);
+
+    auto *lblHeader = new QLabel(
+        QString("<b>Test #%1</b> &nbsp;|&nbsp; Seri No: <b style='color:#38BDF8;'>%2</b>"
+                " &nbsp;|&nbsp; Profil: <b>%3</b> &nbsp;|&nbsp; İstasyon: <b>%4</b>"
+                " &nbsp;|&nbsp; Testi Yapan: <b>%5</b> &nbsp;|&nbsp; Tarih: <b>%6</b>"
+                " &nbsp;|&nbsp; Sonuç: <b style='color:%7;'>%8</b>"
+                " &nbsp;|&nbsp; Ort. Δ: <b>%9 dB</b> &nbsp;|&nbsp; Max Δ: <b>%10 dB</b>")
+            .arg(testRunId)
+            .arg(runInfo.antennaSn.isEmpty() ? "-" : runInfo.antennaSn)
+            .arg(runInfo.profileName.isEmpty() ? "-" : runInfo.profileName)
+            .arg(stationText)
+            .arg(runInfo.testerName.isEmpty() ? "-" : runInfo.testerName)
+            .arg(runInfo.timestamp.isValid() ? runInfo.timestamp.toString("yyyy-MM-dd HH:mm:ss") : "-")
+            .arg(resColor)
+            .arg(resUpper.isEmpty() ? "-" : resUpper)
+            .arg(runInfo.avgDeltaDb, 0, 'f', 2)
+            .arg(runInfo.maxDeltaDb, 0, 'f', 2),
+        &dlg);
+    lblHeader->setWordWrap(true);
+    lblHeader->setStyleSheet("background-color: #0F172A; border: 1px solid #1E293B; border-radius: 6px; padding: 10px; font-size: 10pt;");
+    layout->addWidget(lblHeader);
+
+    auto *splitter = new QSplitter(Qt::Vertical, &dlg);
+
+    // 1. Signal comparison graph (DUT C/N vs REF C/N & Tolerance Band)
+    auto *plot = new QCustomPlot(splitter);
+    plot->setBackground(QColor("#0F172A"));
+    plot->axisRect()->setBackground(QColor("#0B1120"));
+    plot->xAxis->setBasePen(QPen(QColor("#334155")));
+    plot->yAxis->setBasePen(QPen(QColor("#334155")));
+    plot->xAxis->setTickLabelColor(QColor("#CBD5E1"));
+    plot->yAxis->setTickLabelColor(QColor("#CBD5E1"));
+    plot->xAxis->setLabelColor(QColor("#94A3B8"));
+    plot->yAxis->setLabelColor(QColor("#94A3B8"));
+    plot->xAxis->grid()->setPen(QPen(QColor("#1E293B"), 1, Qt::DotLine));
+    plot->yAxis->grid()->setPen(QPen(QColor("#1E293B"), 1, Qt::DotLine));
+    plot->yAxis->setLabel("C/N Sinyal Kalitesi (dB)");
+    plot->setInteractions(QCP::iRangeDrag | QCP::iRangeZoom);
+
+    QVector<double> xVals, yDut, yRef, yUpper, yLower;
+    QSharedPointer<QCPAxisTickerText> textTicker(new QCPAxisTickerText);
+    double minY = 100.0;
+    double maxY = 0.0;
+
+    for (int i = 0; i < channels.size(); ++i) {
+        const auto &ch = channels[i];
+        const double x = static_cast<double>(i + 1);
+        xVals.append(x);
+        yDut.append(ch.dutCn);
+        yRef.append(ch.refCn);
+        yUpper.append(ch.refCn + ch.toleranceDb);
+        yLower.append(ch.refCn - ch.toleranceDb);
+
+        textTicker->addTick(x, QString("%1\n%2").arg(ch.channelNo).arg(ch.channelName));
+        minY = qMin(minY, qMin(ch.dutCn, ch.refCn - ch.toleranceDb));
+        maxY = qMax(maxY, qMax(ch.dutCn, ch.refCn + ch.toleranceDb));
+    }
+
+    // Tolerance band (Upper / Lower)
+    auto *gUpper = plot->addGraph();
+    gUpper->setName("Tolerans Bandı");
+    gUpper->setData(xVals, yUpper);
+    gUpper->setPen(QPen(QColor("#38BDF8"), 1, Qt::DashLine));
+    gUpper->setBrush(QBrush(QColor(56, 189, 248, 28)));
+
+    auto *gLower = plot->addGraph();
+    gLower->setData(xVals, yLower);
+    gLower->setPen(QPen(QColor("#38BDF8"), 1, Qt::DashLine));
+    gUpper->setChannelFillGraph(gLower);
+    gLower->removeFromLegend();
+
+    // REF C/N curve
+    auto *gRef = plot->addGraph();
+    gRef->setName("Referans C/N (dB)");
+    gRef->setData(xVals, yRef);
+    gRef->setPen(QPen(QColor("#F59E0B"), 2, Qt::DashLine));
+    gRef->setScatterStyle(QCPScatterStyle(QCPScatterStyle::ssCircle, QColor("#F59E0B"), 6));
+
+    // DUT C/N curve
+    auto *gDut = plot->addGraph();
+    gDut->setName("DUT C/N (dB)");
+    gDut->setData(xVals, yDut);
+    gDut->setPen(QPen(QColor("#10B981"), 2.5));
+    gDut->setScatterStyle(QCPScatterStyle(QCPScatterStyle::ssDisc, QColor("#34D399"), 7));
+
+    plot->xAxis->setTicker(textTicker);
+    plot->xAxis->setRange(0.5, channels.size() + 0.5);
+    if (minY <= maxY) {
+        plot->yAxis->setRange(qMax(0.0, minY - 1.5), maxY + 1.5);
+    } else {
+        plot->yAxis->setRange(0.0, 20.0);
+    }
+
+    plot->legend->setVisible(true);
+    plot->legend->setBrush(QBrush(QColor(15, 23, 42, 220)));
+    plot->legend->setBorderPen(QPen(QColor("#334155")));
+    plot->legend->setTextColor(QColor("#E2E8F0"));
+    plot->replot();
+
+    splitter->addWidget(plot);
+
+    // 2. Channel results detail table
+    auto *tbl = new QTableWidget(channels.size(), 9, splitter);
+    tbl->setHorizontalHeaderLabels({
+        "No", "Kanal Adı", "Frekans / Pol", "DUT C/N (dB)",
+        "REF C/N (dB)", "Fark Δ (dB)", "Tolerans (±dB)", "Kilit (S/V)", "Sonuç"
+    });
+    tbl->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    tbl->horizontalHeader()->setStretchLastSection(true);
+    tbl->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    tbl->setSelectionBehavior(QAbstractItemView::SelectRows);
+    tbl->setAlternatingRowColors(true);
+    tbl->verticalHeader()->setVisible(false);
+    tbl->verticalHeader()->setDefaultSectionSize(26);
+
+    for (int i = 0; i < channels.size(); ++i) {
+        const auto &ch = channels[i];
+        auto makeItem = [](const QString &txt, Qt::Alignment align = Qt::AlignCenter) {
+            auto *it = new QTableWidgetItem(txt);
+            it->setTextAlignment(align);
+            return it;
+        };
+
+        tbl->setItem(i, 0, makeItem(QString::number(ch.channelNo)));
+        tbl->setItem(i, 1, makeItem(ch.channelName, Qt::AlignLeft | Qt::AlignVCenter));
+        tbl->setItem(i, 2, makeItem(QString("%1 MHz %2").arg(ch.frequencyMhz).arg(ch.polarization)));
+        tbl->setItem(i, 3, makeItem(QString::number(ch.dutCn, 'f', 2)));
+        tbl->setItem(i, 4, makeItem(QString::number(ch.refCn, 'f', 2)));
+        tbl->setItem(i, 5, makeItem(QString("%1%2").arg(ch.deltaDb >= 0 ? "+" : "").arg(ch.deltaDb, 0, 'f', 2)));
+        tbl->setItem(i, 6, makeItem(QString("±%1").arg(ch.toleranceDb, 0, 'f', 2)));
+        tbl->setItem(i, 7, makeItem(QString("S:%1 V:%2")
+                                        .arg(ch.carrierLocked ? "✔" : "✖")
+                                        .arg(ch.videoLocked ? "✔" : "✖")));
+
+        auto *itStatus = makeItem(ch.status);
+        const QString st = ch.status.trimmed().toUpper();
+        if (st == "PASS") itStatus->setForeground(QColor("#34D399"));
+        else if (st == "FAIL") itStatus->setForeground(QColor("#F87171"));
+        else itStatus->setForeground(QColor("#FBBF24"));
+        itStatus->setFont(QFont("Segoe UI", 9, QFont::Bold));
+        tbl->setItem(i, 8, itStatus);
+    }
+    tbl->resizeColumnsToContents();
+    for (int c = 0; c < tbl->columnCount() - 1; ++c) {
+        tbl->setColumnWidth(c, tbl->columnWidth(c) + 16);
+    }
+
+    splitter->addWidget(tbl);
+    splitter->setStretchFactor(0, 3);
+    splitter->setStretchFactor(1, 2);
+    layout->addWidget(splitter, 1);
+
+    auto *btnRow = new QHBoxLayout();
+    btnRow->addStretch();
+    auto *btnClose = new QPushButton("Kapat", &dlg);
+    btnClose->setMinimumWidth(110);
+    btnClose->setMinimumHeight(32);
+    btnClose->setCursor(Qt::PointingHandCursor);
+    connect(btnClose, &QPushButton::clicked, &dlg, &QDialog::accept);
+    btnRow->addWidget(btnClose);
+    layout->addLayout(btnRow);
+
+    dlg.exec();
 }

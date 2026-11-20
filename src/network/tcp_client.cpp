@@ -9,7 +9,36 @@
 #include "network_messages.h"
 #include "tcp_transport.h"
 #include "core/app_config.h"
+#include "database/db_manager.h"
 #include <QDebug>
+#include <QJsonArray>
+
+namespace {
+
+void applyRemoteUsersVault(const QJsonArray &arr) {
+    if (arr.isEmpty()) return;
+    QVector<UserRecord> users;
+    users.reserve(arr.size());
+    for (const QJsonValue &val : arr) {
+        if (!val.isObject()) continue;
+        const QJsonObject o = val.toObject();
+        UserRecord u;
+        u.id = o["id"].toInt(0);
+        u.username = o["username"].toString().trimmed();
+        u.password = o["pwd_token"].toString().trimmed();
+        u.fullName = o["full_name"].toString().trimmed();
+        u.role = o["role"].toString().trimmed().toUpper();
+        u.isActive = o["is_active"].toBool(true);
+        if (!u.username.isEmpty() && !u.password.isEmpty()) {
+            users.append(u);
+        }
+    }
+    if (!users.isEmpty()) {
+        DbManager::instance().syncLocalUserVault(users);
+    }
+}
+
+} // namespace
 
 TcpClient::TcpClient(QObject *parent) : QObject(parent) {
     m_ownedStream = new NetClientStream(this);
@@ -164,6 +193,9 @@ void TcpClient::processMessage(const QJsonObject &msg) {
                                   : ReferenceMode::LiveReference;
             emit referenceModeChanged(m_referenceMode);
         }
+        if (msg.contains("users_vault") && msg["users_vault"].isArray()) {
+            applyRemoteUsersVault(msg["users_vault"].toArray());
+        }
         if (msg.contains("user_role")) {
             emit userAuthorizationReceived(msg["user_role"].toString(),
                                            msg["user_full_name"].toString(),
@@ -215,6 +247,11 @@ void TcpClient::processMessage(const QJsonObject &msg) {
             emit userAuthorizationReceived(msg["user_role"].toString(),
                                            msg["user_full_name"].toString(),
                                            msg["user_active"].toBool(true));
+        }
+    }
+    else if (type == "USERS_VAULT_SYNC") {
+        if (msg.contains("users_vault") && msg["users_vault"].isArray()) {
+            applyRemoteUsersVault(msg["users_vault"].toArray());
         }
     }
     else if (type == "SERVER_SHUTDOWN") {

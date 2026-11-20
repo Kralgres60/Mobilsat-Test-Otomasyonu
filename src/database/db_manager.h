@@ -234,12 +234,34 @@ public:
      */
     bool authenticateUser(const QString &username, const QString &password, UserRole &outRole, QString &outFullName);
 
-    /** @brief Returns all user accounts from the users table for authorization management. */
+    /** @brief Returns all user accounts from the users table (or local encrypted vault if offline). */
     QVector<UserRecord> getUsers();
     /** @brief Creates a new user or updates an existing user's role, full name, active flag, and optional password. */
     bool saveUser(const UserRecord &user);
     /** @brief Deletes a user account by ID (protects the built-in admin account). */
     bool deleteUser(int userId);
+
+    /**
+     * @brief Derives a high-security salted iterated HMAC-SHA256 token ($v1$<hex>) for a username/password pair.
+     *        If passwordOrToken already starts with "$v1$", returns it unchanged.
+     */
+    static QString deriveUserPasswordToken(const QString &username, const QString &passwordOrToken);
+
+    /**
+     * @brief Persists the given user list into this PC's local encrypted & HMAC-signed binary vault (neta_auth.vault).
+     *        Passwords are automatically converted to one-way salted tokens before encryption.
+     */
+    bool syncLocalUserVault(const QVector<UserRecord> &users);
+
+    /**
+     * @brief Loads and verifies the local encrypted user vault (neta_auth.vault) from disk.
+     * @param outUsers Output list of user records (with password field holding "$v1$" token).
+     * @return true if vault exists and passed HMAC-SHA256 integrity verification.
+     */
+    bool loadLocalUserVault(QVector<UserRecord> &outUsers) const;
+
+    /** @brief Returns the file path of the local encrypted user vault on this PC. */
+    QString localUserVaultPath() const;
 
     // Architecture 2: Distributed Database Atomic Mutex Lock
     /**

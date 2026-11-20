@@ -110,6 +110,11 @@ public:
     void setLastProfileId(int id) { m_lastProfileId = id; save(); }
     ReferenceMode lastReferenceMode() const { return m_lastReferenceMode; }
     void setLastReferenceMode(ReferenceMode mode) { m_lastReferenceMode = mode; save(); }
+    /** @brief Returns the last entered antenna serial number on this station. */
+    QString lastAntennaSn() const { return m_lastAntennaSn; }
+    /** @brief Saves the last entered antenna serial number to persistent config.
+     *  @param sn Antenna serial number string. */
+    void setLastAntennaSn(const QString &sn) { m_lastAntennaSn = sn.trimmed(); save(); }
 
     /** @brief Returns the portable INI configuration file path beside the executable. */
     static QString configFilePath();
@@ -178,6 +183,7 @@ private:
     int m_lastWorkOrderId = 0;
     int m_lastProfileId = 1;
     ReferenceMode m_lastReferenceMode = ReferenceMode::LiveReference;
+    QString m_lastAntennaSn;
     bool m_isLoading = false;
 };
 

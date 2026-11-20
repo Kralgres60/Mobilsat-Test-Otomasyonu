@@ -247,6 +247,7 @@ private:
     QVector<WorkOrderInfo> m_workOrders;
     QVector<SatelliteProfileInfo> m_profiles;
     SatelliteProfileInfo m_currentProfile;
+    bool m_hasFinishedTestResults = false; ///< Keeps channel PASS/FAIL badges visible until next test or profile change
 };
 
 #endif // CLIENT_WINDOW_H

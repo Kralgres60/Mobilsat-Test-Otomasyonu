@@ -83,13 +83,6 @@ void UserManagerWidget::setupUi() {
 void UserManagerWidget::reloadUsers() {
     if (!m_tableUsers) return;
 
-    if (!DbManager::instance().isConnected()) {
-        m_tableUsers->setRowCount(0);
-        m_lblStatus->setText("🔴 Veritabanı bağlı değil!");
-        m_lblStatus->setStyleSheet("color: #F87171; font-weight: bold;");
-        return;
-    }
-
     m_isPopulating = true;
     m_users = DbManager::instance().getUsers();
     m_tableUsers->setUpdatesEnabled(false);
@@ -135,9 +128,15 @@ void UserManagerWidget::reloadUsers() {
 
     m_tableUsers->setUpdatesEnabled(true);
     m_isPopulating = false;
-    m_lblStatus->setText(QString("🟢 Toplam %1 kullanıcı listelendi. Değişiklikler otomatik kaydedilir; düzenlemek için çift tıklayın, silmek için Sağ Tık / Delete kullanın.")
-                             .arg(m_users.size()));
-    m_lblStatus->setStyleSheet("color: #34D399; font-size: 8.5pt;");
+    if (DbManager::instance().isConnected()) {
+        m_lblStatus->setText(QString("🟢 Toplam %1 kullanıcı listelendi (MariaDB + Şifreli Yerel Kasa senkronize).")
+                                 .arg(m_users.size()));
+        m_lblStatus->setStyleSheet("color: #34D399; font-size: 8.5pt;");
+    } else {
+        m_lblStatus->setText(QString("🟡 Çevrimdışı Şifreli Kasa Modu (%1 kullanıcı — değişiklikler yerel kasaya ve bağlı istasyonlara uygulanır).")
+                                 .arg(m_users.size()));
+        m_lblStatus->setStyleSheet("color: #FBBF24; font-size: 8.5pt; font-weight: bold;");
+    }
 }
 
 void UserManagerWidget::onAddUserClicked() {
@@ -380,6 +379,7 @@ void UserManagerWidget::onChangePasswordClicked() {
         emit logMessage(QString("[Yetkilendirme] '%1' kullanıcısının şifresi güncellendi.").arg(u.username));
         QMessageBox::information(this, "Başarılı", "Kullanıcı şifresi güncellendi.");
         reloadUsers();
+        emit usersUpdated();
     } else {
         QMessageBox::warning(this, "Hata", "Şifre güncellenemedi:\n" + DbManager::instance().lastError());
     }
@@ -442,6 +442,7 @@ void UserManagerWidget::onDeleteUserClicked() {
     }
     if (deleted > 0) {
         reloadUsers();
+        emit usersUpdated();
     } else {
         QMessageBox::warning(this, "Hata", "Kullanıcılar silinemedi:\n" + DbManager::instance().lastError());
     }

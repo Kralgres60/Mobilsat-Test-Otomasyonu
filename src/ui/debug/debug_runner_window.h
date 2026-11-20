@@ -36,6 +36,11 @@ private slots:
     void onTuneClicked();
     void onPollAlarmStatusClicked();
     void onPollDeviceInfoClicked();
+    void onFetchChannelsClicked();
+    void onSelectChannelClicked();
+    void onStartDiscoveryClicked();
+    void onDiscoveryStep();
+    void onSaveReportClicked();
     void onSendCustomPostClicked();
     void onStartSamplingClicked();
     void onSampleTimerTick();
@@ -48,6 +53,8 @@ private slots:
     void onSessionKeyReceived(int sessionKey);
     void onLoginFailed(const QString &reason);
     void onTuneFinished(bool isOk, const QString &details);
+    void onChannelListReceived(const QVector<DrxChannelItem> &channels);
+    void onChannelSelected(bool isOk, const QString &details);
     void onRawResponseReceived(const QString &actionName, const QByteArray &rawJson);
     void onTelemetryReceived(double powerDbm, double cnDb, double ber, double ebN0Db);
     void onStatusReceived(bool signalLocked, bool videoLocked, bool audioLocked, const QString &channelName);
@@ -76,10 +83,16 @@ private:
     QSpinBox *m_spinSymbolRate = nullptr;
     QComboBox *m_comboPol = nullptr;
     QPushButton *m_btnTune = nullptr;
+    QPushButton *m_btnFetchChannels = nullptr;
+    QComboBox *m_comboChannels = nullptr;
+    QPushButton *m_btnSelectChannel = nullptr;
+    bool m_pendingAutoChannelFetch = false;
+    int m_lockPollAttempts = 0;
 
     // Status and Sampling Controls
     QPushButton *m_btnAlarmStatus = nullptr;
     QPushButton *m_btnDeviceInfo = nullptr;
+    QPushButton *m_btnDiscoverApi = nullptr;
     QSpinBox *m_spinSampleSec = nullptr;
     QPushButton *m_btnStartSample = nullptr;
 
@@ -104,6 +117,7 @@ private:
     QLabel *m_lblResponseStatus = nullptr;
     QLabel *m_lblResponseLatency = nullptr;
     QTextEdit *m_txtRawOutput = nullptr;
+    QPushButton *m_btnSaveReport = nullptr;
     QPushButton *m_btnCopyRaw = nullptr;
     QPushButton *m_btnClearOutput = nullptr;
 
@@ -116,6 +130,14 @@ private:
     QTimer m_sampleDurationTimer;
     QVector<double> m_powSamples;
     QVector<double> m_cnSamples;
+
+    // API Discovery State
+    bool m_isDiscovering = false;
+    QTimer m_discoveryTimer;
+    QStringList m_discoveryQueue;
+    int m_discoveryIndex = 0;
+    QString m_currentDiscoveryPayload;
+    QString m_discoveryLog;
 
     Ethernet *m_webClient = nullptr;
 };

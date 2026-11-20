@@ -133,9 +133,9 @@ DRX-Antenna-Test/
 ├── src/                             # C++17 Kaynak Kodları
 │   ├── main.cpp                     # Giriş noktası ve CLI parametre işleyici
 │   ├── core/                        # AppConfig, appinfo.h, LockArbiter, StateMachine, XlsxUtil, DependencyInstaller
-│   ├── database/                    # DbManager (MariaDB bağlantısı ve modeller)
-│   ├── hardware/                    # Donanım Soyutlama (HAL), DataTransfer, DrxProtocolConfig, Ethernet, RS232
-│   ├── network/                     # TcpServer, TcpClient, UdpBeacon
+│   ├── database/                    # DbStream (DbDriverOps), MariaDbDriver, SqliteDriver, DbManager, BackupManager
+│   ├── hardware/                    # DataStream (DrxTransportOps), Ethernet, RS232, DrxProtocolConfig
+│   ├── network/                     # Net*Stream (Net*Ops), TcpServer, TcpClient, UdpBeacon, Tcp/UdpTransport
 │   └── ui/                          # Grafik Arayüz Katmanı
 │       ├── common/                  # LobbyWindow, LoginDialog, TestHistoryWidget (SQL Tarayıcı ile), ProfileManager, StyleHelper
 │       ├── client/                  # ClientWindow, ChannelCardWidget
@@ -201,11 +201,11 @@ InstallerPrefix=NETA_DRX9000_ANTENNA_Test_Setup
   set_version.bat major   :: 1.0.0 -> 2.0.0
   ```
 
-### 🧪 Tek Bilgisayarda Fabrika Küme Simülasyon Testi (`test_cluster.bat`)
+### 🧪 Tek Bilgisayarda Fabrika Küme Simülasyon Testi (`fabrika_test.bat`)
 Gerçek fiziksel ağ kablolarına veya çoklu fiziksel bilgisayara ihtiyaç duymadan, projenin tüm 4 PC'li küme mimarisi (1 Yönetici Host + 3 Test İstasyonu) ve sanal DRX9000 alıcısı tek bir bilgisayar üzerinde çalıştırılabilir:
 ```cmd
 :: Kök dizinden tek tıkla test menüsünü başlatma:
-test_cluster.bat
+fabrika_test.bat
 ```
 * **[1] Tam Fabrika Testi:** DRX Simülatör (Port 8080) + Yönetici Sunucu (Host) + 3 İstasyon (Masa 1, 2, 3) pencerelerini otomatik başlatır.
 * **[2] İkili Test:** 1 DRX Simülatör + 1 Host + 1 İstasyon başlatır.

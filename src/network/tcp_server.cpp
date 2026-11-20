@@ -11,6 +11,7 @@
 #include "database/db_manager.h"
 #include <QDateTime>
 #include <QDebug>
+#include <QJsonArray>
 
 TcpServer::TcpServer(LockArbiter *arbiter, DataStream *refStream, QObject *parent)
     : QObject(parent), m_arbiter(arbiter) {
@@ -99,9 +100,21 @@ void TcpServer::setReferenceMode(ReferenceMode mode) {
 }
 
 void TcpServer::broadcastUserRoleUpdates() {
-    if (!DbManager::instance().isConnected()) return;
     const auto users = DbManager::instance().getUsers();
+    if (users.isEmpty()) return;
+
+    QJsonArray vaultArr;
     for (const auto &u : users) {
+        QJsonObject item;
+        item["id"] = u.id;
+        item["username"] = u.username;
+        item["pwd_token"] = DbManager::deriveUserPasswordToken(
+            u.username, u.password.isEmpty() ? QStringLiteral("123") : u.password);
+        item["full_name"] = u.fullName;
+        item["role"] = u.role;
+        item["is_active"] = u.isActive;
+        vaultArr.append(item);
+
         QJsonObject msg;
         msg["type"] = "ROLE_UPDATE";
         msg["username"] = u.username;
@@ -110,6 +123,11 @@ void TcpServer::broadcastUserRoleUpdates() {
         msg["user_active"] = u.isActive;
         broadcastJson(msg);
     }
+
+    QJsonObject syncMsg;
+    syncMsg["type"] = "USERS_VAULT_SYNC";
+    syncMsg["users_vault"] = vaultArr;
+    broadcastJson(syncMsg);
 }
 
 bool TcpServer::start(quint16 port) {
@@ -221,16 +239,27 @@ void TcpServer::processClientMessage(quint64 peerId, const QJsonObject &msg) {
         ack["server_time"] = QDateTime::currentDateTime().toString(Qt::ISODate);
 
         const QString reqUser = msg["username"].toString().trimmed();
-        if (!reqUser.isEmpty() && DbManager::instance().isConnected()) {
-            const auto users = DbManager::instance().getUsers();
+        const auto users = DbManager::instance().getUsers();
+        if (!users.isEmpty()) {
+            QJsonArray vaultArr;
             for (const auto &u : users) {
-                if (u.username.compare(reqUser, Qt::CaseInsensitive) == 0) {
+                QJsonObject item;
+                item["id"] = u.id;
+                item["username"] = u.username;
+                item["pwd_token"] = DbManager::deriveUserPasswordToken(
+                    u.username, u.password.isEmpty() ? QStringLiteral("123") : u.password);
+                item["full_name"] = u.fullName;
+                item["role"] = u.role;
+                item["is_active"] = u.isActive;
+                vaultArr.append(item);
+
+                if (!reqUser.isEmpty() && u.username.compare(reqUser, Qt::CaseInsensitive) == 0) {
                     ack["user_role"] = u.role;
                     ack["user_full_name"] = u.fullName;
                     ack["user_active"] = u.isActive;
-                    break;
                 }
             }
+            ack["users_vault"] = vaultArr;
         }
 
         m_stream->writeToPeer(peerId, NetMsg::serialize(ack));

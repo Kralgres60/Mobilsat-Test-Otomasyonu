@@ -27,34 +27,38 @@
 #include <functional>
 
 ProfileManagerWidget::ProfileManagerWidget(bool isHostMode,
-                                           DrxWebClient *refWeb,
-                                           SerialWorker *refSerial,
+                                           DataStream *refStream,
                                            QWidget *parent)
     : QWidget(parent),
       m_isHostMode(isHostMode),
-      m_refWebClient(refWeb),
-      m_refSerial(refSerial) {
+      m_refStream(refStream) {
 
     setupUi();
 
     m_goldenStepTimer.setSingleShot(true);
     connect(&m_goldenStepTimer, &QTimer::timeout, this, &ProfileManagerWidget::onGoldenCaptureStepTimeout);
 
-    setReceiverClients(nullptr, m_refWebClient, m_refSerial);
+    setDataStreams(nullptr, m_refStream);
 }
 
-void ProfileManagerWidget::setReceiverClients(DrxWebClient *dutWeb, DrxWebClient *refWeb, SerialWorker *refSerial) {
-    m_dutWebClient = dutWeb;
-    m_refWebClient = refWeb;
-    m_refSerial = refSerial;
+void ProfileManagerWidget::setDataStreams(DataStream *dutStream, DataStream *refStream) {
+    if (m_dutStream) {
+        disconnect(m_dutStream, &DataStream::telemetryReceived, this, nullptr);
+    }
+    if (m_refStream) {
+        disconnect(m_refStream, &DataStream::telemetryReceived, this, nullptr);
+    }
+
+    m_dutStream = dutStream;
+    m_refStream = refStream;
 
     if (m_comboReceiverSource) {
         m_comboReceiverSource->blockSignals(true);
         m_comboReceiverSource->clear();
-        if (m_dutWebClient) {
+        if (m_dutStream) {
             m_comboReceiverSource->addItem("📡 DUT DRX (İstasyon)", 0);
         }
-        if (m_refWebClient) {
+        if (m_refStream) {
             m_comboReceiverSource->addItem("🛰️ Referans DRX (Golden)", 1);
         }
         if (m_comboReceiverSource->count() == 0) {
@@ -63,38 +67,29 @@ void ProfileManagerWidget::setReceiverClients(DrxWebClient *dutWeb, DrxWebClient
         m_comboReceiverSource->blockSignals(false);
     }
 
-    if (m_dutWebClient) {
-        disconnect(m_dutWebClient, &DrxWebClient::telemetryReceived, this, nullptr);
-        connect(m_dutWebClient, &DrxWebClient::telemetryReceived, this,
+    if (m_dutStream) {
+        connect(m_dutStream, &DataStream::telemetryReceived, this,
                 [this](double powDbm, double cnDb, double, double) {
             onReferenceTelemetryReceived(powDbm, cnDb);
         });
     }
-    if (m_refWebClient) {
-        disconnect(m_refWebClient, &DrxWebClient::telemetryReceived, this, nullptr);
-        connect(m_refWebClient, &DrxWebClient::telemetryReceived, this,
+    if (m_refStream) {
+        connect(m_refStream, &DataStream::telemetryReceived, this,
                 [this](double powDbm, double cnDb, double, double) {
-            onReferenceTelemetryReceived(powDbm, cnDb);
-        });
-    }
-    if (m_refSerial) {
-        disconnect(m_refSerial, &SerialWorker::telemetryReceived, this, nullptr);
-        connect(m_refSerial, &SerialWorker::telemetryReceived, this,
-                [this](double powDbm, double cnDb, double) {
             onReferenceTelemetryReceived(powDbm, cnDb);
         });
     }
 }
 
-DrxWebClient* ProfileManagerWidget::activeCaptureClient() const {
+DataStream* ProfileManagerWidget::activeCaptureStream() const {
     if (m_comboReceiverSource && m_comboReceiverSource->count() > 0) {
         int idx = m_comboReceiverSource->currentData().toInt();
-        if (idx == 0 && m_dutWebClient) return m_dutWebClient;
-        if (idx == 1 && m_refWebClient) return m_refWebClient;
+        if (idx == 0 && m_dutStream) return m_dutStream;
+        if (idx == 1 && m_refStream) return m_refStream;
     }
-    if (m_refWebClient && m_refWebClient->isReachable()) return m_refWebClient;
-    if (m_dutWebClient && m_dutWebClient->isReachable()) return m_dutWebClient;
-    return m_dutWebClient ? m_dutWebClient : m_refWebClient;
+    if (m_refStream && m_refStream->isConnected()) return m_refStream;
+    if (m_dutStream && m_dutStream->isConnected()) return m_dutStream;
+    return m_dutStream ? m_dutStream : m_refStream;
 }
 
 void ProfileManagerWidget::setupUi() {
@@ -747,9 +742,8 @@ void ProfileManagerWidget::onStartGoldenCaptureClicked() {
     int row = m_listProfiles ? m_listProfiles->currentRow() : -1;
     if (row < 0 || row >= m_profiles.size()) return;
 
-    DrxWebClient *client = activeCaptureClient();
-    bool refReady = (client && client->isReachable()) ||
-                    (m_refSerial && m_refSerial->isConnected());
+    DataStream *stream = activeCaptureStream();
+    const bool refReady = (stream && stream->isConnected());
     if (!refReady) {
         QMessageBox::warning(this, "DRX Alıcısı Bağlı Değil",
                              "Golden Sample ölçümü alabilmek için seçilen DRX alıcısının (DUT veya Referans) Ethernet veya RS232 üzerinden bağlı olması gerekir.\n\n"
@@ -783,22 +777,13 @@ void ProfileManagerWidget::triggerGoldenCaptureCurrentRow() {
 
     setGoldenCellsOnRow(m_goldenCaptureRow, 0.0, 0.0, "ÖLÇÜLÜYOR...", QColor("#F59E0B"));
 
-    DrxWebClient *client = activeCaptureClient();
-    if (client && client->isReachable()) {
-        client->sendTune(ch.frequencyMhz, ch.symbolRate, ch.polarization);
+    DataStream *stream = activeCaptureStream();
+    if (stream && stream->isConnected()) {
+        stream->sendTune(ch.frequencyMhz, ch.symbolRate, ch.polarization);
         for (int t = 800; t < sampleSec * 1000; t += 450) {
-            QTimer::singleShot(t, this, [this, client]() {
-                if (m_goldenCaptureActive && client && client->isReachable()) {
-                    client->requestStatus();
-                }
-            });
-        }
-    } else if (m_refSerial && m_refSerial->isConnected()) {
-        m_refSerial->sendTune(ch.frequencyMhz, ch.symbolRate, ch.polarization);
-        for (int t = 800; t < sampleSec * 1000; t += 450) {
-            QTimer::singleShot(t, this, [this]() {
-                if (m_goldenCaptureActive && m_refSerial && m_refSerial->isConnected()) {
-                    m_refSerial->requestStatus();
+            QTimer::singleShot(t, this, [this, stream]() {
+                if (m_goldenCaptureActive && stream && stream->isConnected()) {
+                    stream->requestStatus();
                 }
             });
         }

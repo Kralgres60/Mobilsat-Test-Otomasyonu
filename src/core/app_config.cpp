@@ -101,6 +101,7 @@ void AppConfig::load() {
     m_lastReferenceMode = (refModeInt == static_cast<int>(ReferenceMode::GoldenSample))
                               ? ReferenceMode::GoldenSample
                               : ReferenceMode::LiveReference;
+    m_lastAntennaSn = readVal("Session/LastAntennaSn", "").toString();
 
     m_isLoading = false;
 
@@ -151,6 +152,7 @@ void AppConfig::save() {
     settings.setValue("Session/LastWorkOrderId", m_lastWorkOrderId);
     settings.setValue("Session/LastProfileId", m_lastProfileId);
     settings.setValue("Session/LastReferenceMode", static_cast<int>(m_lastReferenceMode));
+    settings.setValue("Session/LastAntennaSn", m_lastAntennaSn);
 
     settings.sync();
 }

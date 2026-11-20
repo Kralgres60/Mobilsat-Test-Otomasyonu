@@ -277,6 +277,27 @@ void Ethernet::requestDeviceInfo() {
     sendCgiRequest("deviceInfo", postData);
 }
 
+void Ethernet::requestChannelList() {
+    if (m_sessionKey <= 0) {
+        m_pendingActionAfterLogin = "channelSelection";
+        login();
+        return;
+    }
+    QByteArray postData = DrxProtocolConfig::instance().formatCgiChannelList(m_sessionKey);
+    sendCgiRequest("channelSelection", postData);
+}
+
+void Ethernet::selectChannel(int channelNo) {
+    QByteArray postData = DrxProtocolConfig::instance().formatCgiChannelSelect(m_sessionKey, channelNo);
+    if (m_sessionKey <= 0) {
+        m_pendingActionAfterLogin = "chnsel";
+        m_pendingDataAfterLogin = postData;
+        login();
+        return;
+    }
+    sendCgiRequest("chnsel", postData);
+}
+
 void Ethernet::sendTune(int freqMHz, int symbolRate, const QString &polarity) {
     int freqKhz = (freqMHz < 50000) ? (freqMHz * 1000) : freqMHz;
     int srBdps = (symbolRate < 100000) ? (symbolRate * 1000) : symbolRate;
@@ -301,6 +322,10 @@ void Ethernet::sendRaw(const QString &command) {
         action = "alarmStatus";
     } else if (cmd.contains("deviceInfo", Qt::CaseInsensitive)) {
         action = "deviceInfo";
+    } else if (cmd.contains("channelSelection", Qt::CaseInsensitive)) {
+        action = "channelSelection";
+    } else if (cmd.contains("ResponseTo=chnsel", Qt::CaseInsensitive)) {
+        action = "chnsel";
     } else if (cmd.contains("ResponseTo=freq", Qt::CaseInsensitive) || cmd.contains("fr_frequency", Qt::CaseInsensitive)) {
         action = "freq";
     } else if (cmd.contains("ResponseTo=login", Qt::CaseInsensitive)) {
@@ -378,6 +403,10 @@ void Ethernet::parseCgiResponse(const QString &actionType, const QByteArray &pay
         handleDeviceInfoResponse(root);
     } else if (actionType == "freq" || actionType == "TUNE") {
         handleTuneResponse(root);
+    } else if (actionType == "channelSelection" || root.value("menuid").toString() == "chnsel") {
+        handleChannelListResponse(root);
+    } else if (actionType == "chnsel") {
+        handleChannelSelectResponse(root);
     } else {
         // Auto-detect payload in raw custom requests
         if (root.contains("sessionkey") || root.contains("sessionKey")) {
@@ -556,7 +585,38 @@ void Ethernet::handleDeviceInfoResponse(const QJsonObject &root) {
 }
 
 void Ethernet::handleTuneResponse(const QJsonObject &root) {
-    bool ok = root.value("status").toString().toLower() == "ok" || root.value("result").toBool(true);
-    QString details = root.value("message").toString("Transponder ayarlandı");
+    const QString confirmed = root.value("confirmed").toString().trimmed().toUpper();
+    bool ok = (confirmed == "OK") || root.value("status").toString().toLower() == "ok" || root.value("result").toBool(true);
+    if (confirmed == "NOK") ok = false;
+    QString details = root.value("message").toString(ok ? "Transponder ayarlandı" : "Transponder reddedildi (NOK)");
     emit tuneCompleted(ok, details);
+}
+
+void Ethernet::handleChannelListResponse(const QJsonObject &root) {
+    QVector<DrxChannelItem> channels;
+    const QJsonArray allElements = extractElements(root);
+    for (const auto &val : allElements) {
+        const QJsonObject elem = val.toObject();
+        DrxChannelItem ch;
+        ch.no = elem.value("no").toInt();
+        ch.name = elem.value("name").toString();
+        ch.sid = elem.value("sid").toInt();
+        ch.vpid = elem.value("vpid").toInt();
+        ch.apid = elem.value("apid").toInt();
+        const QJsonValue selVal = elem.value("selected");
+        ch.selected = selVal.isBool() ? selVal.toBool() : (selVal.toInt() == 1);
+        if (ch.no > 0 || !ch.name.isEmpty()) {
+            channels.append(ch);
+        }
+    }
+    emit channelListReceived(channels);
+}
+
+void Ethernet::handleChannelSelectResponse(const QJsonObject &root) {
+    const QString confirmed = root.value("confirmed").toString().trimmed().toUpper();
+    const bool ok = (confirmed == "OK") || (confirmed != "NOK" && root.value("access").toString() != "denied");
+    const QString details = (confirmed == "NOK")
+                                ? QStringLiteral("Kanal seçimi reddedildi (confirmed: NOK)")
+                                : QStringLiteral("Kanal seçimi uygulandı");
+    emit channelSelected(ok, details);
 }

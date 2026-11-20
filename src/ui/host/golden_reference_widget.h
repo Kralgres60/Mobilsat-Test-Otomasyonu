@@ -20,8 +20,7 @@
 #include <QTimer>
 #include <QVector>
 #include "core/data_models.h"
-#include "hardware/ethernet_transport.h"
-#include "hardware/serial_transport.h"
+#include "hardware/data_stream.h"
 #include "ui/common/qcustomplot.h"
 
 /**
@@ -34,11 +33,10 @@ class GoldenReferenceWidget : public QWidget {
 public:
     /**
      * @brief Constructs the Host Golden Reference manager.
-     * @param refWeb Reference DRX Web CGI client.
-     * @param refSerial Optional Reference DRX RS232 worker.
+     * @param refStream Hardware-agnostic DataStream for the Reference DRX.
      * @param parent Optional parent widget.
      */
-    explicit GoldenReferenceWidget(DrxWebClient *refWeb, SerialWorker *refSerial, QWidget *parent = nullptr);
+    explicit GoldenReferenceWidget(DataStream *refStream, QWidget *parent = nullptr);
     ~GoldenReferenceWidget() override = default;
 
     /** @brief Reloads stored Golden Sample reference records from database. */
@@ -97,8 +95,7 @@ private:
     void populateRow(int row, const GoldenFrequencyRecord &rec);
     GoldenFrequencyRecord readRow(int row) const;
 
-    DrxWebClient *m_refWebClient = nullptr;
-    SerialWorker *m_refSerial    = nullptr;
+    DataStream *m_refStream = nullptr;
 
     // Reference Mode Selector
     QComboBox    *m_comboRefMode      = nullptr;
